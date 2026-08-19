@@ -44,20 +44,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "El valor debe ser mayor que cero" }, { status: 400 });
     }
 
+    const orderId = typeof body.orderId === "string" && body.orderId.trim() ? body.orderId.trim() : null;
+    const source = orderId ? "sale" : "manual";
+
     const client = new MongoClient(process.env.DATABASE_URL!);
     await client.connect();
     try {
+      const collection = client.db().collection("CashMovement");
+
+      // A sale may be retried by the UI or API. Reuse the existing movement
+      // instead of creating a duplicate income for the same order.
+      if (orderId) {
+        const existing = await collection.findOne({ userId: session.id, orderId, source: "sale" });
+        if (existing) {
+          return NextResponse.json(existing, { status: 200 });
+        }
+      }
+
       const movement = {
         type: body.type,
-        source: "manual",
+        source,
+        ...(orderId ? { orderId } : {}),
         amount,
         paymentMethod: body.paymentMethod,
         userId: session.id,
         createdBy: session.id,
-        description: typeof body.description === "string" ? body.description.trim() : "Movimiento manual",
+        description: typeof body.description === "string" ? body.description.trim() : orderId ? "Venta" : "Movimiento manual",
         createdAt: new Date(),
       };
-      const result = await client.db().collection("CashMovement").insertOne(movement);
+      const result = await collection.insertOne(movement);
       return NextResponse.json({ ...movement, _id: result.insertedId }, { status: 201 });
     } finally {
       await client.close();
