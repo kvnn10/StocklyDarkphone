@@ -21,8 +21,8 @@ export default function AdminBusinessQuickAccess({
     {
       href: "/admin/client-portal",
       label: "Clientes",
-      value: stats?.counts?.clients ?? stats?.counts?.users ?? 0,
-      description: "Clientes registrados",
+      value: stats?.counts?.users ?? 0,
+      description: "Usuarios registrados",
       icon: Users,
       tone: "from-violet-500/20 to-fuchsia-500/10",
     },
