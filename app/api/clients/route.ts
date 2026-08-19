@@ -3,7 +3,6 @@ import bcrypt from "bcryptjs";
 import { MongoClient, ObjectId } from "mongodb";
 import { getSessionFromRequest } from "@/utils/auth";
 import { logger } from "@/lib/logger";
-import { prisma } from "@/prisma/client";
 
 function isAllowed(role?: string | null) {
   return role === "admin" || role === "user" || role === "retailer";
@@ -15,6 +14,37 @@ async function withClientsCollection<T>(fn: (collection: any) => Promise<T>) {
   try {
     const collection = client.db().collection("User");
     return await fn(collection);
+  } finally {
+    await client.close();
+  }
+}
+
+async function getOrderStats(clientIds: string[]) {
+  if (clientIds.length === 0) return new Map<string, { orderCount: number; totalSpent: number }>();
+
+  const client = new MongoClient(process.env.DATABASE_URL!);
+  await client.connect();
+  try {
+    const rows = await client.db().collection("Order").aggregate([
+      { $match: { clientId: { $in: clientIds } } },
+      {
+        $group: {
+          _id: "$clientId",
+          orderCount: { $sum: 1 },
+          totalSpent: { $sum: "$total" },
+        },
+      },
+    ]).toArray();
+
+    return new Map(
+      rows.map((row: any) => [
+        String(row._id),
+        {
+          orderCount: Number(row.orderCount ?? 0),
+          totalSpent: Number(row.totalSpent ?? 0),
+        },
+      ]),
+    );
   } finally {
     await client.close();
   }
@@ -35,24 +65,7 @@ export async function GET(request: NextRequest) {
     );
 
     const clientIds = clients.map((client: any) => client._id.toString());
-    const orderStats = clientIds.length > 0
-      ? await prisma.order.groupBy({
-          by: ["clientId"],
-          where: { clientId: { in: clientIds } },
-          _count: { _all: true },
-          _sum: { total: true },
-        })
-      : [];
-
-    const statsMap = new Map(
-      orderStats.map((stat) => [
-        stat.clientId,
-        {
-          orderCount: stat._count._all,
-          totalSpent: stat._sum.total ?? 0,
-        },
-      ]),
-    );
+    const statsMap = await getOrderStats(clientIds);
 
     return NextResponse.json(clients.map((client: any) => {
       const id = client._id.toString();
