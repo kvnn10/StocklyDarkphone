@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Search, Users, Phone, Mail, MapPin, MoreHorizontal, UserRound, X } from "lucide-react";
+import { Plus, Search, Users, Phone, UserRound, X } from "lucide-react";
 
 interface Client {
   id: string;
@@ -17,14 +17,35 @@ interface Client {
   createdAt?: string;
 }
 
-const emptyForm = { name: "", email: "", phone: "", whatsapp: "", document: "", address: "", city: "", notes: "" };
+type ClientForm = {
+  name: string;
+  email: string;
+  phone: string;
+  whatsapp: string;
+  document: string;
+  address: string;
+  city: string;
+  notes: string;
+};
+
+const emptyForm: ClientForm = { name: "", email: "", phone: "", whatsapp: "", document: "", address: "", city: "", notes: "" };
+const formFields: Array<{ key: keyof ClientForm; label: string }> = [
+  { key: "name", label: "Nombre completo *" },
+  { key: "email", label: "Correo electrónico *" },
+  { key: "document", label: "Documento / NIT" },
+  { key: "phone", label: "Teléfono" },
+  { key: "whatsapp", label: "WhatsApp" },
+  { key: "city", label: "Ciudad" },
+  { key: "address", label: "Dirección" },
+  { key: "notes", label: "Notas" },
+];
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<ClientForm>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -95,7 +116,7 @@ export default function ClientsPage() {
       </div>
 
       {open && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div className="w-full max-w-2xl rounded-2xl border bg-background shadow-xl"><div className="flex items-center justify-between border-b p-5"><div><h2 className="text-lg font-semibold">{editing ? "Editar cliente" : "Nuevo cliente"}</h2><p className="text-sm text-muted-foreground">Información para pedidos, facturas y contacto.</p></div><button onClick={() => setOpen(false)} className="rounded-md p-2 hover:bg-muted"><X className="h-4 w-4" /></button></div><div className="grid gap-4 p-5 sm:grid-cols-2">
-        {[["name","Nombre completo *"],["email","Correo electrónico *"],["document","Documento / NIT"],["phone","Teléfono"],["whatsapp","WhatsApp"],["city","Ciudad"],["address","Dirección"],["notes","Notas"]].map(([key,label]) => <label key={key} className="space-y-1.5"><span className="text-sm font-medium">{label}</span><input value={(form as any)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} className="h-10 w-full rounded-lg border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30" /></label>)}
+        {formFields.map(({ key, label }) => <label key={key} className="space-y-1.5"><span className="text-sm font-medium">{label}</span><input value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} className="h-10 w-full rounded-lg border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/30" /></label>)}
       </div>{temporaryPassword && <div className="mx-5 mb-5 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm"><strong>Cliente creado.</strong> Contraseña temporal para el portal: <code className="ml-1 rounded bg-background px-2 py-1">{temporaryPassword}</code></div>}{error && <div className="mx-5 mb-5 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</div>}<div className="flex justify-end gap-2 border-t p-5"><button onClick={() => setOpen(false)} className="rounded-lg border px-4 py-2 text-sm">Cancelar</button><button onClick={save} disabled={saving} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">{saving ? "Guardando..." : editing ? "Guardar cambios" : "Crear cliente"}</button></div></div></div>}
     </main>
   );
