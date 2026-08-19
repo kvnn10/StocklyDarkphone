@@ -122,18 +122,18 @@ export default function HomePage({
           as="h2"
           icon={LayoutDashboard}
           tone="sky"
-          title="Store Overview"
+          title="Resumen de la tienda"
           description={
             <>
-              The cards below show your store-wide metrics as the store owner,
-              including your own activity and activity from clients and others.
-              Numbers update automatically when you or others make changes. For
-              your personal orders, products, and activity only, visit{" "}
+              Aquí puedes consultar los principales indicadores de tu tienda,
+              incluyendo tu actividad y la actividad de clientes y otros usuarios.
+              Los datos se actualizan automáticamente cuando se realizan cambios.
+              Para consultar únicamente tus pedidos, productos y actividad, visita{" "}
               <Link
                 href="/admin/my-activity"
                 className="font-medium text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-300"
               >
-                My Activities
+                Mi actividad
               </Link>
               .
             </>
