@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Boxes, ClipboardList, CreditCard, DollarSign, Users, Wrench } from "lucide-react";
+import { ArrowRight, Boxes, CreditCard, DollarSign, Users } from "lucide-react";
 import type { DashboardStats } from "@/types";
 
 export default function AdminBusinessQuickAccess({
@@ -19,7 +19,7 @@ export default function AdminBusinessQuickAccess({
       tone: "from-blue-500/20 to-cyan-500/10",
     },
     {
-      href: "/clients",
+      href: "/admin/client-portal",
       label: "Clientes",
       value: stats?.counts?.clients ?? stats?.counts?.users ?? 0,
       description: "Clientes registrados",
@@ -42,22 +42,6 @@ export default function AdminBusinessQuickAccess({
       icon: Boxes,
       tone: "from-amber-500/20 to-orange-500/10",
     },
-    {
-      href: "/repairs",
-      label: "Reparaciones",
-      value: "Abrir",
-      description: "Órdenes de trabajo y garantías",
-      icon: Wrench,
-      tone: "from-rose-500/20 to-pink-500/10",
-    },
-    {
-      href: "/purchases",
-      label: "Compras",
-      value: "Abrir",
-      description: "Proveedores y recepción",
-      icon: ClipboardList,
-      tone: "from-sky-500/20 to-indigo-500/10",
-    },
   ];
 
   return (
@@ -66,7 +50,7 @@ export default function AdminBusinessQuickAccess({
         <h2 className="text-lg font-semibold tracking-tight">Operación de Stockly</h2>
         <p className="text-sm text-muted-foreground">Accesos rápidos a los módulos principales del negocio.</p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {cards.map((card) => {
           const Icon = card.icon;
           return (
