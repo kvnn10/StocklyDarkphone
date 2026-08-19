@@ -3,6 +3,7 @@
 import React from "react";
 import { PageContentWrapper } from "@/components/shared";
 import AdminAnalyticsContent from "./AdminAnalyticsContent";
+import AdminBusinessQuickAccess from "./AdminBusinessQuickAccess";
 import type { DashboardStats } from "@/types";
 
 export type AdminDashboardMergedViewProps = {
@@ -24,7 +25,8 @@ export default function AdminDashboardMergedView({
 }: AdminDashboardMergedViewProps) {
   return (
     <PageContentWrapper noPadding={variant === "store"}>
-      <div className="space-y-4">
+      <div className="space-y-6">
+        <AdminBusinessQuickAccess stats={initialStats} />
         <AdminAnalyticsContent
           initialStats={initialStats}
           initialForecasting={initialForecasting}
