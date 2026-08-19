@@ -60,116 +60,60 @@ export function StatisticsSection({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 items-stretch">
       <StatisticsCard
-        title="Total Products"
+        title="Total de productos"
         value={stats?.counts?.products ?? 0}
-        description="Products availability"
+        description="Disponibilidad de productos"
         icon={Package}
         variant="rose"
         valueLoading={dataLoading}
         badgeValuesLoading={dataLoading}
         badges={[
-          {
-            label: "Available",
-            value: stats?.productStatusBreakdown?.available ?? 0,
-          },
-          {
-            label: "Stock low",
-            value: stats?.productStatusBreakdown?.stockLow ?? 0,
-          },
-          {
-            label: "Stock out",
-            value: stats?.productStatusBreakdown?.stockOut ?? 0,
-          },
+          { label: "Disponibles", value: stats?.productStatusBreakdown?.available ?? 0 },
+          { label: "Stock bajo", value: stats?.productStatusBreakdown?.stockLow ?? 0 },
+          { label: "Agotados", value: stats?.productStatusBreakdown?.stockOut ?? 0 },
         ]}
       />
       <StatisticsCard
-        title="Total Value"
+        title="Valor total"
         value={formatCurrency(stats?.totalInventoryValue ?? 0)}
-        description="Total inventory value"
+        description="Valor total del inventario"
         icon={DollarSign}
         variant="violet"
         valueLoading={dataLoading}
         badgeValuesLoading={dataLoading}
         badges={[
-          {
-            label: "Orders",
-            value: formatCurrency(
-              stats?.orderAnalytics?.totalRevenueExcludingCancelled ??
-                stats?.revenue?.fromOrders ??
-                0,
-            ),
-          },
-          {
-            label: "Invoices",
-            value: formatCurrency(stats?.revenue?.fromInvoices ?? 0),
-          },
-          {
-            label: "Due",
-            value: formatCurrency(
-              stats?.invoiceAnalytics?.outstandingAmount ?? 0,
-            ),
-          },
-          {
-            label: "Cancelled",
-            value: formatCurrency(
-              stats?.orderAnalytics?.cancelledOrderAmount ?? 0,
-            ),
-          },
+          { label: "Pedidos", value: formatCurrency(stats?.orderAnalytics?.totalRevenueExcludingCancelled ?? stats?.revenue?.fromOrders ?? 0) },
+          { label: "Facturas", value: formatCurrency(stats?.revenue?.fromInvoices ?? 0) },
+          { label: "Pendiente", value: formatCurrency(stats?.invoiceAnalytics?.outstandingAmount ?? 0) },
+          { label: "Cancelado", value: formatCurrency(stats?.orderAnalytics?.cancelledOrderAmount ?? 0) },
         ]}
       />
       <StatisticsCard
-        title="Total Revenue"
+        title="Ingresos totales"
         value={formatCurrency(revenueFromOrders)}
-        description="Profits (excl. cancelled)"
+        description="Ingresos (sin pedidos cancelados)"
         icon={DollarSign}
         variant="emerald"
         valueLoading={dataLoading}
         badgeValuesLoading={dataLoading}
         badges={[
-          {
-            label: "Paid",
-            value: formatCurrency(stats?.orderAnalytics?.paidOrderAmount ?? 0),
-          },
-          {
-            label: "Partial",
-            value: formatCurrency(
-              stats?.orderAnalytics?.partialOrderAmount ?? 0,
-            ),
-          },
-          {
-            label: "Due",
-            value: formatCurrency(
-              stats?.invoiceAnalytics?.outstandingAmount ?? 0,
-            ),
-          },
-          {
-            label: "Refund",
-            value: formatCurrency(stats?.orderAnalytics?.refundedAmount ?? 0),
-          },
-          {
-            label: "Pending",
-            value: formatCurrency(
-              stats?.orderAnalytics?.pendingOrderAmount ?? 0,
-            ),
-          },
+          { label: "Pagado", value: formatCurrency(stats?.orderAnalytics?.paidOrderAmount ?? 0) },
+          { label: "Parcial", value: formatCurrency(stats?.orderAnalytics?.partialOrderAmount ?? 0) },
+          { label: "Pendiente", value: formatCurrency(stats?.invoiceAnalytics?.outstandingAmount ?? 0) },
+          { label: "Reembolsado", value: formatCurrency(stats?.orderAnalytics?.refundedAmount ?? 0) },
+          { label: "Por procesar", value: formatCurrency(stats?.orderAnalytics?.pendingOrderAmount ?? 0) },
           ...(selfOthers
             ? [
-                {
-                  label: "Self",
-                  value: formatCurrency(selfOthers.revenueSelf),
-                },
-                {
-                  label: "Others",
-                  value: formatCurrency(selfOthers.revenueOthers),
-                },
+                { label: "Propios", value: formatCurrency(selfOthers.revenueSelf) },
+                { label: "Otros", value: formatCurrency(selfOthers.revenueOthers) },
               ]
             : []),
         ]}
       />
       <StatisticsCard
-        title="Total Orders"
+        title="Total de pedidos"
         value={stats?.counts?.orders ?? 0}
-        description="Total orders placed (self + client)"
+        description="Pedidos realizados (propios y de clientes)"
         icon={ShoppingCart}
         variant="blue"
         valueLoading={dataLoading}
@@ -178,17 +122,14 @@ export function StatisticsSection({
           statusDistribution: stats?.orderAnalytics?.statusDistribution,
           refundedCount: stats?.orderAnalytics?.refundedCount,
           selfOthers: selfOthers
-            ? {
-                orderSelfCount: selfOthers.orderSelfCount,
-                orderOthersCount: selfOthers.orderOthersCount,
-              }
+            ? { orderSelfCount: selfOthers.orderSelfCount, orderOthersCount: selfOthers.orderOthersCount }
             : null,
         })}
       />
       <StatisticsCard
-        title="Invoices"
+        title="Facturas"
         value={stats?.counts?.invoices ?? 0}
-        description="Total invoices (store-wide)"
+        description="Total de facturas de la tienda"
         icon={FileText}
         variant="sky"
         valueLoading={dataLoading}
@@ -196,77 +137,52 @@ export function StatisticsSection({
         badges={buildStoreInvoiceStatusBadges({
           paidCount: stats?.invoiceAnalytics?.statusDistribution?.paid,
           partialCount: stats?.invoiceAnalytics?.partialCount,
-          pendingCount:
-            stats?.invoiceAnalytics?.pendingCount ??
-            (stats?.invoiceAnalytics?.statusDistribution?.draft ?? 0) +
-              (stats?.invoiceAnalytics?.statusDistribution?.sent ?? 0),
+          pendingCount: stats?.invoiceAnalytics?.pendingCount ?? (stats?.invoiceAnalytics?.statusDistribution?.draft ?? 0) + (stats?.invoiceAnalytics?.statusDistribution?.sent ?? 0),
           overdueCount: stats?.invoiceAnalytics?.statusDistribution?.overdue,
-          cancelledCount:
-            stats?.invoiceAnalytics?.statusDistribution?.cancelled,
+          cancelledCount: stats?.invoiceAnalytics?.statusDistribution?.cancelled,
           refundedCount: stats?.orderAnalytics?.refundedCount,
           selfOthers: selfOthers
-            ? {
-                invoiceSelfCount: selfOthers.invoiceSelfCount,
-                invoiceOthersCount: selfOthers.invoiceOthersCount,
-              }
+            ? { invoiceSelfCount: selfOthers.invoiceSelfCount, invoiceOthersCount: selfOthers.invoiceOthersCount }
             : null,
         })}
       />
       <StatisticsCard
-        title="Total Warehouses"
+        title="Total de almacenes"
         value={stats?.counts?.warehouses ?? 0}
-        description="Storage locations"
+        description="Ubicaciones de almacenamiento"
         icon={Warehouse}
         variant="teal"
         valueLoading={dataLoading}
         badgeValuesLoading={dataLoading}
         badges={[
-          {
-            label: "Active",
-            value: stats?.warehouseAnalytics?.activeWarehouses ?? 0,
-          },
-          {
-            label: "Inactive",
-            value: stats?.warehouseAnalytics?.inactiveWarehouses ?? 0,
-          },
+          { label: "Activos", value: stats?.warehouseAnalytics?.activeWarehouses ?? 0 },
+          { label: "Inactivos", value: stats?.warehouseAnalytics?.inactiveWarehouses ?? 0 },
         ]}
       />
       <StatisticsCard
-        title="Total Suppliers"
+        title="Total de proveedores"
         value={stats?.counts?.suppliers ?? 0}
-        description="Suppliers"
+        description="Proveedores registrados"
         icon={Truck}
         variant="emerald"
         valueLoading={dataLoading}
         badgeValuesLoading={dataLoading}
         badges={[
-          {
-            label: "Active",
-            value: stats?.supplierStatusBreakdown?.active ?? 0,
-          },
-          {
-            label: "Inactive",
-            value: stats?.supplierStatusBreakdown?.inactive ?? 0,
-          },
+          { label: "Activos", value: stats?.supplierStatusBreakdown?.active ?? 0 },
+          { label: "Inactivos", value: stats?.supplierStatusBreakdown?.inactive ?? 0 },
         ]}
       />
       <StatisticsCard
-        title="Categories"
+        title="Categorías"
         value={stats?.counts?.categories ?? 0}
-        description="Product categories"
+        description="Categorías de productos"
         icon={FolderTree}
         variant="amber"
         valueLoading={dataLoading}
         badgeValuesLoading={dataLoading}
         badges={[
-          {
-            label: "Active",
-            value: stats?.categoryStatusBreakdown?.active ?? 0,
-          },
-          {
-            label: "Inactive",
-            value: stats?.categoryStatusBreakdown?.inactive ?? 0,
-          },
+          { label: "Activas", value: stats?.categoryStatusBreakdown?.active ?? 0 },
+          { label: "Inactivas", value: stats?.categoryStatusBreakdown?.inactive ?? 0 },
         ]}
       />
     </div>
