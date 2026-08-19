@@ -35,7 +35,7 @@ export const ADMIN_MANAGEMENT_ITEMS: AdminNavItemConfig[] = [
   { href: "/admin/warehouses", label: "Warehouses", countKey: "warehouses" },
   { href: "/admin/supplier-portal", label: "Supplier Portal", countKey: "suppliers" },
   { href: "/admin/client-portal", label: "Client Portal", countKey: "clients" },
-  { href: "/cash", label: "Caja" },
+  { href: "/admin/cash", label: "Caja" },
   { href: "/user-management", label: "User Management", countKey: "users" },
   { href: "/admin/activity-history", label: "Activity History" },
 ];
