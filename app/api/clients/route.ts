@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { MongoClient, ObjectId } from "mongodb";
 import { getSessionFromRequest } from "@/utils/auth";
 import { logger } from "@/lib/logger";
+import { prisma } from "@/prisma/client";
 
 function isAllowed(role?: string | null) {
   return role === "admin" || role === "user" || role === "retailer";
@@ -22,18 +23,48 @@ async function withClientsCollection<T>(fn: (collection: any) => Promise<T>) {
 export async function GET(request: NextRequest) {
   try {
     const session = await getSessionFromRequest(request);
-    if (!session || !isAllowed(session.role)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    if (!session || !isAllowed(session.role)) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
 
-    const clients = await withClientsCollection(async (users) => users.find(
-      { role: "client" },
-      { projection: { password: 0 } },
-    ).sort({ createdAt: -1 }).toArray());
+    const clients = await withClientsCollection(async (users) =>
+      users.find(
+        { role: "client" },
+        { projection: { password: 0 } },
+      ).sort({ createdAt: -1 }).toArray(),
+    );
 
-    return NextResponse.json(clients.map((client: any) => ({
-      ...client,
-      id: client._id.toString(),
-      _id: undefined,
-    })));
+    const clientIds = clients.map((client: any) => client._id.toString());
+    const orderStats = clientIds.length > 0
+      ? await prisma.order.groupBy({
+          by: ["clientId"],
+          where: { clientId: { in: clientIds } },
+          _count: { _all: true },
+          _sum: { total: true },
+        })
+      : [];
+
+    const statsMap = new Map(
+      orderStats.map((stat) => [
+        stat.clientId,
+        {
+          orderCount: stat._count._all,
+          totalSpent: stat._sum.total ?? 0,
+        },
+      ]),
+    );
+
+    return NextResponse.json(clients.map((client: any) => {
+      const id = client._id.toString();
+      const stats = statsMap.get(id) ?? { orderCount: 0, totalSpent: 0 };
+      return {
+        ...client,
+        id,
+        _id: undefined,
+        orderCount: stats.orderCount,
+        totalSpent: stats.totalSpent,
+      };
+    }));
   } catch (error) {
     logger.error("Error fetching clients:", error);
     return NextResponse.json({ error: "No se pudieron cargar los clientes" }, { status: 500 });
@@ -86,7 +117,10 @@ export async function POST(request: NextRequest) {
         createdBy: session.id,
       };
       const inserted = await users.insertOne(doc);
-      return { client: { id: inserted.insertedId.toString(), name, email, phone, whatsapp, document, address, city, notes, status: true, createdAt: now }, temporaryPassword };
+      return {
+        client: { id: inserted.insertedId.toString(), name, email, phone, whatsapp, document, address, city, notes, status: true, createdAt: now, orderCount: 0, totalSpent: 0 },
+        temporaryPassword,
+      };
     });
 
     if (result.conflict) return NextResponse.json({ error: "Ya existe un usuario con ese correo electrónico" }, { status: 409 });
