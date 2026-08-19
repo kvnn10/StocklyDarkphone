@@ -15,51 +15,51 @@ export type SectionHeaderTone =
 
 export const SECTION_HEADER_ICON_TONE: Record<
   SectionHeaderTone,
-  { container: string; icon: string }
+  { container: string; icon: string; glow: string }
 > = {
   sky: {
-    container:
-      "border-sky-300/30 bg-sky-100/50 dark:border-sky-400/30 dark:bg-sky-500/20",
+    container: "border-sky-300/30 bg-sky-100/50 dark:border-sky-400/30 dark:bg-sky-500/20",
     icon: "text-sky-600 dark:text-sky-400",
+    glow: "shadow-[0_12px_35px_rgba(14,165,233,0.22)]",
   },
   emerald: {
-    container:
-      "border-emerald-300/30 bg-emerald-100/50 dark:border-emerald-400/30 dark:bg-emerald-500/20",
+    container: "border-emerald-300/30 bg-emerald-100/50 dark:border-emerald-400/30 dark:bg-emerald-500/20",
     icon: "text-emerald-600 dark:text-emerald-400",
+    glow: "shadow-[0_12px_35px_rgba(16,185,129,0.22)]",
   },
   amber: {
-    container:
-      "border-amber-300/30 bg-amber-100/50 dark:border-amber-400/30 dark:bg-amber-500/20",
+    container: "border-amber-300/30 bg-amber-100/50 dark:border-amber-400/30 dark:bg-amber-500/20",
     icon: "text-amber-600 dark:text-amber-400",
+    glow: "shadow-[0_12px_35px_rgba(245,158,11,0.22)]",
   },
   rose: {
-    container:
-      "border-rose-300/30 bg-rose-100/50 dark:border-rose-400/30 dark:bg-rose-500/20",
+    container: "border-rose-300/30 bg-rose-100/50 dark:border-rose-400/30 dark:bg-rose-500/20",
     icon: "text-rose-600 dark:text-rose-400",
+    glow: "shadow-[0_12px_35px_rgba(244,63,94,0.22)]",
   },
   violet: {
-    container:
-      "border-violet-300/30 bg-violet-100/50 dark:border-violet-400/30 dark:bg-violet-500/20",
+    container: "border-violet-300/30 bg-violet-100/50 dark:border-violet-400/30 dark:bg-violet-500/20",
     icon: "text-violet-600 dark:text-violet-400",
+    glow: "shadow-[0_12px_35px_rgba(139,92,246,0.22)]",
   },
   blue: {
-    container:
-      "border-blue-300/30 bg-blue-100/50 dark:border-blue-400/30 dark:bg-blue-500/20",
+    container: "border-blue-300/30 bg-blue-100/50 dark:border-blue-400/30 dark:bg-blue-500/20",
     icon: "text-sky-600 dark:text-sky-400",
+    glow: "shadow-[0_12px_35px_rgba(59,130,246,0.22)]",
   },
   orange: {
-    container:
-      "border-orange-300/30 bg-orange-100/50 dark:border-orange-400/30 dark:bg-orange-500/20",
+    container: "border-orange-300/30 bg-orange-100/50 dark:border-orange-400/30 dark:bg-orange-500/20",
     icon: "text-orange-600 dark:text-orange-400",
+    glow: "shadow-[0_12px_35px_rgba(249,115,22,0.22)]",
   },
   teal: {
-    container:
-      "border-teal-300/30 bg-teal-100/50 dark:border-teal-400/30 dark:bg-teal-500/20",
+    container: "border-teal-300/30 bg-teal-100/50 dark:border-teal-400/30 dark:bg-teal-500/20",
     icon: "text-teal-600 dark:text-teal-400",
+    glow: "shadow-[0_12px_35px_rgba(20,184,166,0.22)]",
   },
   neutral: {
-    container:
-      "border-gray-300/30 bg-gray-100/50 dark:border-white/15 dark:bg-white/10",
+    container: "border-gray-300/30 bg-gray-100/50 dark:border-white/15 dark:bg-white/10",
     icon: "text-gray-700 dark:text-white/80",
+    glow: "shadow-[0_12px_35px_rgba(100,116,139,0.16)]",
   },
 };
