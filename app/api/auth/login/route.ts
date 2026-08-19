@@ -50,10 +50,10 @@ export async function POST(request: NextRequest) {
     // Find user
     const user = await prisma.user.findUnique({ where: { email } });
 
-logger.info("Login Diagnostic"), {
-email,
-userFound: !!user,
-hasPassword: !!user?.password,
+logger.info("Login diagnostic", {
+  email,
+  userFound: !!user,
+  hasPassword: !!user?.password,
 });
 
     if (!user) {
@@ -73,11 +73,12 @@ hasPassword: !!user?.password,
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
-logger.info ("Password Diagnostic"),{
-email,
-passwordValid: isPasswordValid,
-passwordLength: user.password.length,
+logger.info("Password diagnostic", {
+  email,
+  passwordValid: isPasswordValid,
+  passwordLength: user.password.length,
 });
+
     if (!isPasswordValid) {
       return NextResponse.json(
         { error: "Invalid email or password" },
