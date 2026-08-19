@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import { getSessionFromRequest } from "@/utils/auth";
 
 const TYPES = ["income", "expense"] as const;
@@ -20,8 +20,9 @@ export async function GET(request: NextRequest) {
       .limit(100)
       .toArray();
 
-    const income = movements.filter((m) => m.type === "income").reduce((sum, m) => sum + Number(m.amount || 0), 0);
-    const expense = movements.filter((m) => m.type === "expense").reduce((sum, m) => sum + Number(m.amount || 0), 0);
+    const activeMovements = movements.filter((m) => m.status !== "voided");
+    const income = activeMovements.filter((m) => m.type === "income").reduce((sum, m) => sum + Number(m.amount || 0), 0);
+    const expense = activeMovements.filter((m) => m.type === "expense").reduce((sum, m) => sum + Number(m.amount || 0), 0);
     return NextResponse.json({ movements, summary: { income, expense, balance: income - expense } });
   } finally {
     await client.close();
@@ -52,10 +53,10 @@ export async function POST(request: NextRequest) {
     try {
       const collection = client.db().collection("CashMovement");
 
-      // A sale may be retried by the UI or API. Reuse the existing movement
-      // instead of creating a duplicate income for the same order.
+      // A sale may be retried by the UI or API. Reuse the existing active
+      // movement instead of creating a duplicate income for the same order.
       if (orderId) {
-        const existing = await collection.findOne({ userId: session.id, orderId, source: "sale" });
+        const existing = await collection.findOne({ userId: session.id, orderId, source: "sale", status: { $ne: "voided" } });
         if (existing) {
           return NextResponse.json(existing, { status: 200 });
         }
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
         userId: session.id,
         createdBy: session.id,
         description: typeof body.description === "string" ? body.description.trim() : orderId ? "Venta" : "Movimiento manual",
+        status: "active",
         createdAt: new Date(),
       };
       const result = await collection.insertOne(movement);
@@ -80,5 +82,57 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("POST /api/cash", error);
     return NextResponse.json({ error: "No se pudo registrar el movimiento" }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const session = await getSessionFromRequest(request);
+  if (!session || !["admin", "user", "retailer"].includes(session.role ?? "")) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!id || !ObjectId.isValid(id)) {
+      return NextResponse.json({ error: "Movimiento inválido" }, { status: 400 });
+    }
+
+    const client = new MongoClient(process.env.DATABASE_URL!);
+    await client.connect();
+    try {
+      const collection = client.db().collection("CashMovement");
+      const movement = await collection.findOne({ _id: new ObjectId(id), userId: session.id });
+
+      if (!movement) {
+        return NextResponse.json({ error: "Movimiento no encontrado" }, { status: 404 });
+      }
+      if (movement.status === "voided") {
+        return NextResponse.json({ error: "El movimiento ya está anulado" }, { status: 409 });
+      }
+
+      const voidReason = typeof body.reason === "string" && body.reason.trim()
+        ? body.reason.trim()
+        : "Movimiento anulado manualmente";
+
+      await collection.updateOne(
+        { _id: movement._id, userId: session.id, status: { $ne: "voided" } },
+        {
+          $set: {
+            status: "voided",
+            voidedAt: new Date(),
+            voidedBy: session.id,
+            voidReason,
+          },
+        },
+      );
+
+      return NextResponse.json({ ok: true, message: "Movimiento anulado correctamente" });
+    } finally {
+      await client.close();
+    }
+  } catch (error) {
+    console.error("DELETE /api/cash", error);
+    return NextResponse.json({ error: "No se pudo anular el movimiento" }, { status: 500 });
   }
 }
