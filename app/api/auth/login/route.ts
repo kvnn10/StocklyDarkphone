@@ -50,6 +50,12 @@ export async function POST(request: NextRequest) {
     // Find user
     const user = await prisma.user.findUnique({ where: { email } });
 
+logger.info("Login Diagnostic"), {
+email,
+userFound: !!user,
+hasPassword: !!user?.password,
+});
+
     if (!user) {
       return NextResponse.json(
         { error: "Invalid email or password" },
@@ -67,6 +73,11 @@ export async function POST(request: NextRequest) {
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
+logger.info ("Password Diagnostic"),{
+email,
+passwordValid: isPasswordValid,
+passwordLength: user.password.length,
+});
     if (!isPasswordValid) {
       return NextResponse.json(
         { error: "Invalid email or password" },
