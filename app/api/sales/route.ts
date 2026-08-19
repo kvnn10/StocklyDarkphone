@@ -27,12 +27,12 @@ export async function POST(request: NextRequest) {
       .map((item) => item.sku)
       .filter((sku): sku is string => Boolean(sku));
 
-    // POS can hold a cached product id for a few minutes after a catalog change.
-    // Resolve by SKU as a stable fallback so a visible product cannot fail checkout
-    // with a misleading "Producto no encontrado" error.
+    // The POS catalog is scoped to the authenticated store owner in /api/products.
+    // Use the same ownership scope here so checkout resolves exactly the products
+    // the POS is allowed to display, while retaining SKU as a cache-safe fallback.
     const products = await prisma.product.findMany({
       where: {
-        deletedAt: null,
+        userId: session.id,
         OR: [
           { id: { in: productIds } },
           ...(productSkus.length ? [{ sku: { in: productSkus } }] : []),
