@@ -14,16 +14,61 @@ export async function GET(request: NextRequest) {
   const client = new MongoClient(process.env.DATABASE_URL!);
   await client.connect();
   try {
-    const movements = await client.db().collection("CashMovement")
+    const db = client.db();
+    const movements = await db.collection("CashMovement")
       .find({ userId: session.id })
       .sort({ createdAt: -1 })
       .limit(100)
       .toArray();
 
-    const activeMovements = movements.filter((m) => m.status !== "voided");
+    // Sale movements are automatically considered voided when their source
+    // order has been cancelled/refunded. This keeps Caja synchronized with
+    // the existing order cancellation flow without physically deleting the
+    // financial movement and preserves the audit trail.
+    const saleOrderIds = movements
+      .filter((m) => m.source === "sale" && typeof m.orderId === "string")
+      .map((m) => m.orderId as string)
+      .filter((id) => ObjectId.isValid(id));
+
+    const cancelledOrderIds = new Set<string>();
+    if (saleOrderIds.length > 0) {
+      const orders = await db.collection("Order")
+        .find(
+          {
+            _id: { $in: saleOrderIds.map((id) => new ObjectId(id)) },
+            userId: session.id,
+            $or: [{ status: "cancelled" }, { paymentStatus: "refunded" }],
+          },
+          { projection: { _id: 1 } },
+        )
+        .toArray();
+      for (const order of orders) cancelledOrderIds.add(String(order._id));
+    }
+
+    const normalizedMovements = movements.map((movement) => {
+      const isCancelledSale =
+        movement.source === "sale" &&
+        typeof movement.orderId === "string" &&
+        cancelledOrderIds.has(movement.orderId);
+
+      if (!isCancelledSale || movement.status === "voided") return movement;
+
+      return {
+        ...movement,
+        status: "voided",
+        voidedAt: movement.voidedAt ?? new Date(),
+        voidReason: "Venta cancelada o reembolsada",
+        automaticallyVoided: true,
+      };
+    });
+
+    const activeMovements = normalizedMovements.filter((m) => m.status !== "voided");
     const income = activeMovements.filter((m) => m.type === "income").reduce((sum, m) => sum + Number(m.amount || 0), 0);
     const expense = activeMovements.filter((m) => m.type === "expense").reduce((sum, m) => sum + Number(m.amount || 0), 0);
-    return NextResponse.json({ movements, summary: { income, expense, balance: income - expense } });
+    return NextResponse.json({
+      movements: normalizedMovements,
+      summary: { income, expense, balance: income - expense },
+    });
   } finally {
     await client.close();
   }
@@ -51,12 +96,32 @@ export async function POST(request: NextRequest) {
     const client = new MongoClient(process.env.DATABASE_URL!);
     await client.connect();
     try {
-      const collection = client.db().collection("CashMovement");
+      const db = client.db();
+      const collection = db.collection("CashMovement");
+
+      if (orderId && ObjectId.isValid(orderId)) {
+        const order = await db.collection("Order").findOne({
+          _id: new ObjectId(orderId),
+          userId: session.id,
+        });
+
+        if (!order) {
+          return NextResponse.json({ error: "Venta no encontrada o no autorizada" }, { status: 404 });
+        }
+        if (order.status === "cancelled" || order.paymentStatus === "refunded") {
+          return NextResponse.json({ error: "No se puede registrar Caja para una venta cancelada o reembolsada" }, { status: 409 });
+        }
+      }
 
       // A sale may be retried by the UI or API. Reuse the existing active
       // movement instead of creating a duplicate income for the same order.
       if (orderId) {
-        const existing = await collection.findOne({ userId: session.id, orderId, source: "sale", status: { $ne: "voided" } });
+        const existing = await collection.findOne({
+          userId: session.id,
+          orderId,
+          source: "sale",
+          status: { $ne: "voided" },
+        });
         if (existing) {
           return NextResponse.json(existing, { status: 200 });
         }
