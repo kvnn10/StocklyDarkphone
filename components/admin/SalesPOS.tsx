@@ -47,6 +47,7 @@ export default function SalesPOS() {
 
   function addProduct(product: Product) {
     if (product.quantity <= 0) return;
+    setError("");
     setCart((current) => {
       const found = current.find((item) => item.product.id === product.id);
       if (found) {
@@ -74,7 +75,8 @@ export default function SalesPOS() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientId: clientId || undefined,
-          items: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
+          // Send SKU as a stable fallback because /api/products is cached.
+          items: cart.map((item) => ({ productId: item.product.id, sku: item.product.sku, quantity: item.quantity })),
           discount: safeDiscount,
           paymentStatus: "paid",
           paymentMethod,
