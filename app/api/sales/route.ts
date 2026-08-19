@@ -42,10 +42,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // A POS sale belongs to one store owner. Mixed-owner carts are rejected
-    // instead of silently assigning the sale to the wrong account.
     const ownerIds = [...new Set(products.map((product) => product.userId))];
-    if (ownerIds.length !== 1) {
+    const storeOwnerUserId = ownerIds[0];
+    if (!storeOwnerUserId || ownerIds.length !== 1) {
       return NextResponse.json(
         { error: "Todos los productos de una venta deben pertenecer a la misma tienda" },
         { status: 400 },
@@ -53,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const order = await createOrder(data, {
-      storeOwnerUserId: ownerIds[0],
+      storeOwnerUserId,
       createdByUserId: session.id,
       clientId: data.clientId ?? null,
     });
