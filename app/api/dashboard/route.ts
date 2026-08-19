@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/utils/auth";
 import { logger } from "@/lib/logger";
 import { getDashboardForAdmin } from "@/lib/server/dashboard-data";
+import { cacheKeys, invalidateCache } from "@/lib/cache";
 import { withRateLimit, defaultRateLimits } from "@/lib/api/rate-limit";
 
 export async function GET(request: NextRequest) {
@@ -22,6 +23,10 @@ export async function GET(request: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // Dashboard stats are per-user. Invalidate the exact Redis key before the
+    // read so client-side refetches cannot receive an older inventory value.
+    await invalidateCache(cacheKeys.dashboard.overview(session.id));
 
     const stats = await getDashboardForAdmin(session.id);
     return NextResponse.json(stats);
