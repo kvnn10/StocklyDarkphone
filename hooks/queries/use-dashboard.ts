@@ -25,5 +25,9 @@ export function useDashboard(
     },
     enabled: !!userId && enabled,
     ...withInitialData(initialData ?? undefined),
+    // KPI cards are mutable inventory data. Even when SSR provides initialData,
+    // always confirm the live value against the API on mount/navigation.
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 }
