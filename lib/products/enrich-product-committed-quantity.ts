@@ -26,6 +26,60 @@ export async function batchSumAllocationReserved(
   return sums;
 }
 
+/**
+ * Reconcile catalog reservations against the source of truth: pending
+ * non-warehouse order lines. This repairs orphaned reservedQuantity values
+ * left behind by cancelled/failed test orders without touching warehouse
+ * allocation reservations.
+ */
+export async function reconcileProductReservations(
+  productIds: string[],
+): Promise<void> {
+  if (productIds.length === 0) return;
+
+  const pendingLines = await prisma.orderItem.findMany({
+    where: {
+      productId: { in: productIds },
+      warehouseId: null,
+      order: { status: "pending" },
+    },
+    select: {
+      productId: true,
+      quantity: true,
+    },
+  });
+
+  const desired = new Map<string, number>();
+  for (const line of pendingLines) {
+    desired.set(
+      line.productId,
+      (desired.get(line.productId) ?? 0) + Number(line.quantity),
+    );
+  }
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds } },
+    select: { id: true, reservedQuantity: true },
+  });
+
+  await Promise.all(
+    products
+      .filter((product) => {
+        const current = Number(product.reservedQuantity ?? 0);
+        const expected = desired.get(product.id) ?? 0;
+        return current !== expected;
+      })
+      .map((product) =>
+        prisma.product.update({
+          where: { id: product.id },
+          data: {
+            reservedQuantity: desired.get(product.id) ?? 0,
+          },
+        }),
+      ),
+  );
+}
+
 /** Effective pending commitment for list display (disjoint paths summed). */
 export function computeCommittedQuantity(
   productReserved: number,
@@ -63,9 +117,15 @@ export function withCommittedQuantity<
 export async function enrichProductsWithCommittedQuantity<
   T extends { id: string; reservedQuantity?: number | null },
 >(products: T[]): Promise<Array<T & { committedQuantity: number }>> {
-  const allocationSums = await batchSumAllocationReserved(
-    products.map((p) => p.id),
-  );
+  const productIds = products.map((p) => p.id);
+
+  // Self-heal stale catalog reservations before calculating the displayed
+  // committed quantity. This is intentionally limited to non-warehouse
+  // reservations; warehouse reservations remain in stockAllocation.
+  await reconcileProductReservations(productIds);
+
+  const allocationSums = await batchSumAllocationReserved(productIds);
+
   return products.map((product) =>
     withCommittedQuantity(
       product,
@@ -78,6 +138,7 @@ export async function enrichProductsWithCommittedQuantity<
 export async function enrichProductDetailWithCommittedQuantity<
   T extends { id: string; reservedQuantity?: number | null },
 >(product: T): Promise<T & { committedQuantity: number }> {
+  await reconcileProductReservations([product.id]);
   const allocationSums = await batchSumAllocationReserved([product.id]);
   return withCommittedQuantity(
     product,
