@@ -12,6 +12,7 @@ const ADMIN_NAV_ITEMS: RoleNavItem[] = [
   { label: "Panel principal", path: "/", hasDropdown: false },
   { label: "Productos", path: "/products", hasDropdown: false },
   { label: "Pedidos", path: "/orders", hasDropdown: false },
+  { label: "Clientes", path: "/clients", hasDropdown: false },
   { label: "Facturas", path: "/invoices", hasDropdown: false },
   { label: "Categorías", path: "/categories", hasDropdown: false },
   { label: "Proveedores", path: "/suppliers", hasDropdown: false },
