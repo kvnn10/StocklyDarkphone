@@ -50,21 +50,22 @@ export function PageSectionHeader({
       {Icon && (
         <div
           className={cn(
-            "flex shrink-0 items-center justify-center self-stretch rounded-xl border px-2 py-1.5 sm:px-2.5",
+            "group flex shrink-0 items-center justify-center self-stretch rounded-xl border px-2 py-1.5 sm:px-2.5 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.02]",
             toneConfig.container,
           )}
         >
-          <Icon className={cn("h-5 w-5 sm:h-6 sm:w-6", toneConfig.icon)} />
+          <Icon
+            className={cn(
+              "h-5 w-5 sm:h-6 sm:w-6 transition-transform duration-300 group-hover:scale-110",
+              toneConfig.icon,
+            )}
+          />
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col justify-center">
-        <TitleTag className={TYPO_PAGE_HEADER}>
-          {title}
-        </TitleTag>
+        <TitleTag className={TYPO_PAGE_HEADER}>{title}</TitleTag>
         {description != null && description !== "" && (
-          <p className={TYPO_SUBTITLE}>
-            {description}
-          </p>
+          <p className={TYPO_SUBTITLE}>{description}</p>
         )}
       </div>
       {trailing}
