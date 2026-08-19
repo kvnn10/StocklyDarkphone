@@ -52,6 +52,7 @@ export function PageSectionHeader({
           className={cn(
             "group flex shrink-0 items-center justify-center self-stretch rounded-xl border px-2 py-1.5 sm:px-2.5 backdrop-blur-md transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.02]",
             toneConfig.container,
+            toneConfig.glow,
           )}
         >
           <Icon
