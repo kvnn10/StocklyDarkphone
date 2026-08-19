@@ -51,11 +51,75 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // A paid POS sale must explicitly provide a payment method. Existing callers
+    // without payment data continue to create unpaid orders as before.
+    if (data.paymentStatus === "paid" && !data.paymentMethod) {
+      return NextResponse.json(
+        { error: "El método de pago es obligatorio para una venta pagada" },
+        { status: 400 },
+      );
+    }
+
     const order = await createOrder(data, {
       storeOwnerUserId,
       createdByUserId: session.id,
       clientId: data.clientId ?? null,
     });
+
+    if (data.paymentStatus === "paid" && data.paymentMethod) {
+      // The unique SalePayment(orderId) plus the order-linked cash movement make
+      // payment registration idempotent if the request is retried.
+      const payment = await prisma.salePayment.upsert({
+        where: { orderId: order.id },
+        create: {
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          userId: storeOwnerUserId,
+          recordedBy: session.id,
+          amount: Number(order.total),
+          paymentMethod: data.paymentMethod,
+          status: "paid",
+        },
+        update: {
+          amount: Number(order.total),
+          paymentMethod: data.paymentMethod,
+          status: "paid",
+          recordedBy: session.id,
+        },
+      });
+
+      await prisma.cashMovement.upsert({
+        where: { id: payment.id },
+        create: {
+          type: "income",
+          source: "sale",
+          amount: Number(order.total),
+          paymentMethod: data.paymentMethod,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          userId: storeOwnerUserId,
+          createdBy: session.id,
+          description: `Venta ${order.orderNumber}`,
+        },
+        update: {
+          amount: Number(order.total),
+          paymentMethod: data.paymentMethod,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          userId: storeOwnerUserId,
+          createdBy: session.id,
+          description: `Venta ${order.orderNumber}`,
+        },
+      });
+
+      const paidOrder = await prisma.order.update({
+        where: { id: order.id },
+        data: { paymentStatus: "paid" },
+        include: { items: true },
+      });
+
+      return NextResponse.json(paidOrder, { status: 201 });
+    }
 
     return NextResponse.json(order, { status: 201 });
   } catch (error) {
