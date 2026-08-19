@@ -23,7 +23,9 @@ export async function POST(request: NextRequest) {
 
     const data = parsed.data;
     const productIds = data.items.map((item) => item.productId);
-    const productSkus = data.items.map((item) => item.sku).filter((sku): sku is string => Boolean(sku));
+    const productSkus = data.items
+      .map((item) => item.sku)
+      .filter((sku): sku is string => Boolean(sku));
 
     // POS can hold a cached product id for a few minutes after a catalog change.
     // Resolve by SKU as a stable fallback so a visible product cannot fail checkout
@@ -42,17 +44,26 @@ export async function POST(request: NextRequest) {
     const productSkuMap = new Map(products.map((product) => [product.sku, product]));
 
     const resolvedItems = data.items.map((item) => {
-      const product = productMap.get(item.productId) ?? (item.sku ? productSkuMap.get(item.sku) : undefined);
+      const product =
+        productMap.get(item.productId) ??
+        (item.sku ? productSkuMap.get(item.sku) : undefined);
       return product ? { ...item, productId: product.id } : null;
     });
 
     for (let index = 0; index < data.items.length; index += 1) {
       const item = data.items[index];
-      const product = resolvedItems[index]
-        ? productMap.get(resolvedItems[index]!.productId)
+      const resolvedItem = resolvedItems[index];
+      if (!item) continue;
+
+      const product = resolvedItem
+        ? productMap.get(resolvedItem.productId)
         : undefined;
+
       if (!product) {
-        return NextResponse.json({ error: `Producto no encontrado${item.sku ? `: ${item.sku}` : ""}` }, { status: 400 });
+        return NextResponse.json(
+          { error: `Producto no encontrado${item.sku ? `: ${item.sku}` : ""}` },
+          { status: 400 },
+        );
       }
       if (Number(product.quantity) < item.quantity) {
         return NextResponse.json(
@@ -82,11 +93,16 @@ export async function POST(request: NextRequest) {
 
     const normalizedData = {
       ...data,
-      items: resolvedItems.map((item) => ({
-        productId: item!.productId,
-        quantity: item!.quantity,
-        ...(item!.warehouseId ? { warehouseId: item!.warehouseId } : {}),
-      })),
+      items: resolvedItems.map((item) => {
+        if (!item) {
+          throw new Error("Producto no encontrado");
+        }
+        return {
+          productId: item.productId,
+          quantity: item.quantity,
+          ...(item.warehouseId ? { warehouseId: item.warehouseId } : {}),
+        };
+      }),
     };
 
     const order = await createOrder(normalizedData, {
