@@ -1,0 +1,72 @@
+name: Apply customer order integration
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, 'feat: link customers to orders') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch OrderDialog
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('components/orders/OrderDialog.tsx')
+          text = path.read_text()
+
+          if 'interface OrderClientOption' in text:
+              print('Customer integration already present; nothing to do.')
+              raise SystemExit(0)
+
+          replacements = [
+              (
+                  '''interface OrderDialogProps {\n  children?: React.ReactNode;\n  open?: boolean;\n  onOpenChange?: (open: boolean) => void;\n  editingOrder?: Order | null;\n  onEditOrder?: (order: Order | null) => void;\n  /** For client role: product owner ID - products shown come from this owner */\n  defaultOwnerId?: string;\n}\n''',
+                  '''interface OrderDialogProps {\n  children?: React.ReactNode;\n  open?: boolean;\n  onOpenChange?: (open: boolean) => void;\n  editingOrder?: Order | null;\n  onEditOrder?: (order: Order | null) => void;\n  /** For client role: product owner ID - products shown come from this owner */\n  defaultOwnerId?: string;\n}\n\ninterface OrderClientOption {\n  id: string;\n  name: string;\n  email?: string;\n  phone?: string;\n  whatsapp?: string;\n  status?: boolean;\n}\n'''),
+              (
+                  '''  const { toast } = useToast();\n  const queryClient = useQueryClient();\n''',
+                  '''  const { toast } = useToast();\n  const queryClient = useQueryClient();\n\n  // Customer selection for staff-created orders.\n  const [orderClients, setOrderClients] = useState<OrderClientOption[]>([]);\n  const [selectedClientId, setSelectedClientId] = useState<string>("none");\n  const [clientsLoading, setClientsLoading] = useState(false);\n'''),
+              (
+                  '''  const productOwner = browseData?.owner;\n\n  // When client creates order and selected owner has no products, show dynamic placeholder in product dropdown\n''',
+                  '''  const productOwner = browseData?.owner;\n\n  // Load active customers for staff-created orders.\n  useEffect(() => {\n    if (!open || editingOrder || user?.role === "client") return;\n\n    let cancelled = false;\n    setClientsLoading(true);\n\n    fetch("/api/clients", { credentials: "include" })\n      .then(async (response) => {\n        if (!response.ok) throw new Error("Failed to load clients");\n        return response.json() as Promise<OrderClientOption[]>;\n      })\n      .then((clients) => {\n        if (!cancelled) {\n          setOrderClients(\n            Array.isArray(clients)\n              ? clients.filter((client) => client.status !== false)\n              : [],\n          );\n        }\n      })\n      .catch((error) => {\n        if (!cancelled) {\n          logger.warn("Unable to load clients for order:", error);\n          setOrderClients([]);\n        }\n      })\n      .finally(() => {\n        if (!cancelled) setClientsLoading(false);\n      });\n\n    return () => {\n      cancelled = true;\n    };\n  }, [open, editingOrder, user?.role]);\n\n  // When client creates order and selected owner has no products, show dynamic placeholder in product dropdown\n'''),
+              (
+                  '''    if (!open && !editingOrder) {\n      createReset({\n''',
+                  '''    if (!open && !editingOrder) {\n      setSelectedClientId("none");\n      createReset({\n'''),
+              (
+                  '''        discount: fees.discountAmount,\n        notes: data.notes || undefined,\n      };\n''',
+                  '''        discount: fees.discountAmount,\n        notes: data.notes || undefined,\n        ...(selectedClientId !== "none" ? { clientId: selectedClientId } : {}),\n      };\n'''),
+              (
+                  '''      // Reset form after successful submission\n      createReset({\n''',
+                  '''      // Reset form after successful submission\n      setSelectedClientId("none");\n      createReset({\n'''),
+              (
+                  '''              <div className="space-y-4">\n                {/* Order Items Section */}\n''',
+                  '''              <div className="space-y-4">\n                {/* Customer Section */}\n                {!isClientCreatingOrder && (\n                  <div className="space-y-2">\n                    <DialogFormLabel icon={Package} optional>\n                      Customer\n                    </DialogFormLabel>\n                    <Select\n                      value={selectedClientId}\n                      onValueChange={setSelectedClientId}\n                      disabled={clientsLoading}\n                    >\n                      <SelectTrigger className={cn("h-11 w-full", DIALOG_FORM_FIELD_VIOLET)}>\n                        <SelectValue\n                          placeholder={\n                            clientsLoading ? "Loading customers..." : "Select customer"\n                          }\n                        />\n                      </SelectTrigger>\n                      <SelectContent\n                        className={cn(DIALOG_SELECT_CONTENT_CLASS, "z-[100]")}\n                        position="popper"\n                        sideOffset={5}\n                        align="start"\n                      >\n                        <SelectItem value="none" className={DIALOG_SELECT_ITEM_CLASS}>\n                          No customer\n                        </SelectItem>\n                        {orderClients.map((client) => (\n                          <SelectItem\n                            key={client.id}\n                            value={client.id}\n                            className={DIALOG_SELECT_ITEM_CLASS}\n                          >\n                            {client.name}\n                            {client.phone ? ` — ${client.phone}` : ""}\n                          </SelectItem>\n                        ))}\n                      </SelectContent>\n                    </Select>\n                    <p className="text-xs text-white/50">\n                      Optional. Select a customer to link this order to their history.\n                    </p>\n                  </div>\n                )}\n\n                {/* Order Items Section */}\n'''),
+          ]
+
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'Missing expected source block: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          print('OrderDialog patched successfully.')
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/orders/OrderDialog.tsx
+          git commit -m "feat: link customers to orders"
+          git push
+      - name: Remove temporary workflow
+        if: success()
+        run: |
+          git rm .github/workflows/apply-client-order-integration.yml
+          git commit -m "chore: remove temporary customer integration workflow"
+          git push
