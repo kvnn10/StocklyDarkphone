@@ -101,6 +101,15 @@ function toDateInputValue(value?: Date | string | null): string {
   return Number.isNaN(d.getTime()) ? "" : (d.toISOString().split("T")[0] ?? "");
 }
 
+interface OrderClientOption {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  whatsapp?: string;
+  status?: boolean;
+}
+
 interface OrderDialogProps {
   children?: React.ReactNode;
   open?: boolean;
@@ -188,6 +197,10 @@ export default function OrderDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const [orderClients, setOrderClients] = useState<OrderClientOption[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string>("none");
+  const [clientsLoading, setClientsLoading] = useState(false);
+
   // Use controlled or internal state
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : internalOpen;
@@ -224,6 +237,41 @@ export default function OrderDialog({
   const clientProducts = browseData?.products ?? [];
   const products = isClientCreatingOrder ? clientProducts : adminProducts;
   const productOwner = browseData?.owner;
+
+  useEffect(() => {
+    if (!open || editingOrder || user?.role === "client") return;
+
+    let cancelled = false;
+    setClientsLoading(true);
+
+    fetch("/api/clients", { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Failed to load clients");
+        return response.json() as Promise<OrderClientOption[]>;
+      })
+      .then((clients) => {
+        if (!cancelled) {
+          setOrderClients(
+            Array.isArray(clients)
+              ? clients.filter((client) => client.status !== false)
+              : []
+          );
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn("Unable to load clients for order:", error);
+          setOrderClients([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setClientsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, editingOrder, user?.role]);
 
   // When client creates order and selected owner has no products, show dynamic placeholder in product dropdown
   const productSelectPlaceholder =
@@ -502,6 +550,7 @@ export default function OrderDialog({
         shipping: fees.shippingAmount,
         discount: fees.discountAmount,
         notes: data.notes || undefined,
+        ...(selectedClientId !== "none" ? { clientId: selectedClientId } : {}),
       };
 
       // Create order using TanStack Query mutation
@@ -509,6 +558,7 @@ export default function OrderDialog({
 
       // Close dialog on success (toast is handled by mutation hook)
       setOpen(false);
+      setSelectedClientId("none");
       // Reset form after successful submission
       createReset({
         items: [{ productId: "", quantity: 1 }],
@@ -1082,6 +1132,56 @@ export default function OrderDialog({
               )}
             >
               <div className="space-y-4">
+                {!isClientCreatingOrder && (
+                  <div className="space-y-2">
+                    <DialogFormLabel icon={Package} optional>
+                      Customer
+                    </DialogFormLabel>
+
+                    <Select
+                      value={selectedClientId}
+                      onValueChange={setSelectedClientId}
+                      disabled={clientsLoading}
+                    >
+                      <SelectTrigger className={cn("h-11 w-full", DIALOG_FORM_FIELD_VIOLET)}>
+                        <SelectValue
+                          placeholder={
+                            clientsLoading
+                              ? "Loading customers..."
+                              : "Select customer"
+                          }
+                        />
+                      </SelectTrigger>
+
+                      <SelectContent
+                        className={cn(DIALOG_SELECT_CONTENT_CLASS, "z-[100]")}
+                        position="popper"
+                        sideOffset={5}
+                        align="start"
+                      >
+                        <SelectItem value="none" className={DIALOG_SELECT_ITEM_CLASS}>
+                          No customer
+                        </SelectItem>
+
+                        {orderClients.map((client) => (
+                          <SelectItem
+                            key={client.id}
+                            value={client.id}
+                            className={DIALOG_SELECT_ITEM_CLASS}
+                          >
+                            {client.name}
+                            {client.phone ? ` — ${client.phone}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <p className="text-xs text-white/50">
+                      Optional. Select a customer to link this order to their history.
+                    </p>
+                  </div>
+                )}
+
                 {/* Order Items Section */}
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
