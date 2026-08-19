@@ -5,6 +5,7 @@
 import { getDashboardForAdmin } from "@/lib/server/dashboard-data";
 import { getSupplierDashboard } from "@/lib/server/supplier-dashboard";
 import { getClientDashboard } from "@/lib/server/client-dashboard";
+import { cacheKeys, invalidateCache } from "@/lib/cache";
 import type {
   DashboardStats,
   SupplierPortalDashboard,
@@ -42,6 +43,11 @@ export async function prefetchListPageStats(
     const initialSupplierPortal = await getSupplierDashboard(session.id);
     return { initialSupplierPortal };
   }
+
+  // List-page KPI cards must never hydrate from a stale dashboard snapshot.
+  // The dashboard is per-user, so invalidate the exact key instead of relying
+  // on the broad dashboard:* SCAN pattern.
+  await invalidateCache(cacheKeys.dashboard.overview(session.id));
 
   const initialStats = await getDashboardForAdmin(session.id);
   return { initialStats };
