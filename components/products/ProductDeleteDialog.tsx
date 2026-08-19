@@ -11,7 +11,7 @@ export function DeleteDialog() {
     setSelectedProduct,
     selectedProduct,
   } = useProductStore();
-  
+
   // Use TanStack Query mutation for delete operation
   const deleteProductMutation = useDeleteProduct();
 
@@ -19,13 +19,9 @@ export function DeleteDialog() {
     if (selectedProduct) {
       try {
         await deleteProductMutation.mutateAsync(selectedProduct.id);
-        // Close dialog and clear selection on success
-        // Toast is handled by the mutation hook
         setOpenDialog(false);
         setSelectedProduct(null);
       } catch (error) {
-        // Error toast is handled by the mutation hook
-        // Just log for debugging
         logger.error("Delete error:", error);
       }
     }
@@ -40,10 +36,10 @@ export function DeleteDialog() {
           setSelectedProduct(null);
         }
       }}
-      title="Are you absolutely sure?"
-      description="This action cannot be undone. This will permanently delete the product."
-      actionLabel="Delete"
-      actionLoadingLabel="Deleting..."
+      title="¿Estás completamente seguro?"
+      description="Esta acción no se puede deshacer. El producto se eliminará de forma permanente."
+      actionLabel="Eliminar"
+      actionLoadingLabel="Eliminando..."
       isLoading={deleteProductMutation.isPending}
       onAction={deleteProductFx}
       onCancel={() => {
