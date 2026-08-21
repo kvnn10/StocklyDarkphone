@@ -113,6 +113,10 @@ export function StatisticsCard({
 }: StatisticsCardProps) {
   const config = variantConfig[variant];
   const displayValue = valueLoading ? <DataSlotPulse variant="metric" /> : value;
+  // "Total Value" represents the current inventory valuation only. Historical
+  // order/invoice figures (especially cancelled amounts) belong to commerce
+  // KPIs and can otherwise make the inventory card misleading.
+  const displayBadges = title === "Total Value" ? [] : badges;
 
   return (
     <article
@@ -147,9 +151,9 @@ export function StatisticsCard({
         </div>
         <p className={TYPO_STAT_VALUE}>{displayValue}</p>
         {description && <p className={cn("mt-2", TYPO_SUBTITLE)}>{description}</p>}
-        {badges.length > 0 && (
+        {displayBadges.length > 0 && (
           <div className="mt-3 flex w-full min-w-0 flex-wrap gap-2 overflow-visible">
-            {badges.map((badge, index) => (
+            {displayBadges.map((badge, index) => (
               <Badge
                 key={index}
                 variant={badge.variant || "outline"}
