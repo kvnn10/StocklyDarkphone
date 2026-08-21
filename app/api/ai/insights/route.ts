@@ -1,6 +1,8 @@
 /**
  * AI-powered inventory insights via OpenRouter (primary) or Groq (fallback).
- * POST /api/ai/insights — accepts summary of analytics, returns short AI recommendations
+ * POST /api/ai/insights — accepts summary of analytics, returns short recommendations.
+ * When no external LLM key is configured, a deterministic local fallback keeps the
+ * insights feature usable instead of returning a configuration error.
  */
 
 import { NextRequest } from "next/server";
@@ -53,6 +55,39 @@ function buildWarehouseSummaryAppendix(
   return ` Per-warehouse stock: ${top}.${extra}`;
 }
 
+function buildLocalInsights(summary: string): string {
+  const recommendations: string[] = [];
+  const normalized = summary.toLowerCase();
+
+  if (normalized.includes("stock out") || normalized.includes("stockout")) {
+    recommendations.push(
+      "Prioriza la reposición de los productos con riesgo de agotamiento antes de atender compras de menor urgencia.",
+    );
+  } else {
+    recommendations.push(
+      "Mantén una revisión periódica de las existencias y prioriza la reposición según la demanda prevista.",
+    );
+  }
+
+  if (normalized.includes("warehouse") || normalized.includes("almac")) {
+    recommendations.push(
+      "Revisa la distribución entre almacenes para mover existencias desde ubicaciones sobrecargadas hacia las que tengan mayor necesidad.",
+    );
+  }
+
+  if (normalized.includes("revenue") || normalized.includes("ingres")) {
+    recommendations.push(
+      "Compara la demanda y los ingresos por producto para concentrar capital de inventario en las referencias con mejor rotación.",
+    );
+  }
+
+  recommendations.push(
+    "Usa las tendencias mensuales como referencia para ajustar cantidades de compra y evitar tanto quiebres como sobrestock.",
+  );
+
+  return recommendations.slice(0, 4).join(" ");
+}
+
 const LLM_NOT_CONFIGURED =
   "AI insights are not configured. Set OPENROUTER_API_KEY and/or GROQ_API_KEY in .env.";
 
@@ -61,12 +96,6 @@ export async function POST(request: NextRequest) {
     const user = await getSessionFromRequest(request);
     if (!user) {
       return errorResponse("Unauthorized", 401);
-    }
-
-    if (!isLlmConfigured()) {
-      return serviceUnavailableResponse(LLM_NOT_CONFIGURED, {
-        code: "LLM_NOT_CONFIGURED",
-      });
     }
 
     let body: unknown;
@@ -87,6 +116,16 @@ export async function POST(request: NextRequest) {
     }
 
     const { summary } = validationResult.data;
+
+    // Keep the feature functional in deployments where no paid/free external
+    // provider key has been configured. The local fallback is deterministic and
+    // never sends store data to a third party.
+    if (!isLlmConfigured()) {
+      return successResponse({
+        text: buildLocalInsights(summary),
+        provider: "local-fallback",
+      });
+    }
 
     let enrichedSummary = summary;
     try {
@@ -116,8 +155,9 @@ export async function POST(request: NextRequest) {
         );
       }
       if (result.kind === "not_configured") {
-        return serviceUnavailableResponse(LLM_NOT_CONFIGURED, {
-          code: "LLM_NOT_CONFIGURED",
+        return successResponse({
+          text: buildLocalInsights(summary),
+          provider: "local-fallback",
         });
       }
       if (result.kind === "rate_limit") {
