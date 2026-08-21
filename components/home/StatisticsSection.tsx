@@ -80,13 +80,6 @@ export function StatisticsSection({
         icon={DollarSign}
         variant="violet"
         valueLoading={dataLoading}
-        badgeValuesLoading={dataLoading}
-        badges={[
-          { label: "Pedidos", value: formatCurrency(stats?.orderAnalytics?.totalRevenueExcludingCancelled ?? stats?.revenue?.fromOrders ?? 0) },
-          { label: "Facturas", value: formatCurrency(stats?.revenue?.fromInvoices ?? 0) },
-          { label: "Pendiente", value: formatCurrency(stats?.invoiceAnalytics?.outstandingAmount ?? 0) },
-          { label: "Cancelado", value: formatCurrency(stats?.orderAnalytics?.cancelledOrderAmount ?? 0) },
-        ]}
       />
       <StatisticsCard
         title="Ingresos totales"
