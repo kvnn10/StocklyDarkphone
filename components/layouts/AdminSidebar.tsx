@@ -44,6 +44,7 @@ const ADMIN_NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/warehouses": Warehouse,
   "/admin/supplier-portal": Truck,
   "/admin/client-portal": Store,
+  "/user-management": Users,
   "/admin/user-management": Users,
   "/admin/activity-history": History,
   "/admin/my-activity": UserCircle,
@@ -96,20 +97,16 @@ export default function AdminSidebar({
               )}
               aria-label={
                 countsLoading
-                  ? "Loading count"
+                  ? "Cargando cantidad"
                   : count !== undefined
-                    ? `${count} items`
+                    ? `${count} elementos`
                     : undefined
               }
             >
               {countsLoading ? (
                 <DataSlotPulse variant="badge" className="mx-auto" />
               ) : count !== undefined && count > 0 ? (
-                count > 99 ? (
-                  "99+"
-                ) : (
-                  count
-                )
+                count > 99 ? "99+" : count
               ) : null}
             </span>
           )}
@@ -121,7 +118,7 @@ export default function AdminSidebar({
     return (
       <nav
         className="flex min-h-0 flex-col items-center px-2 gap-1"
-        aria-label="Admin navigation"
+        aria-label="Navegación de administración"
       >
         {renderNavItems(ADMIN_MY_STORE_ITEMS)}
         <div className="w-6 border-t border-gray-200/50 dark:border-white/10 my-1" />
@@ -136,7 +133,7 @@ export default function AdminSidebar({
             isSub: true,
             collapsed,
           })}
-          title="Email Preferences"
+          title="Preferencias de correo"
         >
           <Mail className="h-4 w-4 flex-shrink-0" />
         </Link>
@@ -146,23 +143,23 @@ export default function AdminSidebar({
 
   return (
     <nav className="flex min-h-0 flex-col p-2 gap-1">
-      <p className="px-2 pt-2  text-xs font-normal uppercase tracking-wider text-muted-foreground">
-        My Store
+      <p className="px-2 pt-2 text-xs font-normal uppercase tracking-wider text-muted-foreground">
+        Mi tienda
       </p>
       {renderNavItems(ADMIN_MY_STORE_ITEMS)}
 
-      <p className="px-2 pt-2  text-xs font-normal uppercase tracking-wider text-muted-foreground">
-        Product & System Management
+      <p className="px-2 pt-2 text-xs font-normal uppercase tracking-wider text-muted-foreground">
+        Gestión de productos y sistema
       </p>
       {renderNavItems(ADMIN_MANAGEMENT_ITEMS)}
 
-      <p className="px-2 pt-2  text-xs font-normal uppercase tracking-wider text-muted-foreground">
-        Personal activity
+      <p className="px-2 pt-2 text-xs font-normal uppercase tracking-wider text-muted-foreground">
+        Actividad personal
       </p>
       {renderNavItems(ADMIN_MY_ACTIVITY_ITEMS)}
 
-      <p className="px-2 pt-2  text-xs font-normal uppercase tracking-wider text-muted-foreground">
-        System Settings
+      <p className="px-2 pt-2 text-xs font-normal uppercase tracking-wider text-muted-foreground">
+        Configuración del sistema
       </p>
       <Link
         href={ADMIN_SETTINGS_EMAIL_HREF}
@@ -172,7 +169,7 @@ export default function AdminSidebar({
         })}
       >
         <Mail className="h-4 w-4 flex-shrink-0" />
-        Email Preferences
+        Preferencias de correo
       </Link>
     </nav>
   );
