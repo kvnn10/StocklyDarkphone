@@ -39,7 +39,7 @@ export default function UserManagementFilters({
   const filterChipGroups = useMemo((): FilterChipGroup[] => {
     return [
       {
-        label: "Role",
+        label: "Rol",
         values: selectedRoles,
         onClear: () => setSelectedRoles([]),
         renderBadge: (value) => <UserRoleBadge role={value} size="compact" />,
@@ -53,7 +53,7 @@ export default function UserManagementFilters({
         <div className="relative flex-1 sm:max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600 dark:text-white/80 z-10" />
           <Input
-            placeholder="Search by name, email, or username..."
+            placeholder="Buscar por nombre, correo o nombre de usuario..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className={FILTER_SEARCH_INPUT_SKY_CLASS}
@@ -64,6 +64,8 @@ export default function UserManagementFilters({
               size="sm"
               onClick={() => setSearchTerm("")}
               className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0 text-gray-700 dark:text-white/80 hover:text-gray-700 dark:hover:text-white hover:bg-white/10 backdrop-blur-md"
+              aria-label="Limpiar búsqueda"
+              title="Limpiar búsqueda"
             >
               <IoClose className="h-4 w-4" />
             </Button>
