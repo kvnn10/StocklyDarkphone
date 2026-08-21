@@ -21,10 +21,6 @@ export async function GET(request: NextRequest) {
       .limit(100)
       .toArray();
 
-    // Sale movements are automatically considered voided when their source
-    // order has been cancelled/refunded. This keeps Caja synchronized with
-    // the existing order cancellation flow without physically deleting the
-    // financial movement and preserves the audit trail.
     const saleOrderIds = movements
       .filter((m) => m.source === "sale" && typeof m.orderId === "string")
       .map((m) => m.orderId as string)
@@ -62,12 +58,24 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // Historical sale movements remain visible, while explicit refund
+    // movements are counted as expenses. This makes the cash flow auditable:
+    // sale + refund = net zero, rather than silently deleting the sale.
     const activeMovements = normalizedMovements.filter((m) => m.status !== "voided");
-    const income = activeMovements.filter((m) => m.type === "income").reduce((sum, m) => sum + Number(m.amount || 0), 0);
-    const expense = activeMovements.filter((m) => m.type === "expense").reduce((sum, m) => sum + Number(m.amount || 0), 0);
+    const income = activeMovements
+      .filter((m) => m.type === "income")
+      .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+    const expense = activeMovements
+      .filter((m) => m.type === "expense")
+      .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+
+    const refunds = activeMovements
+      .filter((m) => m.source === "refund")
+      .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+
     return NextResponse.json({
       movements: normalizedMovements,
-      summary: { income, expense, balance: income - expense },
+      summary: { income, expense, refunds, balance: income - expense },
     });
   } finally {
     await client.close();
@@ -113,8 +121,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // A sale may be retried by the UI or API. Reuse the existing active
-      // movement instead of creating a duplicate income for the same order.
       if (orderId) {
         const existing = await collection.findOne({
           userId: session.id,
