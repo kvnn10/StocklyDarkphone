@@ -1,28 +1,27 @@
 /**
  * Product Image Upload API Route Handler
- * Handles product image uploads to ImageKit
+ * Handles product image uploads to Vercel Blob.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/utils/auth";
 import { logger } from "@/lib/logger";
 import {
-  uploadProductImageToImageKit,
-  deleteProductImageFromImageKit,
-} from "@/lib/imagekit";
+  uploadProductImageToBlob,
+  deleteProductImageFromBlob,
+} from "@/lib/blob";
 import { withRateLimit, defaultRateLimits } from "@/lib/api/rate-limit";
 import { scheduleInvalidateProductCaches } from "@/lib/cache";
 
 /**
  * POST /api/products/image
- * Upload a product image to ImageKit
+ * Upload a product image to Vercel Blob.
  */
 export async function POST(request: NextRequest) {
   try {
-    // Rate limiting check
     const rateLimitResponse = await withRateLimit(
       request,
-      defaultRateLimits.standard
+      defaultRateLimits.standard,
     );
     if (rateLimitResponse) {
       return rateLimitResponse;
@@ -33,7 +32,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Parse multipart form data
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const sku = formData.get("sku") as string | null;
@@ -41,39 +39,47 @@ export async function POST(request: NextRequest) {
     if (!file) {
       return NextResponse.json(
         { error: "No file provided" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // Validate file type (images only)
-    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    const allowedTypes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/webp",
+    ];
     if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
-        { error: "Invalid file type. Only JPEG, PNG, and WebP images are allowed." },
-        { status: 400 }
+        {
+          error:
+            "Invalid file type. Only JPEG, PNG, and WebP images are allowed.",
+        },
+        { status: 400 },
       );
     }
 
-    // Validate file size (max 5MB)
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    // Vercel Functions have a 4.5 MB request-body limit for server uploads.
+    const maxSize = 4 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { error: "File size exceeds 5MB limit" },
-        { status: 400 }
+        { error: "File size exceeds 4MB limit" },
+        { status: 400 },
       );
     }
 
-    // Convert file to buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-
-    // Generate file name from SKU or use original file name
     const fileName = sku
       ? `product-${sku}-${Date.now()}`
       : `product-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9-_.]/g, "_")}`;
 
-    // Upload to ImageKit
-    const result = await uploadProductImageToImageKit(buffer, fileName);
+    const result = await uploadProductImageToBlob(
+      buffer,
+      fileName,
+      file.type,
+    );
+
     await scheduleInvalidateProductCaches();
     logger.info("Product image uploaded successfully", {
       userId: session.id,
@@ -93,21 +99,20 @@ export async function POST(request: NextRequest) {
         error: "Failed to upload image",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 /**
  * DELETE /api/products/image
- * Delete a product image from ImageKit
+ * Delete a product image from Vercel Blob.
  */
 export async function DELETE(request: NextRequest) {
   try {
-    // Rate limiting check
     const rateLimitResponse = await withRateLimit(
       request,
-      defaultRateLimits.standard
+      defaultRateLimits.standard,
     );
     if (rateLimitResponse) {
       return rateLimitResponse;
@@ -124,12 +129,11 @@ export async function DELETE(request: NextRequest) {
     if (!fileId) {
       return NextResponse.json(
         { error: "File ID is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    // Delete from ImageKit
-    await deleteProductImageFromImageKit(fileId);
+    await deleteProductImageFromBlob(fileId);
     await scheduleInvalidateProductCaches();
     logger.info("Product image deleted successfully", {
       userId: session.id,
@@ -147,7 +151,7 @@ export async function DELETE(request: NextRequest) {
         error: "Failed to delete image",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
