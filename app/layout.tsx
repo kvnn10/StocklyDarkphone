@@ -5,6 +5,7 @@
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KeyboardShortcutsProvider } from "@/components/providers/KeyboardShortcutsProvider";
+import { SpanishUiProvider } from "@/components/providers/SpanishUiProvider";
 import { Poppins } from "next/font/google";
 import localFont from "next/font/local";
 import React from "react";
@@ -86,7 +87,7 @@ export const metadata = {
   ),
   openGraph: {
     type: "website",
-    locale: "en_US",
+    locale: "es_CO",
     title: "Stockly — Warehouse & Stock Inventory Management System",
     description:
       "Efficiently manage products, orders, invoices, and warehouses with Stockly. Secure, responsive, role-based inventory system. By Arnob Mahmud.",
@@ -131,7 +132,7 @@ export default async function RootLayout({
 
   return (
     <html
-      lang="en"
+      lang="es"
       {...(disableBrowserTranslate ? { translate: "no" as const } : {})}
       suppressHydrationWarning
       style={{ overscrollBehavior: "none" }}
@@ -163,6 +164,7 @@ export default async function RootLayout({
               >
                 <TooltipProvider delayDuration={200}>
                   <KeyboardShortcutsProvider>
+                    <SpanishUiProvider />
                     {children}
                   </KeyboardShortcutsProvider>
                 </TooltipProvider>
