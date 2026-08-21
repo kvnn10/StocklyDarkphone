@@ -99,42 +99,42 @@ export default function UserManagementList({
         as="h2"
         icon={Users}
         tone="violet"
-        title="User Management"
-        description="Manage users and roles. View and update name, role, and profile."
+        title="Gestión de usuarios"
+        description="Gestiona usuarios y roles. Consulta y actualiza el nombre, rol y perfil."
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-2 pb-6 items-stretch">
         <StatisticsCard
-          title="Total Users"
+          title="Total de usuarios"
           value={roleCounts.total}
-          description="All registered users"
+          description="Todos los usuarios registrados"
           icon={Users}
           variant="violet"
           valueLoading={cardsDataLoading}
           badgeValuesLoading={cardsDataLoading}
         />
         <StatisticsCard
-          title="Admins"
+          title="Administradores"
           value={roleCounts.admin}
-          description="Users with role admin"
+          description="Usuarios con rol de administrador"
           icon={Shield}
           variant="blue"
           valueLoading={cardsDataLoading}
           badgeValuesLoading={cardsDataLoading}
         />
         <StatisticsCard
-          title="Suppliers"
+          title="Proveedores"
           value={roleCounts.supplier}
-          description="Users with role supplier"
+          description="Usuarios con rol de proveedor"
           icon={Truck}
           variant="emerald"
           valueLoading={cardsDataLoading}
           badgeValuesLoading={cardsDataLoading}
         />
         <StatisticsCard
-          title="Clients"
+          title="Clientes"
           value={roleCounts.client}
-          description="Users with role client"
+          description="Usuarios con rol de cliente"
           icon={UserCircle}
           variant="amber"
           valueLoading={cardsDataLoading}
