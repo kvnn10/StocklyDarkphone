@@ -9,6 +9,10 @@ function safeFileName(fileName: string): string {
   return fileName.replace(/[^a-zA-Z0-9-_.]/g, "_");
 }
 
+function safeFolder(folder: string): string {
+  return folder.replace(/^\/+|\/+$/g, "");
+}
+
 async function uploadToBlob(
   file: string | Buffer,
   fileName: string,
@@ -19,7 +23,7 @@ async function uploadToBlob(
   const body =
     typeof file === "string" ? Buffer.from(file, "base64") : file;
 
-  const blob = await put(`${folder}/${safeName}`, body, {
+  const blob = await put(`${safeFolder(folder)}/${safeName}`, body, {
     access: "public",
     addRandomSuffix: true,
     contentType,
