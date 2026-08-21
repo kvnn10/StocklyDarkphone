@@ -93,7 +93,6 @@ export function StatisticsSection({
           { label: "Pagado", value: formatCurrency(stats?.orderAnalytics?.paidOrderAmount ?? 0) },
           { label: "Parcial", value: formatCurrency(stats?.orderAnalytics?.partialOrderAmount ?? 0) },
           { label: "Pendiente", value: formatCurrency(stats?.orderAnalytics?.pendingOrderAmount ?? 0) },
-          { label: "Por procesar", value: formatCurrency(stats?.orderAnalytics?.pendingOrderAmount ?? 0) },
           ...(selfOthers
             ? [
                 { label: "Propios", value: formatCurrency(selfOthers.revenueSelf) },
