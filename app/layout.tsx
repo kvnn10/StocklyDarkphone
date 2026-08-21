@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KeyboardShortcutsProvider } from "@/components/providers/KeyboardShortcutsProvider";
 import { SpanishUiProvider } from "@/components/providers/SpanishUiProvider";
+import { SpanishCoverageProvider } from "@/components/providers/SpanishCoverageProvider";
 import { Poppins } from "next/font/google";
 import localFont from "next/font/local";
 import React from "react";
@@ -165,6 +166,7 @@ export default async function RootLayout({
                 <TooltipProvider delayDuration={200}>
                   <KeyboardShortcutsProvider>
                     <SpanishUiProvider />
+                    <SpanishCoverageProvider />
                     {children}
                   </KeyboardShortcutsProvider>
                 </TooltipProvider>
