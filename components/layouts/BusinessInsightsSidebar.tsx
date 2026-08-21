@@ -11,8 +11,8 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Business Insights sidebar: grouped header + Overview, Distribution, Trends, Alerts.
- * Same style as AdminSidebar (section titles + nav items). Controls the tab via value and onValueChange.
+ * Barra lateral del módulo de análisis del negocio.
+ * Controls the tab via value and onValueChange.
  */
 
 const TAB_ITEMS: {
@@ -20,11 +20,11 @@ const TAB_ITEMS: {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
-  { value: "overview", label: "Overview", icon: BarChart3 },
-  { value: "distribution", label: "Distribution", icon: PieChartIcon },
-  { value: "trends", label: "Trends", icon: TrendingUp },
-  { value: "warehouses", label: "Warehouses", icon: Warehouse },
-  { value: "alerts", label: "Alerts", icon: AlertTriangle },
+  { value: "overview", label: "Resumen", icon: BarChart3 },
+  { value: "distribution", label: "Distribución", icon: PieChartIcon },
+  { value: "trends", label: "Tendencias", icon: TrendingUp },
+  { value: "warehouses", label: "Almacenes", icon: Warehouse },
+  { value: "alerts", label: "Alertas", icon: AlertTriangle },
 ];
 
 export interface BusinessInsightsSidebarProps {
@@ -43,7 +43,7 @@ export default function BusinessInsightsSidebar({
     return (
       <nav
         className="flex min-h-0 flex-col items-center px-2 gap-1"
-        aria-label="Insights sections"
+        aria-label="Secciones de análisis"
       >
         {TAB_ITEMS.map((item) => {
           const Icon = item.icon;
@@ -73,11 +73,10 @@ export default function BusinessInsightsSidebar({
   return (
     <nav
       className="flex min-h-0 flex-col p-2 gap-1"
-      aria-label="Insights sections"
+      aria-label="Secciones de análisis"
     >
-      {/* Grouped header — same style as AdminSidebar */}
-      <p className="px-2 pt-2  text-xs font-normal uppercase tracking-wider text-muted-foreground">
-        Product & Business Insights
+      <p className="px-2 pt-2 text-xs font-normal uppercase tracking-wider text-muted-foreground">
+        Análisis de producto y negocio
       </p>
       {TAB_ITEMS.map((item) => {
         const Icon = item.icon;
