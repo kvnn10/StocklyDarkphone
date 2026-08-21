@@ -1,14 +1,14 @@
 /**
  * QR Code API Route Handler
- * Generates QR codes for products and uploads them to ImageKit
+ * Generates QR codes for products and uploads them to Vercel Blob.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/utils/auth";
 import {
   generateAndUploadQRCode,
-  deleteQRCodeFromImageKit,
-} from "@/lib/imagekit";
+  deleteQRCodeFromBlob,
+} from "@/lib/blob";
 import { logger } from "@/lib/logger";
 import { generateProductQrCodeBodySchema } from "@/lib/validations/product";
 import { scheduleInvalidateProductCaches } from "@/lib/cache";
@@ -16,12 +16,11 @@ import { prisma } from "@/prisma/client";
 
 /**
  * POST /api/products/qr-code
- * Generate QR code for a product and upload to ImageKit
+ * Generate QR code for a product and upload to Vercel Blob.
  * Body: { productId: string }
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verify authentication
     const session = await getSessionFromRequest(request);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -43,8 +42,6 @@ export async function POST(request: NextRequest) {
     }
 
     const { productId } = validationResult.data;
-
-    // Fetch product
     const product = await prisma.product.findUnique({
       where: { id: productId },
     });
@@ -53,34 +50,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    // Verify product belongs to authenticated user
     if (product.userId !== session.id) {
       return NextResponse.json(
         { error: "Unauthorized to access this product" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
-    // Generate QR code data (product URL or product info)
-    // Using product SKU as identifier for QR code
     const qrCodeDataString = JSON.stringify({
       productId: product.id,
       sku: product.sku,
       name: product.name,
     });
 
-    // Get the old fileId before generating new QR code
     const oldFileId = product.qrCodeFileId;
 
-    // Generate and upload QR code to ImageKit
     const qrCodeData = await generateAndUploadQRCode(
       qrCodeDataString,
       `product-${product.sku}`,
       200,
-      "/stock-inventory/qr-codes/"
+      "stock-inventory/qr-codes",
     );
 
-    // Update product with QR code URL and fileId
     const updatedProduct = await prisma.product.update({
       where: { id: productId },
       data: {
@@ -89,26 +80,25 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Delete old QR code from ImageKit if it exists
     if (oldFileId) {
       try {
-        await deleteQRCodeFromImageKit(oldFileId);
-        logger.debug(`Deleted old QR code file from ImageKit: ${oldFileId}`);
+        await deleteQRCodeFromBlob(oldFileId);
+        logger.debug(`Deleted old QR code file from Blob: ${oldFileId}`);
       } catch (deleteError) {
-        // Log error but don't fail - old file cleanup is not critical
         logger.error(
-          `Failed to delete old QR code from ImageKit: ${oldFileId}`,
-          deleteError
+          `Failed to delete old QR code from Blob: ${oldFileId}`,
+          deleteError,
         );
       }
     }
+
     await scheduleInvalidateProductCaches();
     return NextResponse.json(
       {
         qrCodeUrl: updatedProduct.qrCodeUrl,
         productId: updatedProduct.id,
       },
-      { status: 200 }
+      { status: 200 },
     );
   } catch (error) {
     logger.error("Error generating QR code:", error);
@@ -117,7 +107,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error ? error.message : "Failed to generate QR code",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
