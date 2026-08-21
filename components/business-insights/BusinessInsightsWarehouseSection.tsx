@@ -73,52 +73,52 @@ export function BusinessInsightsWarehouseSection({
 
   return (
     <div className="flex flex-col gap-6 text-xs sm:text-sm">
-      <SectionTitleRow title="Warehouse stock rollup" icon={Warehouse} />
+      <SectionTitleRow title="Resumen de stock por almacén" icon={Warehouse} />
       <p className="text-xs text-gray-600 dark:text-white/80 -mt-4">
-        Allocated inventory across locations
+        Inventario asignado entre las distintas ubicaciones
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
         <AnalyticsCard
-          title="Locations with stock"
+          title="Ubicaciones con stock"
           value={metrics.warehousesWithStock}
           icon={Warehouse}
           variant="teal"
-          description={`${metrics.warehouseCount} warehouses total`}
+          description={`${metrics.warehouseCount} almacenes en total`}
           valueLoading={loading}
         />
         <AnalyticsCard
-          title="Allocated units"
+          title="Unidades asignadas"
           value={metrics.totalQuantity}
           icon={Package}
           variant="sky"
-          description={`${metrics.totalSkus} SKU rows`}
+          description={`${metrics.totalSkus} filas de SKU`}
           valueLoading={loading}
         />
         <AnalyticsCard
-          title="Reserved units"
+          title="Unidades reservadas"
           value={metrics.totalReserved}
           icon={Package}
           variant="amber"
-          description="Committed on active orders"
+          description="Comprometidas en pedidos activos"
           valueLoading={loading}
         />
         <AnalyticsCard
-          title="Inventory value"
+          title="Valor del inventario"
           value={`$${Math.round(metrics.totalValue).toLocaleString()}`}
           icon={DollarSign}
           variant="emerald"
           description={
             metrics.topWarehouse
-              ? `Top: ${metrics.topWarehouse.name} (${metrics.concentrationPct}%)`
-              : "No allocations yet"
+              ? `Principal: ${metrics.topWarehouse.name} (${metrics.concentrationPct}%)`
+              : "Aún no hay asignaciones"
           }
           valueLoading={loading}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-        <ChartCard title="Quantity by warehouse" icon={Warehouse} variant="sky">
+        <ChartCard title="Cantidad por almacén" icon={Warehouse} variant="sky">
           <DeferredChartSection
             loading={loading}
             hasData={quantityChartData.length > 0}
@@ -149,7 +149,7 @@ export function BusinessInsightsWarehouseSection({
         </ChartCard>
 
         <ChartCard
-          title="Stock share by warehouse"
+          title="Participación del stock por almacén"
           icon={PieChartIcon}
           variant="teal"
         >
@@ -194,41 +194,41 @@ export function BusinessInsightsWarehouseSection({
         </ChartCard>
       </div>
 
-      <ChartCard title="Warehouse Breakdown" icon={Package} variant="violet">
+      <ChartCard title="Desglose por almacén" icon={Package} variant="violet">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Warehouse</TableHead>
-              <TableHead>SKUs</TableHead>
+              <TableHead>Almacén</TableHead>
+              <TableHead>SKU</TableHead>
               <TableHead>
                 <span className="inline-flex items-center gap-1">
-                  Quantity
+                  Cantidad
                   <HelpTooltip
-                    content="Total allocated units at this warehouse"
+                    content="Total de unidades asignadas en este almacén"
                     side="top"
-                    ariaLabel="Quantity column help"
+                    ariaLabel="Ayuda de la columna cantidad"
                     className="shrink-0"
                   />
                 </span>
               </TableHead>
               <TableHead>
                 <span className="inline-flex items-center gap-1">
-                  Reserved
+                  Reservado
                   <HelpTooltip
-                    content="Units reserved for open orders (amber/rose when elevated)"
+                    content="Unidades reservadas para pedidos abiertos (ámbar/rosa cuando el nivel es elevado)"
                     side="top"
-                    ariaLabel="Reserved column help"
+                    ariaLabel="Ayuda de la columna reservado"
                     className="shrink-0"
                   />
                 </span>
               </TableHead>
               <TableHead>
                 <span className="inline-flex items-center gap-1">
-                  Value
+                  Valor
                   <HelpTooltip
-                    content="Estimated inventory value from allocated stock"
+                    content="Valor estimado del inventario a partir del stock asignado"
                     side="top"
-                    ariaLabel="Value column help"
+                    ariaLabel="Ayuda de la columna valor"
                     className="shrink-0"
                   />
                 </span>
@@ -242,8 +242,7 @@ export function BusinessInsightsWarehouseSection({
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className={CARD_EMPTY_MESSAGE_CLASS}>
-                    No warehouse allocations yet. Allocate stock from a
-                    warehouse detail page.
+                    Aún no hay asignaciones de almacén. Asigna stock desde la página de detalle del almacén.
                   </TableCell>
                 </TableRow>
               ) : (
