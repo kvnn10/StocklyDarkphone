@@ -43,7 +43,7 @@ function SortableHeader({ column, label }: SortableHeaderProps) {
             "flex items-center select-none cursor-pointer gap-1 py-2 text-sm font-normal text-gray-700 dark:text-white",
             isSorted && "text-primary",
           )}
-          aria-label={`Sort by ${label}`}
+          aria-label={`Ordenar por ${label}`}
         >
           {label}
           <SortingIcon className="h-4 w-4" />
@@ -52,11 +52,11 @@ function SortableHeader({ column, label }: SortableHeaderProps) {
       <DropdownMenuContent align="start" side="bottom">
         <DropdownMenuItem onClick={() => column.toggleSorting(false)}>
           <IoMdArrowUp className="mr-2 h-4 w-4" />
-          Asc
+          Ascendente
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => column.toggleSorting(true)}>
           <IoMdArrowDown className="mr-2 h-4 w-4" />
-          Desc
+          Descendente
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -85,7 +85,7 @@ export function createUserManagementColumns(
   return [
     {
       accessorKey: "name",
-      header: ({ column }) => <SortableHeader column={column} label="Name" />,
+      header: ({ column }) => <SortableHeader column={column} label="Nombre" />,
       cell: ({ row }) => {
         const u = row.original;
         const href = `${base}/${u.id}`;
@@ -104,7 +104,7 @@ export function createUserManagementColumns(
     },
     {
       accessorKey: "email",
-      header: ({ column }) => <SortableHeader column={column} label="Email" />,
+      header: ({ column }) => <SortableHeader column={column} label="Correo" />,
       cell: ({ row }) => (
         <span
           className="truncate max-w-[180px] block"
@@ -116,7 +116,7 @@ export function createUserManagementColumns(
     },
     {
       accessorKey: "username",
-      header: "Username",
+      header: "Nombre de usuario",
       cell: ({ row }) => {
         const display = getDisplayUsername(row.original);
         return (
@@ -134,21 +134,21 @@ export function createUserManagementColumns(
     },
     {
       accessorKey: "role",
-      header: ({ column }) => <SortableHeader column={column} label="Role" />,
+      header: ({ column }) => <SortableHeader column={column} label="Rol" />,
       cell: ({ row }) => (
         <UserRoleBadge role={row.original.role ?? "user"} />
       ),
     },
     {
       accessorKey: "createdAt",
-      header: ({ column }) => <SortableHeader column={column} label="Joined" />,
+      header: ({ column }) => <SortableHeader column={column} label="Registro" />,
       cell: ({ getValue }) => (
         <ClientDate date={getValue<string>()} semantic="created" />
       ),
     },
     {
       id: "actions",
-      header: "Actions",
+      header: "Acciones",
       cell: ({ row }) => {
         const u = row.original;
         const href = `${base}/${u.id}`;
@@ -165,7 +165,7 @@ export function createUserManagementColumns(
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 rounded-lg"
-                aria-label="Actions"
+                aria-label="Acciones"
               >
                 <MoreVertical className="h-4 w-4" />
               </Button>
@@ -174,26 +174,26 @@ export function createUserManagementColumns(
               <DropdownMenuItem asChild>
                 <Link href={href} className="gap-2 cursor-pointer">
                   <Eye className="h-4 w-4" />
-                  View Detail
+                  Ver detalle
                 </Link>
               </DropdownMenuItem>
               {canEdit ? (
                 <DropdownMenuItem asChild>
                   <Link href={href} className="gap-2 cursor-pointer">
                     <Pencil className="h-4 w-4" />
-                    Edit User
+                    Editar usuario
                   </Link>
                 </DropdownMenuItem>
               ) : (
                 <DropdownMenuItem disabled className="gap-2">
                   <Pencil className="h-4 w-4" />
-                  Edit User
+                  Editar usuario
                 </DropdownMenuItem>
               )}
               <DropdownMenuSeparator />
               <DropdownMenuItem disabled={!canDelete} className="gap-2">
                 <Trash2 className="h-4 w-4" />
-                Delete User
+                Eliminar usuario
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
