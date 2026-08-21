@@ -23,26 +23,28 @@ export type AdminNavItemConfig = {
 };
 
 export const ADMIN_MY_STORE_ITEMS: AdminNavItemConfig[] = [
-  { href: "/admin/dashboard-overall-insights", label: "Store Overview" },
+  { href: "/admin/dashboard-overall-insights", label: "Resumen de la tienda" },
   { href: "/admin/sales", label: "Ventas" },
-  { href: "/admin/orders", label: "Orders", countKey: "clientOrders" },
-  { href: "/admin/invoices", label: "Invoices", countKey: "clientInvoices" },
-  { href: "/admin/support-tickets", label: "Support Tickets", countKey: "supportTickets" },
-  { href: "/admin/product-reviews", label: "Product Reviews", countKey: "productReviews" },
+  { href: "/admin/orders", label: "Pedidos", countKey: "clientOrders" },
+  { href: "/admin/invoices", label: "Facturas", countKey: "clientInvoices" },
+  { href: "/admin/support-tickets", label: "Tickets de soporte", countKey: "supportTickets" },
+  { href: "/admin/product-reviews", label: "Reseñas de productos", countKey: "productReviews" },
 ];
 
 export const ADMIN_MANAGEMENT_ITEMS: AdminNavItemConfig[] = [
-  { href: "/admin/products", label: "Products", countKey: "products" },
-  { href: "/admin/warehouses", label: "Warehouses", countKey: "warehouses" },
-  { href: "/admin/supplier-portal", label: "Supplier Portal", countKey: "suppliers" },
-  { href: "/admin/client-portal", label: "Client Portal", countKey: "clients" },
+  { href: "/admin/products", label: "Productos", countKey: "products" },
+  { href: "/admin/warehouses", label: "Almacenes", countKey: "warehouses" },
+  { href: "/admin/supplier-portal", label: "Portal de proveedores", countKey: "suppliers" },
+  { href: "/admin/client-portal", label: "Portal de clientes", countKey: "clients" },
   { href: "/admin/cash", label: "Caja" },
-  { href: "/user-management", label: "User Management", countKey: "users" },
-  { href: "/admin/activity-history", label: "Activity History" },
+  // Keep the compatibility route introduced in the latest user-management fix.
+  // /user-management redirects to /admin/user-management.
+  { href: "/user-management", label: "Gestión de usuarios", countKey: "users" },
+  { href: "/admin/activity-history", label: "Historial de actividad" },
 ];
 
 export const ADMIN_MY_ACTIVITY_ITEMS: AdminNavItemConfig[] = [
-  { href: "/admin/my-activity", label: "My Activity" },
+  { href: "/admin/my-activity", label: "Mi actividad" },
 ];
 
 export const ADMIN_SETTINGS_EMAIL_HREF = "/admin/settings/email-preferences";
