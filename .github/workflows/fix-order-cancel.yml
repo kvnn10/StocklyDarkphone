@@ -126,9 +126,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .github/workflows/fix-order-cancel.yml
+          git rm -f .github/workflows/fix-order-cancel.yml .github/tmp-order-cancel-trigger.txt || true
           git add prisma/order.ts
-          git commit -m "fix: allow manual paid order cancellation"
+          git diff --cached --quiet || git commit -m "fix: allow manual paid order cancellation"
           git push origin main
           if [ "${{ github.event_name }}" = "pull_request_target" ]; then
             gh pr close "${{ github.event.pull_request.number }}" --delete-branch --comment "Temporary trigger used to apply the order-cancellation fix; fix applied directly to main."
