@@ -31,7 +31,12 @@ export function useProducts(
       return response.data;
     },
     enabled: options?.enabled ?? true,
-    ...withInitialData(initialData as Product[] | undefined),
+    // Products are high-churn inventory data. After a soft navigation, the SSR
+    // snapshot can legitimately lag a just-created/cancelled order. Always
+    // reconcile the mounted list with the API so no hard refresh is required.
+    ...withInitialData(initialData as Product[] | undefined, {
+      refetchOnMount: "always",
+    }),
   });
 }
 
@@ -292,4 +297,3 @@ export function useDeleteProduct() {
     },
   });
 }
-
