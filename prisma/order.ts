@@ -4,6 +4,7 @@
  */
 
 import { prisma } from "@/prisma/client";
+import { MongoClient } from "mongodb";
 import { createStripeRefund } from "@/lib/stripe";
 import { orderCancelShouldRefundPayment } from "@/lib/orders/cancel-payment";
 import type { Prisma } from "@prisma/client";
@@ -24,6 +25,58 @@ import {
   syncFulfillReactivatedOrderAllocations,
 } from "@/lib/products/stock-allocation-order-sync";
 import { logger } from "@/lib/logger";
+
+const CASH_REFUND_SOURCE = "refund";
+
+async function recordCashRefund(params: {
+  orderId: string;
+  userId: string;
+  amount: number;
+  paymentMethod?: string | null;
+}) {
+  if (!Number.isFinite(params.amount) || params.amount <= 0) {
+    throw new Error("Invalid refund amount");
+  }
+
+  const client = new MongoClient(process.env.DATABASE_URL!);
+  await client.connect();
+  try {
+    const collection = client.db().collection("CashMovement");
+
+    const existing = await collection.findOne({
+      userId: params.userId,
+      orderId: params.orderId,
+      source: CASH_REFUND_SOURCE,
+      status: { $ne: "voided" },
+    });
+
+    if (existing) return existing;
+
+    const movement = {
+      type: "expense",
+      source: CASH_REFUND_SOURCE,
+      orderId: params.orderId,
+      amount: params.amount,
+      paymentMethod:
+        params.paymentMethod === "cash" ||
+        params.paymentMethod === "card" ||
+        params.paymentMethod === "transfer" ||
+        params.paymentMethod === "other"
+          ? params.paymentMethod
+          : "other",
+      userId: params.userId,
+      createdBy: params.userId,
+      description: "Reembolso de venta",
+      status: "active",
+      createdAt: new Date(),
+    };
+
+    const result = await collection.insertOne(movement);
+    return { ...movement, _id: result.insertedId };
+  } finally {
+    await client.close();
+  }
+}
 
 /**
  * Generate unique order number
@@ -678,7 +731,6 @@ export async function updateOrder(
               id: true,
               name: true,
               sku: true,
-              price: true,
               categoryId: true,
               supplierId: true,
               imageUrl: true, // REQ-0059: keep thumbnails stable after status updates
@@ -835,18 +887,29 @@ export async function cancelOrder(orderId: string, userId: string) {
     select: { id: true, status: true, stripePaymentIntentId: true },
   });
 
-  // Trigger Stripe refund when money was collected and we have a PaymentIntent ID
+  // A paid/partially-paid order must have a confirmed Stripe refund before
+  // Stockly marks it as refunded. This prevents a false "refunded" state when
+  // Stripe rejects the operation.
+  let refundConfirmed = false;
   if (shouldRefund) {
     const paymentIntentId =
       orderWithItems.stripePaymentIntentId ??
       linkedInvoice?.stripePaymentIntentId;
-    if (paymentIntentId) {
-      try {
-        await createStripeRefund(paymentIntentId, "requested_by_customer");
-      } catch (refundErr) {
-        // Log but don't fail - order will still be cancelled; admin can refund manually in Stripe
-        console.error("Stripe refund failed during order cancellation:", refundErr);
-      }
+
+    if (!paymentIntentId) {
+      throw new Error(
+        "No se puede cancelar una venta pagada o parcialmente pagada sin un PaymentIntent de Stripe para procesar el reembolso.",
+      );
+    }
+
+    try {
+      await createStripeRefund(paymentIntentId, "requested_by_customer");
+      refundConfirmed = true;
+    } catch (refundErr) {
+      console.error("Stripe refund failed during order cancellation:", refundErr);
+      throw new Error(
+        "No se pudo procesar el reembolso en Stripe. La venta no fue cancelada para evitar inconsistencias.",
+      );
     }
   }
 
@@ -854,7 +917,7 @@ export async function cancelOrder(orderId: string, userId: string) {
     where: { id: orderId },
     data: {
       status: "cancelled",
-      paymentStatus: shouldRefund ? "refunded" : orderWithItems.paymentStatus,
+      paymentStatus: refundConfirmed ? "refunded" : orderWithItems.paymentStatus,
       cancelledAt: new Date(),
       updatedAt: new Date(),
       updatedBy: userId,
@@ -863,6 +926,15 @@ export async function cancelOrder(orderId: string, userId: string) {
       items: true,
     },
   });
+
+  if (refundConfirmed) {
+    await recordCashRefund({
+      orderId,
+      userId,
+      amount: Number(orderWithItems.total),
+      paymentMethod: "card",
+    });
+  }
 
   // Cancel linked invoice if it exists (so unpaid/outstanding stats update)
   if (linkedInvoice && linkedInvoice.status !== "cancelled") {
