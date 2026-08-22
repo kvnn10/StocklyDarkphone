@@ -731,6 +731,7 @@ export async function updateOrder(
               id: true,
               name: true,
               sku: true,
+              price: true,
               categoryId: true,
               supplierId: true,
               imageUrl: true, // REQ-0059: keep thumbnails stable after status updates
@@ -884,7 +885,7 @@ export async function cancelOrder(orderId: string, userId: string) {
   // Fetch linked invoice (needed for Stripe refund + invoice cancel)
   const linkedInvoice = await prisma.invoice.findUnique({
     where: { orderId },
-    select: { id: true, status: true, stripePaymentIntentId: true },
+    select: { id: true, status: true, amountPaid: true, stripePaymentIntentId: true },
   });
 
   // A paid/partially-paid order must have a confirmed Stripe refund before
@@ -931,7 +932,7 @@ export async function cancelOrder(orderId: string, userId: string) {
     await recordCashRefund({
       orderId,
       userId,
-      amount: Number(orderWithItems.total),
+      amount: Number(linkedInvoice?.amountPaid ?? orderWithItems.total),
       paymentMethod: "card",
     });
   }
