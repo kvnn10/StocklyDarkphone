@@ -23,6 +23,12 @@ export type OrderLineAllocationRef = {
   quantity: number;
 };
 
+function assertPositiveQuantity(quantity: number): void {
+  if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isInteger(quantity)) {
+    throw new Error(`Invalid stock quantity: ${quantity}`);
+  }
+}
+
 /** Warehouses with available stock for a product (owner-scoped). */
 export async function getProductAllocationWarehouses(
   productId: string,
@@ -30,13 +36,8 @@ export async function getProductAllocationWarehouses(
 ): Promise<WarehousePickOption[]> {
   const allocations = await prisma.stockAllocation.findMany({
     where: { productId },
-    select: {
-      warehouseId: true,
-      quantity: true,
-      reservedQuantity: true,
-    },
+    select: { warehouseId: true, quantity: true, reservedQuantity: true },
   });
-
   if (allocations.length === 0) return [];
 
   const warehouseIds = [...new Set(allocations.map((a) => a.warehouseId))];
@@ -46,21 +47,15 @@ export async function getProductAllocationWarehouses(
   });
   const warehouseMap = new Map(warehouses.map((w) => [w.id, w.name]));
 
-  const options: WarehousePickOption[] = [];
-  for (const allocation of allocations) {
-    const name = warehouseMap.get(allocation.warehouseId);
-    if (!name) continue;
-    const available =
-      Number(allocation.quantity) - Number(allocation.reservedQuantity ?? 0);
-    if (available <= 0) continue;
-    options.push({
-      warehouseId: allocation.warehouseId,
-      warehouseName: name,
-      available,
-    });
-  }
-
-  return options.sort((a, b) => b.available - a.available);
+  return allocations
+    .flatMap((allocation) => {
+      const name = warehouseMap.get(allocation.warehouseId);
+      if (!name) return [];
+      const available = Number(allocation.quantity) - Number(allocation.reservedQuantity ?? 0);
+      if (available <= 0) return [];
+      return [{ warehouseId: allocation.warehouseId, warehouseName: name, available }];
+    })
+    .sort((a, b) => b.available - a.available);
 }
 
 /** True when the product owner has at least one warehouse allocation row. */
@@ -73,12 +68,8 @@ export async function productRequiresWarehousePick(
     select: { warehouseId: true },
   });
   if (allocations.length === 0) return false;
-
   const warehouseIds = allocations.map((a) => a.warehouseId);
-  const ownedCount = await prisma.warehouse.count({
-    where: { id: { in: warehouseIds }, userId: ownerUserId },
-  });
-  return ownedCount > 0;
+  return (await prisma.warehouse.count({ where: { id: { in: warehouseIds }, userId: ownerUserId } })) > 0;
 }
 
 /** Resolve warehouse name for order line snapshot. */
@@ -99,106 +90,92 @@ export async function validateWarehousePick(
   warehouseId: string,
   quantity: number,
 ): Promise<void> {
+  assertPositiveQuantity(quantity);
   const allocation = await prisma.stockAllocation.findUnique({
-    where: {
-      productId_warehouseId: { productId, warehouseId },
-    },
+    where: { productId_warehouseId: { productId, warehouseId } },
     select: { quantity: true, reservedQuantity: true },
   });
-
   if (!allocation) {
-    throw new Error(
-      `No stock allocation for product ${productId} at warehouse ${warehouseId}`,
-    );
+    throw new Error(`No stock allocation for product ${productId} at warehouse ${warehouseId}`);
   }
 
   const maxQty = getOrderLineWarehouseAvailable(
     Number(allocation.quantity),
     Number(allocation.reservedQuantity ?? 0),
   );
-
   if (quantity > maxQty) {
-    const warehouse = await prisma.warehouse.findFirst({
-      where: { id: warehouseId },
-      select: { name: true },
-    });
-    const name = warehouse?.name?.trim() || "warehouse";
-    throw new Error(`Max ${maxQty} at ${name}`);
+    const warehouse = await prisma.warehouse.findFirst({ where: { id: warehouseId }, select: { name: true } });
+    throw new Error(`Max ${maxQty} at ${warehouse?.name?.trim() || "warehouse"}`);
   }
 }
 
-/** Pending order create — reserve allocation row for the picked warehouse. */
+/** Pending order create — atomically reserve allocation only if enough unreserved stock remains. */
 export async function reserveAllocationForOrderItem(
   productId: string,
   warehouseId: string,
   quantity: number,
 ): Promise<void> {
-  await validateWarehousePick(productId, warehouseId, quantity);
-  await prisma.stockAllocation.update({
+  assertPositiveQuantity(quantity);
+  const result = await prisma.stockAllocation.updateMany({
     where: {
-      productId_warehouseId: { productId, warehouseId },
+      productId,
+      warehouseId,
+      quantity: { gte: quantity },
+      reservedQuantity: { lte: prisma.stockAllocation.fields.quantity },
     },
-    data: {
-      reservedQuantity: { increment: quantity },
-      updatedAt: new Date(),
-    },
+    data: { reservedQuantity: { increment: quantity }, updatedAt: new Date() },
   });
+
+  if (result.count !== 1) {
+    throw new Error(`Insufficient available stock at warehouse ${warehouseId}`);
+  }
 }
 
-/** Pending order cancel — release allocation reservation only. */
+/** Pending order cancel — atomically release only an existing reservation. */
 export async function releaseAllocationReservation(
   productId: string,
   warehouseId: string,
   quantity: number,
 ): Promise<void> {
-  const allocation = await prisma.stockAllocation.findUnique({
+  assertPositiveQuantity(quantity);
+  const result = await prisma.stockAllocation.updateMany({
     where: {
-      productId_warehouseId: { productId, warehouseId },
+      productId,
+      warehouseId,
+      reservedQuantity: { gte: quantity },
     },
+    data: { reservedQuantity: { decrement: quantity }, updatedAt: new Date() },
   });
-  if (!allocation) return;
-
-  await prisma.stockAllocation.update({
-    where: { id: allocation.id },
-    data: {
-      reservedQuantity: { decrement: quantity },
-      updatedAt: new Date(),
-    },
-  });
+  if (result.count !== 1) {
+    throw new Error(`Cannot release ${quantity} reserved units for product ${productId}`);
+  }
 }
 
-/**
- * Confirm/paid from pending — deduct allocation quantity and release reservation.
- * Reactivated orders pass releaseReservation=false (no reservation left).
- */
+/** Confirm/paid from pending — atomically consume stock and, when applicable, its reservation. */
 export async function fulfillAllocationFromPick(
   productId: string,
   warehouseId: string,
   quantity: number,
   options?: { releaseReservation?: boolean },
 ): Promise<void> {
+  assertPositiveQuantity(quantity);
   const releaseReservation = options?.releaseReservation ?? true;
-  const allocation = await prisma.stockAllocation.findUnique({
+  const result = await prisma.stockAllocation.updateMany({
     where: {
-      productId_warehouseId: { productId, warehouseId },
+      productId,
+      warehouseId,
+      quantity: { gte: quantity },
+      ...(releaseReservation ? { reservedQuantity: { gte: quantity } } : {}),
     },
-  });
-  if (!allocation) {
-    throw new Error(
-      `No stock allocation for product ${productId} at warehouse ${warehouseId}`,
-    );
-  }
-
-  await prisma.stockAllocation.update({
-    where: { id: allocation.id },
     data: {
       quantity: { decrement: quantity },
-      ...(releaseReservation
-        ? { reservedQuantity: { decrement: quantity } }
-        : {}),
+      ...(releaseReservation ? { reservedQuantity: { decrement: quantity } } : {}),
       updatedAt: new Date(),
     },
   });
+  if (result.count !== 1) {
+    throw new Error(`Insufficient stock/reservation at warehouse ${warehouseId}`);
+  }
 }
 
 /** Confirmed/paid order cancel — restore allocation quantity at picked warehouse. */
@@ -207,89 +184,40 @@ export async function restoreAllocationOnCancelConfirmed(
   warehouseId: string,
   quantity: number,
 ): Promise<void> {
-  const allocation = await prisma.stockAllocation.findUnique({
-    where: {
-      productId_warehouseId: { productId, warehouseId },
-    },
+  assertPositiveQuantity(quantity);
+  const result = await prisma.stockAllocation.updateMany({
+    where: { productId, warehouseId },
+    data: { quantity: { increment: quantity }, updatedAt: new Date() },
   });
-  if (!allocation) return;
-
-  await prisma.stockAllocation.update({
-    where: { id: allocation.id },
-    data: {
-      quantity: { increment: quantity },
-      updatedAt: new Date(),
-    },
-  });
-}
-
-/** Best-effort sync for order line items — logs warnings, never throws. */
-export async function syncReleasePendingOrderAllocations(
-  items: OrderLineAllocationRef[],
-): Promise<void> {
-  for (const item of items) {
-    if (!item.warehouseId) continue;
-    try {
-      await releaseAllocationReservation(
-        item.productId,
-        item.warehouseId,
-        item.quantity,
-      );
-    } catch {
-      // non-blocking
-    }
+  if (result.count !== 1) {
+    throw new Error(`No stock allocation for product ${productId} at warehouse ${warehouseId}`);
   }
 }
 
-export async function syncFulfillPendingOrderAllocations(
-  items: OrderLineAllocationRef[],
-): Promise<void> {
+export async function syncReleasePendingOrderAllocations(items: OrderLineAllocationRef[]): Promise<void> {
   for (const item of items) {
     if (!item.warehouseId) continue;
-    try {
-      await fulfillAllocationFromPick(
-        item.productId,
-        item.warehouseId,
-        item.quantity,
-        { releaseReservation: true },
-      );
-    } catch {
-      // non-blocking
-    }
+    await releaseAllocationReservation(item.productId, item.warehouseId, item.quantity);
   }
 }
 
-export async function syncRestoreConfirmedOrderAllocations(
-  items: OrderLineAllocationRef[],
-): Promise<void> {
+export async function syncFulfillPendingOrderAllocations(items: OrderLineAllocationRef[]): Promise<void> {
   for (const item of items) {
     if (!item.warehouseId) continue;
-    try {
-      await restoreAllocationOnCancelConfirmed(
-        item.productId,
-        item.warehouseId,
-        item.quantity,
-      );
-    } catch {
-      // non-blocking
-    }
+    await fulfillAllocationFromPick(item.productId, item.warehouseId, item.quantity, { releaseReservation: true });
   }
 }
 
-export async function syncFulfillReactivatedOrderAllocations(
-  items: OrderLineAllocationRef[],
-): Promise<void> {
+export async function syncRestoreConfirmedOrderAllocations(items: OrderLineAllocationRef[]): Promise<void> {
   for (const item of items) {
     if (!item.warehouseId) continue;
-    try {
-      await fulfillAllocationFromPick(
-        item.productId,
-        item.warehouseId,
-        item.quantity,
-        { releaseReservation: false },
-      );
-    } catch {
-      // non-blocking
-    }
+    await restoreAllocationOnCancelConfirmed(item.productId, item.warehouseId, item.quantity);
+  }
+}
+
+export async function syncFulfillReactivatedOrderAllocations(items: OrderLineAllocationRef[]): Promise<void> {
+  for (const item of items) {
+    if (!item.warehouseId) continue;
+    await fulfillAllocationFromPick(item.productId, item.warehouseId, item.quantity, { releaseReservation: false });
   }
 }
