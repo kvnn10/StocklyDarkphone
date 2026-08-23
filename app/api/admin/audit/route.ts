@@ -30,7 +30,22 @@ export async function GET(request: NextRequest) {
   };
 
   const [items, total] = await Promise.all([
-    prisma.auditLog.findMany({ where, orderBy: { createdAt: "desc" }, take: limit }),
+    prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: {
+        id: true,
+        userId: true,
+        action: true,
+        entityType: true,
+        entityId: true,
+        details: true,
+        ipAddress: true,
+        userAgent: true,
+        createdAt: true,
+      },
+    }),
     prisma.auditLog.count({ where }),
   ]);
 
