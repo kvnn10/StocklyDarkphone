@@ -6,6 +6,9 @@
  * Category and supplier can be supplied by ID or by their natural name.
  * Names are resolved against records belonging to the supplied admin user,
  * case-insensitively. Maximum 100 products per request.
+ *
+ * Note: category/supplier references are resolved independently so Prisma
+ * keeps the concrete delegate type during the build/type-check phase.
  */
 
 import { NextRequest, NextResponse } from "next/server";
