@@ -23,10 +23,19 @@ jobs:
           path = Path('components/Pages/BusinessInsightPage.tsx')
           text = path.read_text(encoding='utf-8')
 
-          import_line = 'import { buildBusinessStockRollup } from "@/lib/insights/business-insights-stock-rollup";\n'
-          if 'buildBusinessStockRollup' not in text:
+          rollup_import = 'import { buildBusinessStockRollup } from "@/lib/insights/business-insights-stock-rollup";\n'
+          committed_import = 'import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";\n'
+
+          if 'from "@/lib/insights/business-insights-stock-rollup"' not in text:
               anchor = 'import {\n  buildWarehouseQuantityChartData,'
-              text = text.replace(anchor, import_line + anchor, 1)
+              text = text.replace(anchor, rollup_import + anchor, 1)
+
+          if 'from "@/lib/products/enrich-product-committed-quantity"' not in text:
+              anchor = rollup_import
+              if anchor in text:
+                  text = text.replace(anchor, anchor + committed_import, 1)
+              else:
+                  raise SystemExit('Could not find rollup import anchor')
 
           old = '''    // CORRECTED: Total value calculation - sum of (price * quantity) for each product\n    const totalValue = filteredProducts.reduce((sum, product) => {\n      return sum + product.price * Number(product.quantity);\n    }, 0);'''
           new = '''    // Stock KPIs use the same source of truth as the Products table.\n    const stockRollup = buildBusinessStockRollup(filteredProducts);\n    const totalValue = stockRollup.totalValue;\n    const totalReserved = stockRollup.totalReserved;\n    const totalAvailable = stockRollup.totalAvailable;\n    const totalSold = stockRollup.totalSold;'''
@@ -53,15 +62,11 @@ jobs:
           if old_av in text:
               text = text.replace(old_av, new_av, 1)
 
-          if 'getDisplayCommittedQuantity' not in text:
-              anchor = 'import { buildBusinessStockRollup } from "@/lib/insights/business-insights-stock-rollup";\n'
-              text = text.replace(anchor, anchor + 'import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";\n', 1)
-
-          marker = 'const stockRollup = buildBusinessStockRollup(filteredProducts);'
-          if marker not in text:
+          if 'const stockRollup = buildBusinessStockRollup(filteredProducts);' not in text:
               raise SystemExit('Patch did not apply: stock rollup marker missing')
 
           path.write_text(text, encoding='utf-8')
+
       - name: Commit patch
         shell: bash
         run: |
@@ -69,7 +74,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add components/Pages/BusinessInsightPage.tsx .github/workflows/sync-business-insights-stock.yml
           git diff --cached --quiet && exit 0
-          git commit -m "feat: align business insights stock metrics"
+          git commit -m "fix: import committed stock helper"
           git push
-
-# Force a workflow revision so the stock-metrics sync runs on the next push.
