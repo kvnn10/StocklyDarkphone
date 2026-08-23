@@ -1,10 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Boxes, CreditCard, DollarSign, Users } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, ArrowRight, Boxes, CheckCircle2, CreditCard, DollarSign, Users } from "lucide-react";
 import type { DashboardStats } from "@/types";
 
+type Health = {
+  status: "healthy" | "attention";
+  inventory: { checked: number; healthy: number; issues: number; blocked: number };
+};
+
 export default function AdminBusinessQuickAccess({ stats }: { stats?: DashboardStats | null }) {
+  const [health, setHealth] = useState<Health | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/dashboard/health", { credentials: "include", cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data?.health) setHealth(data.health);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const cards = [
     { href: "/admin/sales", label: "Ventas", value: stats?.counts?.orders ?? 0, description: "POS y ventas registradas", icon: CreditCard, tone: "from-blue-500/20 to-cyan-500/10" },
     { href: "/admin/client-portal", label: "Clientes", value: stats?.counts?.users ?? 0, description: "Usuarios registrados", icon: Users, tone: "from-violet-500/20 to-fuchsia-500/10" },
@@ -26,6 +47,22 @@ export default function AdminBusinessQuickAccess({ stats }: { stats?: DashboardS
             <div className="mt-4"><div className="text-sm font-medium">{card.label}</div><div className="mt-1 text-2xl font-bold">{card.value}</div><div className="mt-1 text-xs text-muted-foreground">{card.description}</div></div>
           </Link>;
         })}
+      </div>
+      <div className="rounded-2xl border bg-background p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            {health?.status === "attention" ? <AlertTriangle className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+            <div>
+              <div className="text-sm font-semibold">Salud del inventario</div>
+              <div className="text-xs text-muted-foreground">
+                {health ? `${health.inventory.healthy}/${health.inventory.checked} productos sin diferencias` : "Comprobando inventario…"}
+              </div>
+            </div>
+          </div>
+          {health && health.inventory.issues > 0 && (
+            <span className="text-xs font-medium">{health.inventory.issues} diferencia{health.inventory.issues === 1 ? "" : "s"}</span>
+          )}
+        </div>
       </div>
     </section>
   );
