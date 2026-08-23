@@ -4,6 +4,7 @@ import React from "react";
 import { PageContentWrapper } from "@/components/shared";
 import AdminAnalyticsContent from "./AdminAnalyticsContent";
 import AdminBusinessQuickAccess from "./AdminBusinessQuickAccess";
+import AdminOperationalHealthCard from "./AdminOperationalHealthCard";
 import type { DashboardStats } from "@/types";
 
 export type AdminDashboardMergedViewProps = {
@@ -15,7 +16,8 @@ export type AdminDashboardMergedViewProps = {
 };
 
 /**
- * Merged dashboard: overview (KPIs + recent orders) + analytics (charts, AI).
+ * Merged dashboard: overview (KPIs + recent orders) + analytics (charts, AI)
+ * + operational inventory health.
  * REQ-0025 — blocking SSR in page.tsx; no Suspense shell flash.
  */
 export default function AdminDashboardMergedView({
@@ -27,6 +29,7 @@ export default function AdminDashboardMergedView({
     <PageContentWrapper noPadding={variant === "store"}>
       <div className="space-y-6">
         <AdminBusinessQuickAccess stats={initialStats} />
+        {variant === "store" && <AdminOperationalHealthCard />}
         <AdminAnalyticsContent
           initialStats={initialStats}
           initialForecasting={initialForecasting}
