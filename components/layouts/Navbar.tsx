@@ -406,7 +406,7 @@ export default function Navbar({ children }: NavbarProps) {
           id="mobile-menu-panel"
           role="navigation"
           aria-label="Mobile navigation"
-          className="xl:hidden border-t border-white/10 dark:border-white/10 bg-gradient-to-br from-white/95 via-white/90 to-white/85 dark:from-white/10 dark:via-white/10 dark:to-white/5 backdrop-blur-xl max-h-[calc(100vh-3.5rem)] overflow-y-auto"
+          className="xl:hidden absolute left-0 right-0 top-[72px] z-[60] border-t border-white/10 dark:border-white/10 bg-white/98 dark:bg-slate-950/98 backdrop-blur-xl max-h-[calc(100dvh-72px)] overflow-y-auto shadow-2xl"
         >
           <div
             className={`${APP_SHELL_WIDTH_CLASS} px-2 sm:px-4 lg:px-6 sm:py-6 space-y-2`}
