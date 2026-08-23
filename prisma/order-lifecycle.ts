@@ -8,6 +8,7 @@ import { decrementStockAllocations } from "@/lib/products/decrement-stock-alloca
 import { fulfillPendingOrderLines, releasePendingOrderLines } from "@/lib/products/order-stock-reservation";
 import { syncRestoreConfirmedOrderAllocations, syncFulfillReactivatedOrderAllocations } from "@/lib/products/stock-allocation-order-sync";
 import { logger } from "@/lib/logger";
+import { writeAuditLog } from "@/lib/audit/log";
 import { MongoClient } from "mongodb";
 
 const detailProductSelect = { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } as const;
@@ -132,7 +133,13 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
   }
 
   const updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
-  if (paymentCaptured) await recordCashSale(orderId, userId, Number(updated.total));
+  if (paymentCaptured) {
+    await recordCashSale(orderId, userId, Number(updated.total));
+    await writeAuditLog({ userId, action: "PAYMENT_CAPTURED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber, amount: Number(updated.total) } });
+  }
+  if (confirming) await writeAuditLog({ userId, action: "ORDER_CONFIRMED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber } });
+  if (reactivating) await writeAuditLog({ userId, action: "ORDER_REACTIVATED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber } });
+  if (cancelling) await writeAuditLog({ userId, action: "ORDER_CANCELLED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber, previousStatus } });
   if (cancelling || confirming || reactivating) await Promise.all([invalidateCache(cacheKeys.products.pattern), invalidateCache(cacheKeys.stockAllocation.pattern)]);
   return updated;
 }
@@ -162,8 +169,12 @@ export async function cancelOrder(orderId: string, userId: string) {
   }
 
   const cancelled = await prisma.order.update({ where: { id: orderId }, data: { status: "cancelled", paymentStatus: refundConfirmed ? "refunded" : order.paymentStatus, cancelledAt: new Date(), updatedAt: new Date(), updatedBy: userId }, include: { items: true } });
-  if (refundConfirmed) await recordCashRefund(orderId, userId, Number(invoice?.amountPaid ?? order.total));
+  if (refundConfirmed) {
+    await recordCashRefund(orderId, userId, Number(invoice?.amountPaid ?? order.total));
+    await writeAuditLog({ userId, action: "ORDER_REFUNDED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, amount: Number(invoice?.amountPaid ?? order.total) } });
+  }
   if (invoice && invoice.status !== "cancelled") await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "cancelled", cancelledAt: new Date(), amountDue: 0, updatedAt: new Date() } });
+  await writeAuditLog({ userId, action: "ORDER_CANCELLED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, refunded: refundConfirmed } });
   await Promise.all([invalidateCache(cacheKeys.products.pattern), invalidateCache(cacheKeys.stockAllocation.pattern)]);
   logger.info("Order cancelled", { orderId, userId });
   return cancelled;
