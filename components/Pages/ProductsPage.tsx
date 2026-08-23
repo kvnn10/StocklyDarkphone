@@ -13,6 +13,9 @@ import ProductList from "@/components/products/ProductList";
 import ClientProductList from "@/components/products/ClientProductList";
 import { PageContentWrapper } from "@/components/shared";
 import FloatingActionButtons from "@/components/shared/FloatingActionButtons";
+import AddProductDialog from "@/components/products/ProductFormDialog";
+import { Button } from "@/components/ui/button";
+import { PackagePlus } from "lucide-react";
 import { useProducts } from "@/hooks/queries";
 import { useAuth } from "@/contexts";
 import { replaceShallowSearchParam } from "@/lib/navigation/shallow-search-param";
@@ -59,16 +62,16 @@ export default function ProductsPage({
   );
   const [selectedOwnerId, setSelectedOwnerId] = useState<string>(initialOwnerId);
 
-  // Full navigation from catalog link updates SSR initialOwnerId.
   useEffect(() => {
     setSelectedOwnerId(initialOwnerId);
   }, [initialOwnerId]);
 
-  /** Shallow URL sync — shareable deep link without RSC refetch (REQ-0027). */
   const handleOwnerChange = useCallback((ownerId: string) => {
     setSelectedOwnerId(ownerId);
     replaceShallowSearchParam("ownerId", ownerId);
   }, []);
+
+  const canCreateProduct = !isClient && user?.role !== "supplier";
 
   return (
     <Navbar>
@@ -88,6 +91,27 @@ export default function ProductsPage({
             initialSupplierPortal={initialSupplierPortal}
           />
         )}
+
+        {/* Explicit mobile action: do not rely on the floating desktop FAB. */}
+        {canCreateProduct && (
+          <div className="md:hidden sticky bottom-3 z-40 mt-4 px-1 pb-[env(safe-area-inset-bottom)]">
+            <AddProductDialog
+              allProducts={allProducts}
+              userId={user?.id || ""}
+            >
+              <Button
+                type="button"
+                size="lg"
+                className="w-full rounded-2xl bg-rose-600/90 text-white shadow-[0_12px_35px_rgba(225,29,72,0.35)] backdrop-blur-md hover:bg-rose-600"
+                aria-label="Crear producto"
+              >
+                <PackagePlus className="mr-2 h-5 w-5" />
+                Nuevo producto
+              </Button>
+            </AddProductDialog>
+          </div>
+        )}
+
         {!isClient && user?.role !== "supplier" && (
           <FloatingActionButtons
             variant="products"
