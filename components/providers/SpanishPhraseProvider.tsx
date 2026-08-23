@@ -2,8 +2,9 @@
 
 import { useEffect } from "react";
 
-// Phrase-level replacements catch UI text that is embedded in longer nodes.
-// They intentionally target fixed English UI copy, not product/customer data.
+// Phrase-level replacements catch fixed English UI copy embedded in longer nodes.
+// Keep replacements specific: short fragments such as "To" must never be
+// replaced globally because they can corrupt words like "Total".
 const PHRASES: Array<[string, string]> = [
   ["Store Analytics & Dashboard", "Análisis y panel de la tienda"],
   ["Overview, statistics, trends, and AI-powered insights", "Resumen, estadísticas, tendencias y análisis con IA"],
@@ -114,9 +115,6 @@ const PHRASES: Array<[string, string]> = [
   ["Search", "Buscar"],
   ["Actions", "Acciones"],
   ["View Detail", "Ver detalle"],
-
-  // Admin dashboard / analytics status labels. Keep these phrase-specific so
-  // environment variables and technical identifiers such as OPENROUTER_* are untouched.
   ["Products availability", "Disponibilidad de productos"],
   ["Available", "Disponibles"],
   ["Stock low", "Stock bajo"],
@@ -161,7 +159,7 @@ const PHRASES: Array<[string, string]> = [
   ["Recommendations", "Recomendaciones"],
   ["Date range", "Rango de fechas"],
   ["From", "Desde"],
-  ["To", "Hasta"],
+  ["To:", "Hasta:"],
   ["Export Analytics", "Exportar análisis"],
   ["Export", "Exportar"],
 ];
