@@ -92,15 +92,45 @@ async function resolveReference(
     return { id: null as string | null, error: `${kind} is required` };
   }
 
-  const collection = kind === "category" ? prisma.category : prisma.supplier;
+  // Keep Prisma calls type-safe by narrowing the model before querying.
+  if (kind === "category") {
+    const byId = await prisma.category.findFirst({
+      where: { id: nameOrId, userId: ownerId },
+      select: { id: true, name: true },
+    });
+    if (byId) return { id: byId.id, name: byId.name, error: undefined };
 
-  const byId = await collection.findFirst({
+    const matches = await prisma.category.findMany({
+      where: {
+        userId: ownerId,
+        name: { equals: nameOrId, mode: "insensitive" },
+      },
+      select: { id: true, name: true },
+      take: 2,
+    });
+
+    if (matches.length === 1) {
+      return { id: matches[0].id, name: matches[0].name, error: undefined };
+    }
+    if (matches.length > 1) {
+      return {
+        id: null as string | null,
+        error: `Multiple categories match "${nameOrId}"; use the ID to disambiguate`,
+      };
+    }
+    return {
+      id: null as string | null,
+      error: `category "${nameOrId}" not found for this admin`,
+    };
+  }
+
+  const byId = await prisma.supplier.findFirst({
     where: { id: nameOrId, userId: ownerId },
     select: { id: true, name: true },
   });
   if (byId) return { id: byId.id, name: byId.name, error: undefined };
 
-  const matches = await collection.findMany({
+  const matches = await prisma.supplier.findMany({
     where: {
       userId: ownerId,
       name: { equals: nameOrId, mode: "insensitive" },
@@ -115,12 +145,12 @@ async function resolveReference(
   if (matches.length > 1) {
     return {
       id: null as string | null,
-      error: `Multiple ${kind}s match "${nameOrId}"; use the ID to disambiguate`,
+      error: `Multiple suppliers match "${nameOrId}"; use the ID to disambiguate`,
     };
   }
   return {
     id: null as string | null,
-    error: `${kind} "${nameOrId}" not found for this admin`,
+    error: `supplier "${nameOrId}" not found for this admin`,
   };
 }
 
