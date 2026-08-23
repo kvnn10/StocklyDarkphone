@@ -18,6 +18,9 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Allow the latest Vercel deployment to finish
+        run: sleep 90
+
       - name: Process product queue files
         env:
           BEFORE_SHA: ${{ github.event.before }}
