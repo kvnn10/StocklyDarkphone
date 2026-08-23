@@ -1,0 +1,51 @@
+name: Stockly issue product queue
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  create-product:
+    if: startsWith(github.event.issue.title, '[STOCKLY CREATE]') && github.event.issue.user.login == 'kvnn10'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for Vercel deployment
+        run: sleep 30
+
+      - name: Create product in Stockly
+        id: stockly
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST "https://stockly-darkphone.vercel.app/api/github/issue-product?issue=${ISSUE_NUMBER}")
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          CODE=$(echo "$RESPONSE" | tail -n 1)
+          echo "HTTP $CODE"
+          echo "$BODY"
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
+            echo "$BODY" > /tmp/stockly-error.txt
+            exit 1
+          fi
+          echo "$BODY" > /tmp/stockly-result.json
+
+      - name: Close processed issue
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "✅ Stockly procesó esta solicitud y creó/validó el producto."
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY"
+
+      - name: Report failure on issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          ERROR=$(cat /tmp/stockly-error.txt 2>/dev/null || echo 'Revisa la ejecución de GitHub Actions para ver el error.')
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "❌ Stockly no pudo procesar esta solicitud.\n\n\`\`\`json\n$ERROR\n\`\`\`"
