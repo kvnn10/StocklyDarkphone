@@ -11,6 +11,9 @@ import { logger } from "@/lib/logger";
 import { MongoClient } from "mongodb";
 
 const detailProductSelect = { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } as const;
+const CASH_SALE_SOURCE = "sale";
+const CASH_REFUND_SOURCE = "refund";
+const CASH_METHODS = new Set(["cash", "card", "transfer", "other"]);
 
 export async function getOrderByIdForAdmin(orderId: string) {
   return prisma.order.findFirst({ where: { id: orderId }, include: { items: { include: { product: { select: detailProductSelect } } } } });
@@ -35,15 +38,55 @@ export async function getOrderByIdForClient(orderId: string, clientId: string) {
   return prisma.order.findFirst({ where: { id: orderId, items: { some: {} } }, include: clientInclude });
 }
 
+async function recordCashSale(orderId: string, userId: string, amount: number) {
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid sale amount");
+  const client = new MongoClient(process.env.DATABASE_URL!);
+  await client.connect();
+  try {
+    const collection = client.db().collection("CashMovement");
+    const existing = await collection.findOne({ userId, orderId, source: CASH_SALE_SOURCE, status: { $ne: "voided" } });
+    if (existing) return existing;
+    const movement = {
+      type: "income",
+      source: CASH_SALE_SOURCE,
+      orderId,
+      amount,
+      paymentMethod: "other",
+      userId,
+      createdBy: userId,
+      description: "Venta",
+      status: "active",
+      createdAt: new Date(),
+    };
+    const result = await collection.insertOne(movement);
+    return { ...movement, _id: result.insertedId };
+  } finally { await client.close(); }
+}
+
 async function recordCashRefund(orderId: string, userId: string, amount: number) {
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid refund amount");
   const client = new MongoClient(process.env.DATABASE_URL!);
   await client.connect();
   try {
     const collection = client.db().collection("CashMovement");
-    const existing = await collection.findOne({ userId, orderId, source: "refund", status: { $ne: "voided" } });
-    if (existing) return;
-    await collection.insertOne({ type: "expense", source: "refund", orderId, amount, paymentMethod: "card", userId, createdBy: userId, description: "Reembolso de venta", status: "active", createdAt: new Date() });
+    const existing = await collection.findOne({ userId, orderId, source: CASH_REFUND_SOURCE, status: { $ne: "voided" } });
+    if (existing) return existing;
+    const sale = await collection.findOne({ userId, orderId, source: CASH_SALE_SOURCE, status: { $ne: "voided" } });
+    const paymentMethod = typeof sale?.paymentMethod === "string" && CASH_METHODS.has(sale.paymentMethod) ? sale.paymentMethod : "other";
+    const movement = {
+      type: "expense",
+      source: CASH_REFUND_SOURCE,
+      orderId,
+      amount,
+      paymentMethod,
+      userId,
+      createdBy: userId,
+      description: "Reembolso de venta",
+      status: "active",
+      createdAt: new Date(),
+    };
+    const result = await collection.insertOne(movement);
+    return { ...movement, _id: result.insertedId };
   } finally { await client.close(); }
 }
 
@@ -74,6 +117,7 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
   const cancelling = nextStatus === "cancelled" && previousStatus !== "cancelled";
   const confirming = isFulfilled && !wasFulfilled && previousStatus === "pending";
   const reactivating = previousStatus === "cancelled" && isFulfilled;
+  const paymentCaptured = nextPaid && !previousPaid;
 
   if (confirming) await fulfillPendingOrderLines(items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null })));
   if (cancelling && !wasFulfilled) await releasePendingOrderLines(items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null })));
@@ -88,6 +132,7 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
   }
 
   const updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
+  if (paymentCaptured) await recordCashSale(orderId, userId, Number(updated.total));
   if (cancelling || confirming || reactivating) await Promise.all([invalidateCache(cacheKeys.products.pattern), invalidateCache(cacheKeys.stockAllocation.pattern)]);
   return updated;
 }
