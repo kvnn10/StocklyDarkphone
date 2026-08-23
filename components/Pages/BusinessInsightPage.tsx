@@ -93,6 +93,7 @@ import type { OrderForPage } from "@/lib/server/orders-data";
 import type { WarehouseStockSummary } from "@/types/stock-allocation";
 import { BusinessInsightsWarehouseSection } from "@/components/business-insights/BusinessInsightsWarehouseSection";
 import { DenseCatalogProductCell } from "@/components/shared/DenseCatalogProductCell";
+import { buildBusinessStockRollup } from "@/lib/insights/business-insights-stock-rollup";
 import {
   buildWarehouseQuantityChartData,
   buildWarehouseRollupMetrics,
@@ -276,30 +277,32 @@ export default function BusinessInsightPage({
 
     const totalProducts = filteredProducts.length;
 
-    // CORRECTED: Total value calculation - sum of (price * quantity) for each product
-    const totalValue = filteredProducts.reduce((sum, product) => {
-      return sum + product.price * Number(product.quantity);
-    }, 0);
+    // Stock KPIs use the same source of truth as the Products table.
+    const stockRollup = buildBusinessStockRollup(filteredProducts);
+    const totalValue = stockRollup.totalValue;
+    const totalReserved = stockRollup.totalReserved;
+    const totalAvailable = stockRollup.totalAvailable;
+    const totalSold = stockRollup.totalSold;
 
-    // CORRECTED: Low stock items - products with quantity > 0 AND quantity <= 20 (matching product table logic)
-    const lowStockItems = filteredProducts.filter(
-      (product) =>
-        Number(product.quantity) > 0 && Number(product.quantity) <= 20,
-    ).length;
+    // Low stock is based on sellable stock, not physically reserved units.
+    const lowStockItems = filteredProducts.filter((product) => {
+      const available = Math.max(0, (Number(product.quantity) || 0) - getDisplayCommittedQuantity(product));
+      return available > 0 && available <= 20;
+    }).length;
 
-    // CORRECTED: Out of stock items - products with quantity = 0
-    const outOfStockItems = filteredProducts.filter(
-      (product) => Number(product.quantity) === 0,
-    ).length;
+    // Out of stock means no sellable units remain.
+    const outOfStockItems = filteredProducts.filter((product) => {
+      const available = Math.max(0, (Number(product.quantity) || 0) - getDisplayCommittedQuantity(product));
+      return available === 0;
+    }).length;
 
-    const availableStockItems = filteredProducts.filter(
-      (product) => Number(product.quantity) > 20,
-    ).length;
+    const availableStockItems = filteredProducts.filter((product) => {
+      const available = Math.max(0, (Number(product.quantity) || 0) - getDisplayCommittedQuantity(product));
+      return available > 20;
+    }).length;
 
-    // CORRECTED: Total quantity - sum of all quantities
-    const totalQuantity = filteredProducts.reduce((sum, product) => {
-      return sum + Number(product.quantity);
-    }, 0);
+    // Total physical quantity comes from the centralized stock rollup.
+    const totalQuantity = stockRollup.totalQuantity;
 
     // CORRECTED: Average price calculation - total value divided by total quantity
     const averagePrice = totalQuantity > 0 ? totalValue / totalQuantity : 0;
