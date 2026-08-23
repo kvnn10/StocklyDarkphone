@@ -26,7 +26,6 @@ export async function POST(request: NextRequest) {
   const file = (await contentsResponse.json()) as { content?: string; encoding?: string; sha?: string };
   if (!file.content || file.encoding !== "base64") return fail(400, "Queue file has no readable content");
 
-  // Verify that the latest commit touching this queue file was made by the owner.
   const commitsUrl = `https://api.github.com/repos/kvnn10/StocklyDarkphone/commits?path=${encodeURIComponent(path)}&per_page=1`;
   const commitsResponse = await fetch(commitsUrl, { headers, cache: "no-store" });
   if (!commitsResponse.ok) return fail(502, "Unable to verify queue author");
@@ -64,5 +63,13 @@ export async function POST(request: NextRequest) {
 
   const result = await mcpResponse.json().catch(() => ({ error: "Invalid MCP response" }));
   if (!mcpResponse.ok) return fail(502, `Stockly MCP request failed: ${JSON.stringify(result)}`);
+
+  // MCP returns application-level errors inside a successful JSON-RPC response.
+  // Do not let the queue workflow delete a product that was not actually created.
+  if (result?.result?.isError === true) {
+    const message = result?.result?.content?.[0]?.text || "Stockly MCP returned an application error";
+    return fail(422, `Stockly product creation failed: ${message}`);
+  }
+
   return NextResponse.json({ path, result });
 }
