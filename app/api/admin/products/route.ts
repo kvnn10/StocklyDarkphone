@@ -31,33 +31,43 @@ async function resolveReference(kind: "category" | "supplier", value: unknown, o
   const nameOrId = text(value);
   if (!nameOrId) return { id: null as string | null, error: `${kind} is required` };
 
-  const collection = kind === "category" ? prisma.category : prisma.supplier;
-  const byId = await collection.findFirst({
+  if (kind === "category") {
+    const byId = await prisma.category.findFirst({
+      where: { id: nameOrId, userId: ownerId },
+      select: { id: true },
+    });
+    if (byId) return { id: byId.id, error: undefined };
+
+    const matches = await prisma.category.findMany({
+      where: { userId: ownerId, name: { equals: nameOrId, mode: "insensitive" } },
+      select: { id: true },
+      take: 2,
+    });
+    if (matches.length === 1) return { id: matches[0].id, error: undefined };
+    if (matches.length > 1) return { id: null as string | null, error: `Multiple ${kind}s match "${nameOrId}"; use the ID to disambiguate` };
+    return { id: null as string | null, error: `${kind} "${nameOrId}" not found for this admin` };
+  }
+
+  const byId = await prisma.supplier.findFirst({
     where: { id: nameOrId, userId: ownerId },
     select: { id: true },
   });
   if (byId) return { id: byId.id, error: undefined };
 
-  const matches = await collection.findMany({
+  const matches = await prisma.supplier.findMany({
     where: { userId: ownerId, name: { equals: nameOrId, mode: "insensitive" } },
     select: { id: true },
     take: 2,
   });
   if (matches.length === 1) return { id: matches[0].id, error: undefined };
-  if (matches.length > 1) {
-    return { id: null as string | null, error: `Multiple ${kind}s match "${nameOrId}"; use the ID to disambiguate` };
-  }
+  if (matches.length > 1) return { id: null as string | null, error: `Multiple ${kind}s match "${nameOrId}"; use the ID to disambiguate` };
   return { id: null as string | null, error: `${kind} "${nameOrId}" not found for this admin` };
 }
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.INTERNAL_API_KEY) {
-      return NextResponse.json({ error: "Internal product import is not configured" }, { status: 503 });
-    }
-    if (!isValidInternalKey(request)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!process.env.INTERNAL_API_KEY) return NextResponse.json({ error: "Internal product import is not configured" }, { status: 503 });
+    if (!isValidInternalKey(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const rateLimitResponse = await withRateLimit(request, defaultRateLimits.strict);
     if (rateLimitResponse) return rateLimitResponse;
@@ -65,15 +75,11 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const ownerEmail = text(body?.ownerEmail);
     const products = Array.isArray(body?.products) ? body.products : null;
-
     if (!ownerEmail || !products) return NextResponse.json({ error: "ownerEmail and products[] are required" }, { status: 400 });
     if (products.length === 0) return NextResponse.json({ error: "products[] cannot be empty" }, { status: 400 });
     if (products.length > MAX_PRODUCTS_PER_REQUEST) return NextResponse.json({ error: `A maximum of ${MAX_PRODUCTS_PER_REQUEST} products can be imported per request` }, { status: 413 });
 
-    const owner = await prisma.user.findUnique({
-      where: { email: ownerEmail },
-      select: { id: true, email: true, name: true, role: true },
-    });
+    const owner = await prisma.user.findUnique({ where: { email: ownerEmail }, select: { id: true, email: true, name: true, role: true } });
     if (!owner || owner.role !== "admin") return NextResponse.json({ error: "ownerEmail must belong to an admin user" }, { status: 403 });
 
     const results: Array<{ index: number; status: "created" | "skipped" | "failed"; id?: string; sku?: string; error?: string }> = [];
@@ -92,12 +98,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const candidate = {
-        ...raw,
-        categoryId: category.id,
-        supplierId: supplier.id,
-        status: raw.status ?? (typeof raw.quantity === "number" ? calculateProductStatus(raw.quantity) : undefined),
-      };
+      const candidate = { ...raw, categoryId: category.id, supplierId: supplier.id, status: raw.status ?? (typeof raw.quantity === "number" ? calculateProductStatus(raw.quantity) : undefined) };
       const validation = createProductBodySchema.safeParse(candidate);
       if (!validation.success) {
         results.push({ index, status: "failed", sku: typeof raw.sku === "string" ? raw.sku : undefined, error: validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ") });
@@ -161,15 +162,7 @@ export async function POST(request: NextRequest) {
     const failed = results.filter((r) => r.status === "failed").length;
     if (created > 0) await invalidateOnProductChange();
 
-    return NextResponse.json({
-      success: failed === 0,
-      owner: { id: owner.id, email: owner.email, name: owner.name },
-      total: products.length,
-      created,
-      skipped,
-      failed,
-      results,
-    });
+    return NextResponse.json({ success: failed === 0, owner: { id: owner.id, email: owner.email, name: owner.name }, total: products.length, created, skipped, failed, results });
   } catch (error) {
     logger.error("Error in internal bulk product creation:", error);
     return NextResponse.json({ error: "Failed to process product import" }, { status: 500 });
