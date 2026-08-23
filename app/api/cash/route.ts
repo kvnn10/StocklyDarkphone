@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MongoClient, ObjectId } from "mongodb";
 import { getSessionFromRequest } from "@/utils/auth";
+import { writeAuditLog } from "@/lib/audit/log";
 
 const TYPES = ["income", "expense"] as const;
 const METHODS = ["cash", "card", "transfer", "other"] as const;
@@ -58,9 +59,6 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Historical sale movements remain visible, while explicit refund
-    // movements are counted as expenses. This makes the cash flow auditable:
-    // sale + refund = net zero, rather than silently deleting the sale.
     const activeMovements = normalizedMovements.filter((m) => m.status !== "voided");
     const income = activeMovements
       .filter((m) => m.type === "income")
@@ -68,7 +66,6 @@ export async function GET(request: NextRequest) {
     const expense = activeMovements
       .filter((m) => m.type === "expense")
       .reduce((sum, m) => sum + Number(m.amount || 0), 0);
-
     const refunds = activeMovements
       .filter((m) => m.source === "refund")
       .reduce((sum, m) => sum + Number(m.amount || 0), 0);
@@ -128,11 +125,12 @@ export async function POST(request: NextRequest) {
           source: "sale",
           status: { $ne: "voided" },
         });
-        if (existing) {
-          return NextResponse.json(existing, { status: 200 });
-        }
+        if (existing) return NextResponse.json(existing, { status: 200 });
       }
 
+      const description = typeof body.description === "string"
+        ? body.description.trim()
+        : orderId ? "Venta" : "Movimiento manual";
       const movement = {
         type: body.type,
         source,
@@ -141,12 +139,31 @@ export async function POST(request: NextRequest) {
         paymentMethod: body.paymentMethod,
         userId: session.id,
         createdBy: session.id,
-        description: typeof body.description === "string" ? body.description.trim() : orderId ? "Venta" : "Movimiento manual",
+        description,
         status: "active",
         createdAt: new Date(),
       };
       const result = await collection.insertOne(movement);
-      return NextResponse.json({ ...movement, _id: result.insertedId }, { status: 201 });
+      const savedMovement = { ...movement, _id: result.insertedId };
+
+      await writeAuditLog({
+        userId: session.id,
+        action: "CASH_MOVEMENT_CREATED",
+        entityType: "CashMovement",
+        entityId: String(result.insertedId),
+        details: {
+          type: movement.type,
+          source: movement.source,
+          amount: movement.amount,
+          paymentMethod: movement.paymentMethod,
+          orderId: movement.orderId ?? null,
+          description: movement.description,
+        },
+        userAgent: request.headers.get("user-agent"),
+        ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip"),
+      });
+
+      return NextResponse.json(savedMovement, { status: 201 });
     } finally {
       await client.close();
     }
@@ -175,9 +192,7 @@ export async function DELETE(request: NextRequest) {
       const collection = client.db().collection("CashMovement");
       const movement = await collection.findOne({ _id: new ObjectId(id), userId: session.id });
 
-      if (!movement) {
-        return NextResponse.json({ error: "Movimiento no encontrado" }, { status: 404 });
-      }
+      if (!movement) return NextResponse.json({ error: "Movimiento no encontrado" }, { status: 404 });
       if (movement.status === "voided") {
         return NextResponse.json({ error: "El movimiento ya está anulado" }, { status: 409 });
       }
@@ -197,6 +212,23 @@ export async function DELETE(request: NextRequest) {
           },
         },
       );
+
+      await writeAuditLog({
+        userId: session.id,
+        action: "CASH_MOVEMENT_VOIDED",
+        entityType: "CashMovement",
+        entityId: id,
+        details: {
+          type: movement.type,
+          source: movement.source,
+          amount: Number(movement.amount || 0),
+          paymentMethod: movement.paymentMethod,
+          orderId: movement.orderId ?? null,
+          reason: voidReason,
+        },
+        userAgent: request.headers.get("user-agent"),
+        ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip"),
+      });
 
       return NextResponse.json({ ok: true, message: "Movimiento anulado correctamente" });
     } finally {
