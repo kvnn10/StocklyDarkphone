@@ -31,8 +31,15 @@ on:
 jobs:
   create-product:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: Create product in Stockly
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Write product queue file
         env:
           NAME: ${{ inputs.name }}
           SKU: ${{ inputs.sku }}
@@ -42,21 +49,38 @@ jobs:
           SUPPLIER: ${{ inputs.supplier }}
         run: |
           set -euo pipefail
-          python - <<'PY' > /tmp/product.json
+          mkdir -p automation/queue
+          python - <<'PY'
           import json, os
-          print(json.dumps({
+          data = {
             "name": os.environ["NAME"],
             "sku": os.environ["SKU"],
             "price": float(os.environ["PRICE"]),
             "quantity": int(os.environ["QUANTITY"]),
             "category": os.environ["CATEGORY"],
             "supplier": os.environ["SUPPLIER"],
-          }))
+          }
+          with open("automation/queue/manual-product.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, ensure_ascii=False, indent=2)
           PY
-          CODE=$(curl -sS -o /tmp/response.json -w '%{http_code}' -X POST \
-            "https://stockly-darkphone.vercel.app/api/github/queue-product?path=automation/queue/manual.json" \
-            -H 'Content-Type: application/json' \
-            --data-binary @/tmp/product.json)
-          echo "HTTP $CODE"
-          cat /tmp/response.json
-          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then exit 1; fi
+
+      - name: Commit queue file
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add automation/queue/manual-product.json
+          git commit -m "chore: queue manual Stockly product"
+          git push
+
+      - name: Wait for queue processor
+        run: sleep 100
+
+      - name: Verify queue was processed
+        run: |
+          set -euo pipefail
+          if git ls-files --error-unmatch automation/queue/manual-product.json >/dev/null 2>&1; then
+            echo "Product queue file is still present. The Stockly processor did not complete successfully."
+            exit 1
+          fi
+          echo "Queue file was removed by the processor; creation request completed successfully."
