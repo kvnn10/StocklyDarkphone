@@ -132,7 +132,10 @@ export function StatisticsCard({
     >
       <div className="flex flex-1 flex-col min-h-0 min-w-0 w-full overflow-visible">
         <div className="flex items-center justify-between gap-2 shrink-0">
-          <p className="text-xs uppercase tracking-[0.45em] text-gray-700 dark:text-white/80 min-w-0">
+          <p
+            translate="no"
+            className="text-xs uppercase tracking-[0.45em] text-gray-700 dark:text-white/80 min-w-0"
+          >
             {title}
           </p>
           <div
