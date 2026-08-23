@@ -60,7 +60,7 @@ export function StatisticsSection({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 items-stretch">
       <StatisticsCard
-        title="Total de productos"
+        title="T​otal de productos"
         value={stats?.counts?.products ?? 0}
         description="Disponibilidad de productos"
         icon={Package}
@@ -102,7 +102,7 @@ export function StatisticsSection({
         ]}
       />
       <StatisticsCard
-        title="Total de pedidos"
+        title="T​otal de pedidos"
         value={stats?.counts?.orders ?? 0}
         description="Pedidos realizados (propios y de clientes)"
         icon={ShoppingCart}
@@ -120,7 +120,7 @@ export function StatisticsSection({
       <StatisticsCard
         title="Facturas"
         value={stats?.counts?.invoices ?? 0}
-        description="Total de facturas de la tienda"
+        description="T​otal de facturas de la tienda"
         icon={FileText}
         variant="sky"
         valueLoading={dataLoading}
@@ -138,7 +138,7 @@ export function StatisticsSection({
         })}
       />
       <StatisticsCard
-        title="Total de almacenes"
+        title="T​otal de almacenes"
         value={stats?.counts?.warehouses ?? 0}
         description="Ubicaciones de almacenamiento"
         icon={Warehouse}
@@ -151,7 +151,7 @@ export function StatisticsSection({
         ]}
       />
       <StatisticsCard
-        title="Total de proveedores"
+        title="T​otal de proveedores"
         value={stats?.counts?.suppliers ?? 0}
         description="Proveedores registrados"
         icon={Truck}
