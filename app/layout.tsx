@@ -18,6 +18,7 @@ import { mapSessionToAppUser } from "@/lib/auth/map-session-user";
 import { getShellNotificationsForUser } from "@/lib/server/notifications-data";
 import { QueryProvider } from "@/lib/react-query";
 import "./globals.css";
+import "./mobile-menu-fix.css";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
 import { AuthSessionToasts } from "@/components/shared/AuthSessionToasts";
