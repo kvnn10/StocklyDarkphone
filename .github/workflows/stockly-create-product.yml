@@ -1,0 +1,62 @@
+name: Stockly create product
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Product name
+        required: true
+        type: string
+      sku:
+        description: SKU
+        required: true
+        type: string
+      price:
+        description: Sale price
+        required: true
+        type: string
+      quantity:
+        description: Quantity
+        required: true
+        type: string
+      category:
+        description: Existing category name or ID
+        required: true
+        type: string
+      supplier:
+        description: Existing supplier name or ID
+        required: true
+        type: string
+
+jobs:
+  create-product:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create product in Stockly
+        env:
+          NAME: ${{ inputs.name }}
+          SKU: ${{ inputs.sku }}
+          PRICE: ${{ inputs.price }}
+          QUANTITY: ${{ inputs.quantity }}
+          CATEGORY: ${{ inputs.category }}
+          SUPPLIER: ${{ inputs.supplier }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/product.json
+          import json, os
+          print(json.dumps({
+            "name": os.environ["NAME"],
+            "sku": os.environ["SKU"],
+            "price": float(os.environ["PRICE"]),
+            "quantity": int(os.environ["QUANTITY"]),
+            "category": os.environ["CATEGORY"],
+            "supplier": os.environ["SUPPLIER"],
+          }))
+          PY
+          CODE=$(curl -sS -o /tmp/response.json -w '%{http_code}' -X POST \
+            "https://stockly-darkphone.vercel.app/api/github/queue-product?path=automation/queue/manual.json" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/product.json)
+          echo "HTTP $CODE"
+          cat /tmp/response.json
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then exit 1; fi
