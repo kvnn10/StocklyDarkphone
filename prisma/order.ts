@@ -8,7 +8,7 @@ import { MongoClient } from "mongodb";
 import { createStripeRefund } from "@/lib/stripe";
 import { orderCancelShouldRefundPayment } from "@/lib/orders/cancel-payment";
 import type { Prisma } from "@prisma/client";
-import type { CreateOrderInput, UpdateOrderInput } from "@/types/order";
+import type { CreateOrderInput } from "@/types/order";
 import { invalidateCache, cacheKeys } from "@/lib/cache";
 import { decrementStockAllocations } from "@/lib/products/decrement-stock-allocations";
 import { fulfillPendingOrderLines, releasePendingOrderLines, reservePendingOrderLines } from "@/lib/products/order-stock-reservation";
@@ -90,6 +90,22 @@ export async function getOrderById(orderId: string, userId: string) {
 
 export async function getOrdersByClientId(clientId: string) {
   return prisma.order.findMany({ where: { clientId }, include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true } } } } }, orderBy: { createdAt: "desc" } });
+}
+
+export async function getOrdersContainingSupplierProducts(supplierId: string) {
+  return prisma.order.findMany({
+    where: { items: { some: { product: { supplierId } } } },
+    include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function getOrdersContainingProductOwnerProducts(productOwnerUserId: string) {
+  return prisma.order.findMany({
+    where: { items: { some: { product: { userId: productOwnerUserId } } } },
+    include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } },
+    orderBy: { createdAt: "desc" },
+  });
 }
 
 export { getOrderByIdForAdmin, getOrderByIdForProductOwner, getOrderByIdForSupplier, getOrderByIdForClient, updateOrder, cancelOrder } from "@/prisma/order-lifecycle";
