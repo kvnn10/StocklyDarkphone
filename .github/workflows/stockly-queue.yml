@@ -1,0 +1,61 @@
+name: Stockly product queue
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'automation/queue/**'
+
+permissions:
+  contents: write
+
+jobs:
+  process-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Process product queue files
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t FILES < <(git diff --name-only --diff-filter=AM "$BEFORE_SHA" "$AFTER_SHA" -- 'automation/queue/*.json')
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No new queue files."
+            exit 0
+          fi
+
+          FAILED=0
+          for FILE in "${FILES[@]}"; do
+            echo "Processing $FILE"
+            CODE=$(curl -sS -o /tmp/stockly-response.json -w '%{http_code}' -X POST "https://stockly-darkphone.vercel.app/api/github/queue-product?path=$FILE")
+            cat /tmp/stockly-response.json
+            echo
+            if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 300 ]; then
+              rm -f "$FILE"
+            else
+              echo "Stockly returned HTTP $CODE for $FILE"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Remove processed queue files
+        run: |
+          if git diff --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A automation/queue
+          git commit -m "chore: process Stockly product queue"
+          git push
