@@ -19,7 +19,6 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import re
 
           path = Path('components/Pages/BusinessInsightPage.tsx')
           text = path.read_text(encoding='utf-8')
@@ -72,3 +71,5 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "feat: align business insights stock metrics"
           git push
+
+# Force a workflow revision so the stock-metrics sync runs on the next push.
