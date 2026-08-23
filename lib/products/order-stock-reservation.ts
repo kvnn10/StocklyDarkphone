@@ -93,9 +93,31 @@ export async function fulfillPendingOrderLine(line: OrderStockLine): Promise<voi
   await decrementStockAllocations([{ productId: line.productId, quantity: line.quantity }]);
 }
 
+/**
+ * Reserve every line as one logical operation. If a later line fails, release
+ * every reservation already created by this call so we never leave partial
+ * stock reservations behind.
+ */
 export async function reservePendingOrderLines(lines: OrderStockLine[]): Promise<void> {
-  for (const line of lines) await reservePendingOrderLine(line);
+  const reserved: OrderStockLine[] = [];
+  try {
+    for (const line of lines) {
+      await reservePendingOrderLine(line);
+      reserved.push(line);
+    }
+  } catch (error) {
+    for (let index = reserved.length - 1; index >= 0; index -= 1) {
+      try {
+        await releasePendingOrderLine(reserved[index]);
+      } catch {
+        // Preserve the original reservation failure; a later reconciliation
+        // can repair an exceptional release failure without masking the cause.
+      }
+    }
+    throw error;
+  }
 }
+
 export async function releasePendingOrderLines(lines: OrderStockLine[]): Promise<void> {
   for (const line of lines) await releasePendingOrderLine(line);
 }
