@@ -4,9 +4,10 @@
  * Inventory invariants:
  * - quantities may never become negative
  * - a transfer is atomic: source and destination change together
- * - a product's total quantity mirrors the sum of its warehouse allocations
+ * - Product.quantity mirrors the sum of warehouse allocations
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/prisma/client";
 import { mergeProductListWhere } from "@/lib/products/product-query";
 import type {
@@ -25,16 +26,13 @@ const asQuantity = (value: bigint | number) => {
 
 async function syncProductQuantity(
   productId: string,
-  tx: typeof prisma = prisma,
+  tx: Prisma.TransactionClient,
 ) {
   const allocations = await tx.stockAllocation.findMany({
     where: { productId },
     select: { quantity: true },
   });
-  const total = allocations.reduce((sum, allocation) => {
-    return sum + Number(allocation.quantity);
-  }, 0);
-
+  const total = allocations.reduce((sum, allocation) => sum + Number(allocation.quantity), 0);
   if (!Number.isSafeInteger(total) || total < 0) {
     throw new Error("Total product stock is invalid");
   }
@@ -45,32 +43,23 @@ async function syncProductQuantity(
   });
 }
 
-/** Get all stock allocations for a user's products. */
 export async function getStockAllocations(userId: string) {
   const products = await prisma.product.findMany({
     where: mergeProductListWhere({ userId }),
     select: { id: true },
   });
-  const productIds = products.map((p) => p.id);
-
   return prisma.stockAllocation.findMany({
-    where: { productId: { in: productIds } },
+    where: { productId: { in: products.map((p) => p.id) } },
     orderBy: { createdAt: "desc" },
   });
 }
 
 export async function getStockAllocationsByProduct(productId: string) {
-  return prisma.stockAllocation.findMany({
-    where: { productId },
-    orderBy: { createdAt: "desc" },
-  });
+  return prisma.stockAllocation.findMany({ where: { productId }, orderBy: { createdAt: "desc" } });
 }
 
 export async function getStockAllocationsByWarehouse(warehouseId: string) {
-  return prisma.stockAllocation.findMany({
-    where: { warehouseId },
-    orderBy: { createdAt: "desc" },
-  });
+  return prisma.stockAllocation.findMany({ where: { warehouseId }, orderBy: { createdAt: "desc" } });
 }
 
 export async function getStockAllocationById(id: string) {
@@ -78,32 +67,18 @@ export async function getStockAllocationById(id: string) {
 }
 
 /** Create/update an allocation and keep Product.quantity synchronized. */
-export async function upsertStockAllocation(
-  data: CreateStockAllocationInput,
-  userId: string,
-) {
+export async function upsertStockAllocation(data: CreateStockAllocationInput, userId: string) {
   const quantity = asQuantity(data.quantity);
 
   return prisma.$transaction(async (tx) => {
-    const product = await tx.product.findFirst({
-      where: { id: data.productId, userId },
-      select: { id: true },
-    });
+    const product = await tx.product.findFirst({ where: { id: data.productId, userId }, select: { id: true } });
     if (!product) throw new Error("Product not found or access denied");
 
-    const warehouse = await tx.warehouse.findFirst({
-      where: { id: data.warehouseId, userId },
-      select: { id: true },
-    });
+    const warehouse = await tx.warehouse.findFirst({ where: { id: data.warehouseId, userId }, select: { id: true } });
     if (!warehouse) throw new Error("Warehouse not found or access denied");
 
     const existing = await tx.stockAllocation.findUnique({
-      where: {
-        productId_warehouseId: {
-          productId: data.productId,
-          warehouseId: data.warehouseId,
-        },
-      },
+      where: { productId_warehouseId: { productId: data.productId, warehouseId: data.warehouseId } },
     });
 
     const allocation = existing
@@ -126,11 +101,7 @@ export async function upsertStockAllocation(
   });
 }
 
-/** Update an allocation with validation and product total synchronization. */
-export async function updateStockAllocation(
-  id: string,
-  data: UpdateStockAllocationInput,
-) {
+export async function updateStockAllocation(id: string, data: UpdateStockAllocationInput) {
   if (data.quantity !== undefined) asQuantity(data.quantity);
 
   return prisma.$transaction(async (tx) => {
@@ -141,13 +112,10 @@ export async function updateStockAllocation(
       where: { id },
       data: {
         ...data,
-        ...(data.quantity !== undefined
-          ? { quantity: BigInt(asQuantity(data.quantity)) }
-          : {}),
+        ...(data.quantity !== undefined ? { quantity: BigInt(asQuantity(data.quantity)) } : {}),
         updatedAt: new Date(),
       },
     });
-
     await syncProductQuantity(existing.productId, tx);
     return allocation;
   });
@@ -157,7 +125,6 @@ export async function deleteStockAllocation(id: string) {
   return prisma.$transaction(async (tx) => {
     const existing = await tx.stockAllocation.findUnique({ where: { id } });
     if (!existing) throw new Error("Stock allocation not found");
-
     const allocation = await tx.stockAllocation.delete({ where: { id } });
     await syncProductQuantity(existing.productId, tx);
     return allocation;
@@ -165,10 +132,7 @@ export async function deleteStockAllocation(id: string) {
 }
 
 export async function getStockTransfers(userId: string) {
-  return prisma.stockTransfer.findMany({
-    where: { userId },
-    orderBy: { createdAt: "desc" },
-  });
+  return prisma.stockTransfer.findMany({ where: { userId }, orderBy: { createdAt: "desc" } });
 }
 
 export async function getStockTransferById(id: string) {
@@ -176,49 +140,29 @@ export async function getStockTransferById(id: string) {
 }
 
 /** Create a pending transfer after validating ownership and available stock. */
-export async function createStockTransfer(
-  data: CreateStockTransferInput,
-  userId: string,
-) {
+export async function createStockTransfer(data: CreateStockTransferInput, userId: string) {
   const quantity = asQuantity(data.quantity);
   if (quantity <= 0) throw new Error("Transfer quantity must be greater than zero");
-  if (data.fromWarehouseId === data.toWarehouseId) {
-    throw new Error("Source and destination warehouses must be different");
-  }
+  if (data.fromWarehouseId === data.toWarehouseId) throw new Error("Source and destination warehouses must be different");
 
   return prisma.$transaction(async (tx) => {
-    const product = await tx.product.findFirst({
-      where: { id: data.productId, userId },
-      select: { id: true },
-    });
+    const product = await tx.product.findFirst({ where: { id: data.productId, userId }, select: { id: true } });
     if (!product) throw new Error("Product not found or access denied");
 
     const [sourceWarehouse, destinationWarehouse] = await Promise.all([
       tx.warehouse.findFirst({ where: { id: data.fromWarehouseId, userId }, select: { id: true } }),
       tx.warehouse.findFirst({ where: { id: data.toWarehouseId, userId }, select: { id: true } }),
     ]);
-    if (!sourceWarehouse || !destinationWarehouse) {
-      throw new Error("Warehouse not found or access denied");
-    }
+    if (!sourceWarehouse || !destinationWarehouse) throw new Error("Warehouse not found or access denied");
 
     const sourceAllocation = await tx.stockAllocation.findUnique({
-      where: {
-        productId_warehouseId: {
-          productId: data.productId,
-          warehouseId: data.fromWarehouseId,
-        },
-      },
+      where: { productId_warehouseId: { productId: data.productId, warehouseId: data.fromWarehouseId } },
     });
-    if (!sourceAllocation) {
-      throw new Error("Source warehouse has no stock allocation for this product");
-    }
+    if (!sourceAllocation) throw new Error("Source warehouse has no stock allocation for this product");
 
-    const availableStock =
-      Number(sourceAllocation.quantity) - Number(sourceAllocation.reservedQuantity);
+    const availableStock = Number(sourceAllocation.quantity) - Number(sourceAllocation.reservedQuantity);
     if (availableStock < quantity) {
-      throw new Error(
-        `Insufficient stock in source warehouse. Available: ${availableStock}, Requested: ${quantity}`,
-      );
+      throw new Error(`Insufficient stock in source warehouse. Available: ${availableStock}, Requested: ${quantity}`);
     }
 
     return tx.stockTransfer.create({
@@ -236,32 +180,21 @@ export async function createStockTransfer(
   });
 }
 
-/**
- * Complete a transfer atomically. If any step fails, nothing is moved.
- */
+/** Complete a transfer atomically. If any step fails, nothing is moved. */
 export async function completeStockTransfer(id: string, userId: string) {
   return prisma.$transaction(async (tx) => {
-    const transfer = await tx.stockTransfer.findFirst({
-      where: { id, userId },
-    });
+    const transfer = await tx.stockTransfer.findFirst({ where: { id, userId } });
     if (!transfer) throw new Error("Transfer not found or access denied");
     if (transfer.status !== "pending") throw new Error("Transfer is not pending");
 
     const quantity = asQuantity(transfer.quantity);
     const source = await tx.stockAllocation.findUnique({
-      where: {
-        productId_warehouseId: {
-          productId: transfer.productId,
-          warehouseId: transfer.fromWarehouseId,
-        },
-      },
+      where: { productId_warehouseId: { productId: transfer.productId, warehouseId: transfer.fromWarehouseId } },
     });
     if (!source) throw new Error("Source allocation no longer exists");
 
     const available = Number(source.quantity) - Number(source.reservedQuantity);
-    if (available < quantity) {
-      throw new Error(`Insufficient stock. Available: ${available}, Requested: ${quantity}`);
-    }
+    if (available < quantity) throw new Error(`Insufficient stock. Available: ${available}, Requested: ${quantity}`);
 
     await tx.stockAllocation.update({
       where: { id: source.id },
@@ -269,12 +202,7 @@ export async function completeStockTransfer(id: string, userId: string) {
     });
 
     const destination = await tx.stockAllocation.findUnique({
-      where: {
-        productId_warehouseId: {
-          productId: transfer.productId,
-          warehouseId: transfer.toWarehouseId,
-        },
-      },
+      where: { productId_warehouseId: { productId: transfer.productId, warehouseId: transfer.toWarehouseId } },
     });
 
     if (destination) {
@@ -295,28 +223,17 @@ export async function completeStockTransfer(id: string, userId: string) {
     }
 
     await syncProductQuantity(transfer.productId, tx);
-
-    return tx.stockTransfer.update({
-      where: { id },
-      data: { status: "completed", completedAt: new Date() },
-    });
+    return tx.stockTransfer.update({ where: { id }, data: { status: "completed", completedAt: new Date() } });
   });
 }
 
 export async function cancelStockTransfer(id: string, userId?: string) {
-  const transfer = await prisma.stockTransfer.findFirst({
-    where: userId ? { id, userId } : { id },
-  });
+  const transfer = await prisma.stockTransfer.findFirst({ where: userId ? { id, userId } : { id } });
   if (!transfer) throw new Error("Transfer not found or access denied");
   if (transfer.status !== "pending") throw new Error("Transfer is not pending");
-
-  return prisma.stockTransfer.update({
-    where: { id },
-    data: { status: "cancelled" },
-  });
+  return prisma.stockTransfer.update({ where: { id }, data: { status: "cancelled" } });
 }
 
-/** Get warehouse stock summary for analytics. */
 export async function getWarehouseStockSummary(userId: string) {
   const products = await prisma.product.findMany({
     where: mergeProductListWhere({ userId }),
@@ -325,24 +242,15 @@ export async function getWarehouseStockSummary(userId: string) {
   const productIds = products.map((p) => p.id);
   const priceMap = new Map(products.map((p) => [p.id, Number(p.price)]));
 
-  const warehouses = await prisma.warehouse.findMany({
-    where: { userId },
-    select: { id: true, name: true, type: true },
-  });
-
-  const allocations = await prisma.stockAllocation.findMany({
-    where: { productId: { in: productIds } },
-  });
+  const warehouses = await prisma.warehouse.findMany({ where: { userId }, select: { id: true, name: true, type: true } });
+  const allocations = await prisma.stockAllocation.findMany({ where: { productId: { in: productIds } } });
 
   return warehouses.map((wh) => {
     const warehouseAllocations = allocations.filter((a) => a.warehouseId === wh.id);
     const totalProducts = warehouseAllocations.length;
     const totalQuantity = warehouseAllocations.reduce((sum, a) => sum + Number(a.quantity), 0);
     const totalReserved = warehouseAllocations.reduce((sum, a) => sum + Number(a.reservedQuantity), 0);
-    const totalValue = warehouseAllocations.reduce((sum, a) => {
-      const price = priceMap.get(a.productId) || 0;
-      return sum + Number(a.quantity) * price;
-    }, 0);
+    const totalValue = warehouseAllocations.reduce((sum, a) => sum + Number(a.quantity) * (priceMap.get(a.productId) || 0), 0);
 
     return {
       warehouseId: wh.id,
