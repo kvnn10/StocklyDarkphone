@@ -107,11 +107,13 @@ export async function reservePendingOrderLines(lines: OrderStockLine[]): Promise
     }
   } catch (error) {
     for (let index = reserved.length - 1; index >= 0; index -= 1) {
+      const reservedLine = reserved[index];
+      if (!reservedLine) continue;
       try {
-        await releasePendingOrderLine(reserved[index]);
+        await releasePendingOrderLine(reservedLine);
       } catch {
-        // Preserve the original reservation failure; a later reconciliation
-        // can repair an exceptional release failure without masking the cause.
+        // Preserve the original reservation failure; reconciliation can repair
+        // an exceptional release failure without masking the cause.
       }
     }
     throw error;
