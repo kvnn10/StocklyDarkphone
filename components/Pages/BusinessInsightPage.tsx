@@ -94,6 +94,7 @@ import type { WarehouseStockSummary } from "@/types/stock-allocation";
 import { BusinessInsightsWarehouseSection } from "@/components/business-insights/BusinessInsightsWarehouseSection";
 import { DenseCatalogProductCell } from "@/components/shared/DenseCatalogProductCell";
 import { buildBusinessStockRollup } from "@/lib/insights/business-insights-stock-rollup";
+import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";
 import {
   buildWarehouseQuantityChartData,
   buildWarehouseRollupMetrics,
