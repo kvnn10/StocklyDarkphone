@@ -44,24 +44,12 @@ export async function reconcileInventory(
 ): Promise<InventoryReconcileResult> {
   const products = await prisma.product.findMany({
     where: { userId, deletedAt: null },
-    select: {
-      id: true,
-      sku: true,
-      name: true,
-      quantity: true,
-      reservedQuantity: true,
-    },
+    select: { id: true, sku: true, name: true, quantity: true, reservedQuantity: true },
   });
 
   const allocations = await prisma.stockAllocation.findMany({
     where: { userId },
-    select: {
-      id: true,
-      productId: true,
-      warehouseId: true,
-      quantity: true,
-      reservedQuantity: true,
-    },
+    select: { id: true, productId: true, warehouseId: true, quantity: true, reservedQuantity: true },
   });
 
   const byProduct = new Map<string, CatalogReconcileAllocationRow[]>();
@@ -90,16 +78,9 @@ export async function reconcileInventory(
 
     if (expectedReserved > catalogQuantity) {
       issues.push({
-        productId: product.id,
-        sku: product.sku,
-        name: product.name,
-        catalogQuantity,
-        allocatedQuantity,
-        productReserved,
-        allocationReserved,
-        expectedReserved,
-        kind: "reserved_exceeds_stock",
-        repairable: false,
+        productId: product.id, sku: product.sku, name: product.name,
+        catalogQuantity, allocatedQuantity, productReserved, allocationReserved, expectedReserved,
+        kind: "reserved_exceeds_stock", repairable: false,
         message: `Reserved commitment (${expectedReserved}) exceeds catalog stock (${catalogQuantity}).`,
       });
       blocked += 1;
@@ -108,36 +89,24 @@ export async function reconcileInventory(
 
     if (allocatedQuantity === catalogQuantity) continue;
 
-    const plan = planCatalogQuantityReconcile({
-      currentCatalog: catalogQuantity,
-      newCatalog: catalogQuantity,
-      productReserved,
-      allocations: rows,
-    });
-
     if (allocatedQuantity > catalogQuantity) {
-      const target = planCatalogQuantityReconcile({
-        currentCatalog: catalogQuantity,
+      const overage = allocatedQuantity - catalogQuantity;
+      // Treat the current allocation total as the old catalog total so the
+      // shared planner calculates exactly which unreserved warehouse units can shrink.
+      const plan = planCatalogQuantityReconcile({
+        currentCatalog: allocatedQuantity,
         newCatalog: catalogQuantity,
         productReserved,
         allocations: rows,
       });
-
-      const overage = allocatedQuantity - catalogQuantity;
-      const shrinkPlan = target.shrinkSteps.length
-        ? target.shrinkSteps
-        : [];
-      const repairable = shrinkPlan.reduce((sum, step) => sum + step.deduct, 0) === overage;
+      const repairable = plan.ok && plan.unitsRemoved === overage;
 
       if (options.repair && repairable) {
         await prisma.$transaction(async (tx) => {
-          for (const step of shrinkPlan) {
+          for (const step of plan.shrinkSteps) {
             await tx.stockAllocation.update({
               where: { id: step.id },
-              data: {
-                quantity: { decrement: BigInt(step.deduct) },
-                updatedAt: new Date(),
-              },
+              data: { quantity: { decrement: BigInt(step.deduct) }, updatedAt: new Date() },
             });
           }
         });
@@ -146,16 +115,9 @@ export async function reconcileInventory(
       }
 
       issues.push({
-        productId: product.id,
-        sku: product.sku,
-        name: product.name,
-        catalogQuantity,
-        allocatedQuantity,
-        productReserved,
-        allocationReserved,
-        expectedReserved,
-        kind: "allocation_exceeds_catalog",
-        repairable,
+        productId: product.id, sku: product.sku, name: product.name,
+        catalogQuantity, allocatedQuantity, productReserved, allocationReserved, expectedReserved,
+        kind: "allocation_exceeds_catalog", repairable,
         message: repairable
           ? `Warehouse allocations exceed catalog by ${overage} unit(s); only unreserved stock can be safely reduced.`
           : plan.blockedReason ?? `Warehouse allocations exceed catalog by ${overage} unit(s), but reserved stock prevents automatic repair.`,
@@ -165,16 +127,9 @@ export async function reconcileInventory(
     }
 
     issues.push({
-      productId: product.id,
-      sku: product.sku,
-      name: product.name,
-      catalogQuantity,
-      allocatedQuantity,
-      productReserved,
-      allocationReserved,
-      expectedReserved,
-      kind: "catalog_exceeds_allocation",
-      repairable: false,
+      productId: product.id, sku: product.sku, name: product.name,
+      catalogQuantity, allocatedQuantity, productReserved, allocationReserved, expectedReserved,
+      kind: "catalog_exceeds_allocation", repairable: false,
       message: `Catalog stock exceeds warehouse allocations by ${catalogQuantity - allocatedQuantity} unit(s). No automatic warehouse assignment was made.`,
     });
     blocked += 1;
