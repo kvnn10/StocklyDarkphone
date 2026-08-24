@@ -7,7 +7,7 @@ const STATUSES = ["received", "diagnosis", "awaiting_approval", "repairing", "re
 type Status = (typeof STATUSES)[number];
 
 function allowed(session: any) {
-  return session && ["admin", "user", "retailer"].includes(session.role ?? "");
+  return !!session && ["admin", "user", "retailer"].includes(session.role ?? "");
 }
 
 async function db() {
@@ -18,12 +18,13 @@ async function db() {
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
-  if (!allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  if (!session || !allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   const client = await db();
   try {
-    const search = new URL(request.url).searchParams.get("search")?.trim() ?? "";
-    const status = new URL(request.url).searchParams.get("status")?.trim() ?? "";
+    const params = new URL(request.url).searchParams;
+    const search = params.get("search")?.trim() ?? "";
+    const status = params.get("status")?.trim() ?? "";
     const query: any = { userId: session.id };
     if (status && STATUSES.includes(status as Status)) query.status = status;
     if (search) {
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
-  if (!allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  if (!session || !allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   try {
     const body = await request.json();
@@ -69,12 +70,8 @@ export async function POST(request: NextRequest) {
     const total = Number(body.total || 0);
     const paid = Number(body.paid || 0);
 
-    if (!customer || !phone || !device || !issue) {
-      return NextResponse.json({ error: "Cliente, teléfono, equipo y falla son obligatorios" }, { status: 400 });
-    }
-    if (![total, paid].every(Number.isFinite) || total < 0 || paid < 0 || paid > total) {
-      return NextResponse.json({ error: "Valores de dinero inválidos" }, { status: 400 });
-    }
+    if (!customer || !phone || !device || !issue) return NextResponse.json({ error: "Cliente, teléfono, equipo y falla son obligatorios" }, { status: 400 });
+    if (![total, paid].every(Number.isFinite) || total < 0 || paid < 0 || paid > total) return NextResponse.json({ error: "Valores de dinero inválidos" }, { status: 400 });
 
     const client = await db();
     try {
@@ -116,7 +113,7 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   const session = await getSessionFromRequest(request);
-  if (!allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  if (!session || !allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   try {
     const body = await request.json();
