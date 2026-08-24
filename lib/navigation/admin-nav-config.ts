@@ -37,6 +37,7 @@ export const ADMIN_MANAGEMENT_ITEMS: AdminNavItemConfig[] = [
   { href: "/admin/supplier-portal", label: "Portal de proveedores", countKey: "suppliers" },
   { href: "/admin/client-portal", label: "Portal de clientes", countKey: "clients" },
   { href: "/admin/cash", label: "Caja" },
+  { href: "/admin/service-orders", label: "Servicio técnico" },
   // Keep the compatibility route introduced in the latest user-management fix.
   // /user-management redirects to /admin/user-management.
   { href: "/user-management", label: "Gestión de usuarios", countKey: "users" },
