@@ -17,6 +17,7 @@ import {
   Mail,
   FileText,
   UserCircle,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,8 @@ const ADMIN_NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/warehouses": Warehouse,
   "/admin/supplier-portal": Truck,
   "/admin/client-portal": Store,
+  "/admin/cash": Store,
+  "/admin/service-orders": Wrench,
   "/user-management": Users,
   "/admin/user-management": Users,
   "/admin/activity-history": History,
