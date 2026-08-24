@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Wrench, Smartphone, UserRound, ClipboardList, CircleDollarSign, type LucideIcon } from "lucide-react";
 import { PageSectionHeader } from "@/components/shared/PageSectionHeader";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,71 +9,29 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
-const statusLabels = {
-  received: "Recibido",
-  diagnosis: "Diagnóstico",
-  awaiting_approval: "Esperando aprobación",
-  repairing: "En reparación",
-  ready: "Listo",
-  delivered: "Entregado",
-  cancelled: "Cancelado",
-} as const;
-
-const statCards: { icon: LucideIcon; label: string; value: string }[] = [
-  { icon: ClipboardList, label: "Órdenes abiertas", value: "0" },
-  { icon: Smartphone, label: "En reparación", value: "0" },
-  { icon: UserRound, label: "Pendientes de aprobación", value: "0" },
-  { icon: CircleDollarSign, label: "Saldo pendiente", value: "$0" },
+const statusLabels = { received: "Recibido", diagnosis: "Diagnóstico", awaiting_approval: "Esperando aprobación", repairing: "En reparación", ready: "Listo", delivered: "Entregado", cancelled: "Cancelado" } as const;
+type Status = keyof typeof statusLabels;
+type Order = { _id: string; orderNumber: string; customer: string; phone: string; device: string; imei?: string; serial?: string; issue: string; status: Status; total: number; paid: number; balance: number };
+type Stats = { open: number; repairing: number; awaitingApproval: number; pendingBalance: number };
+const statCards: { icon: LucideIcon; label: string; key: keyof Stats }[] = [
+  { icon: ClipboardList, label: "Órdenes abiertas", key: "open" }, { icon: Smartphone, label: "En reparación", key: "repairing" }, { icon: UserRound, label: "Pendientes de aprobación", key: "awaitingApproval" }, { icon: CircleDollarSign, label: "Saldo pendiente", key: "pendingBalance" },
 ];
 
 export default function ServiceOrdersWorkspace() {
-  const [status, setStatus] = useState<keyof typeof statusLabels>("received");
-  const [search, setSearch] = useState("");
-  const [customer, setCustomer] = useState("");
-  const [phone, setPhone] = useState("");
-  const [device, setDevice] = useState("");
-  const [imei, setImei] = useState("");
-  const [issue, setIssue] = useState("");
-
-  const draftReady = useMemo(
-    () => Boolean(customer.trim() && phone.trim() && device.trim() && issue.trim()),
-    [customer, phone, device, issue],
-  );
-
-  return (
-    <main className="space-y-6 p-2 sm:p-4">
-      <PageSectionHeader title="Servicio técnico" description="Órdenes de reparación, diagnóstico, equipos, repuestos y seguimiento." icon={Wrench} tone="amber" as="h1" />
-      <div className="grid gap-4 md:grid-cols-4">
-        {statCards.map(({ icon: Icon, label, value }) => (
-          <Card key={label}>
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className="rounded-lg border p-2"><Icon className="h-5 w-5" /></div>
-              <div><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-semibold">{value}</p></div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <Card>
-        <CardHeader><CardTitle>Nueva orden de servicio</CardTitle><CardDescription>Recepción inicial del equipo y datos del cliente.</CardDescription></CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="customer">Cliente</Label><Input id="customer" value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="Nombre completo" /></div>
-          <div className="space-y-2"><Label htmlFor="phone">Teléfono</Label><Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="300 000 0000" /></div>
-          <div className="space-y-2"><Label htmlFor="device">Equipo</Label><Input id="device" value={device} onChange={(e) => setDevice(e.target.value)} placeholder="iPhone 15 Pro Max" /></div>
-          <div className="space-y-2"><Label htmlFor="imei">IMEI / serial</Label><Input id="imei" value={imei} onChange={(e) => setImei(e.target.value)} placeholder="IMEI o número de serie" /></div>
-          <div className="space-y-2 md:col-span-2"><Label htmlFor="issue">Falla reportada</Label><Textarea id="issue" value={issue} onChange={(e) => setIssue(e.target.value)} placeholder="Describe la falla indicada por el cliente" /></div>
-          <div className="space-y-2"><Label>Estado inicial</Label><Select value={status} onValueChange={(value) => setStatus(value as keyof typeof statusLabels)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(statusLabels).map(([key, label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent></Select></div>
-          <div className="flex items-end"><div className="w-full rounded-lg border p-3 text-sm"><span className="text-muted-foreground">Validación:</span> {draftReady ? "datos básicos completos" : "faltan datos básicos"}</div></div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>Órdenes</CardTitle><CardDescription>La búsqueda y persistencia quedarán conectadas a la capa MongoDB del módulo.</CardDescription></CardHeader>
-        <CardContent className="space-y-4">
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por orden, cliente, teléfono, IMEI o serial" />
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">{search ? `Sin órdenes persistidas que coincidan con “${search}”.` : "No hay órdenes de servicio cargadas todavía."}</div>
-          <div className="flex flex-wrap gap-2">{Object.entries(statusLabels).map(([key, label]) => <Badge key={key} variant={key === status ? "default" : "outline"}>{label}</Badge>)}</div>
-        </CardContent>
-      </Card>
-    </main>
-  );
+  const [status, setStatus] = useState<Status>("received"); const [search, setSearch] = useState(""); const [customer, setCustomer] = useState(""); const [phone, setPhone] = useState(""); const [device, setDevice] = useState(""); const [imei, setImei] = useState(""); const [issue, setIssue] = useState(""); const [orders, setOrders] = useState<Order[]>([]); const [stats, setStats] = useState<Stats>({ open: 0, repairing: 0, awaitingApproval: 0, pendingBalance: 0 }); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [message, setMessage] = useState("");
+  const draftReady = useMemo(() => Boolean(customer.trim() && phone.trim() && device.trim() && issue.trim()), [customer, phone, device, issue]);
+  const load = useCallback(async () => { setLoading(true); try { const params = new URLSearchParams(); if (search.trim()) params.set("search", search.trim()); const response = await fetch(`/api/service-orders?${params}`, { cache: "no-store" }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "No se pudieron cargar las órdenes"); setOrders(data.orders ?? []); setStats(data.stats ?? { open: 0, repairing: 0, awaitingApproval: 0, pendingBalance: 0 }); } catch (error) { setMessage(error instanceof Error ? error.message : "Error al cargar órdenes"); } finally { setLoading(false); } }, [search]);
+  useEffect(() => { const timer = setTimeout(() => void load(), 250); return () => clearTimeout(timer); }, [load]);
+  const createOrder = async () => { if (!draftReady) return; setSaving(true); setMessage(""); try { const response = await fetch("/api/service-orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ customer, phone, device, imei, issue, status, total: 0, paid: 0 }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "No se pudo crear la orden"); setMessage(`Orden ${data.orderNumber} creada correctamente.`); setCustomer(""); setPhone(""); setDevice(""); setImei(""); setIssue(""); setStatus("received"); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : "Error al crear la orden"); } finally { setSaving(false); } };
+  return <main className="space-y-6 p-2 sm:p-4">
+    <PageSectionHeader title="Servicio técnico" description="Órdenes de reparación, diagnóstico, equipos, repuestos y seguimiento." icon={Wrench} tone="amber" as="h1" />
+    <div className="grid gap-4 md:grid-cols-4">{statCards.map(({ icon: Icon, label, key }) => <Card key={label}><CardContent className="flex items-center gap-3 p-4"><div className="rounded-lg border p-2"><Icon className="h-5 w-5" /></div><div><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-semibold">{key === "pendingBalance" ? `$${stats[key].toLocaleString("es-CO")}` : stats[key]}</p></div></CardContent></Card>)}</div>
+    <Card><CardHeader><CardTitle>Nueva orden de servicio</CardTitle><CardDescription>Recepción inicial del equipo y datos del cliente.</CardDescription></CardHeader><CardContent className="grid gap-4 md:grid-cols-2">
+      <div className="space-y-2"><Label htmlFor="customer">Cliente</Label><Input id="customer" value={customer} onChange={e => setCustomer(e.target.value)} placeholder="Nombre completo" /></div><div className="space-y-2"><Label htmlFor="phone">Teléfono</Label><Input id="phone" value={phone} onChange={e => setPhone(e.target.value)} placeholder="300 000 0000" /></div><div className="space-y-2"><Label htmlFor="device">Equipo</Label><Input id="device" value={device} onChange={e => setDevice(e.target.value)} placeholder="iPhone 15 Pro Max" /></div><div className="space-y-2"><Label htmlFor="imei">IMEI / serial</Label><Input id="imei" value={imei} onChange={e => setImei(e.target.value)} placeholder="IMEI o número de serie" /></div><div className="space-y-2 md:col-span-2"><Label htmlFor="issue">Falla reportada</Label><Textarea id="issue" value={issue} onChange={e => setIssue(e.target.value)} placeholder="Describe la falla indicada por el cliente" /></div><div className="space-y-2"><Label>Estado inicial</Label><Select value={status} onValueChange={value => setStatus(value as Status)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(statusLabels).map(([key, label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent></Select></div><div className="flex items-end gap-3"><div className="flex-1 rounded-lg border p-3 text-sm"><span className="text-muted-foreground">Validación:</span> {draftReady ? "datos básicos completos" : "faltan datos básicos"}</div><Button disabled={!draftReady || saving} onClick={createOrder}>{saving ? "Guardando..." : "Crear orden"}</Button></div>
+      {message && <div className="md:col-span-2 rounded-lg border p-3 text-sm">{message}</div>}
+    </CardContent></Card>
+    <Card><CardHeader><CardTitle>Órdenes</CardTitle><CardDescription>Datos reales persistidos en MongoDB.</CardDescription></CardHeader><CardContent className="space-y-4"><Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por orden, cliente, teléfono, IMEI o serial" />{loading ? <div className="p-8 text-center text-sm text-muted-foreground">Cargando...</div> : orders.length === 0 ? <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No hay órdenes que coincidan.</div> : <div className="space-y-2">{orders.map(order => <div key={order._id} className="rounded-lg border p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold">{order.orderNumber} · {order.customer}</p><p className="text-sm text-muted-foreground">{order.device} · {order.phone}{order.imei ? ` · ${order.imei}` : ""}</p></div><Badge>{statusLabels[order.status]}</Badge></div><p className="mt-2 text-sm">{order.issue}</p><p className="mt-2 text-sm font-medium">Saldo: ${Number(order.balance || 0).toLocaleString("es-CO")}</p></div>)}</div>}</CardContent></Card>
+  </main>;
 }
