@@ -30,5 +30,29 @@ jobs:
       - name: Run tests
         run: npm test -- --run
 
+      - name: Lint
+        run: npm run lint
+
       - name: Build application
         run: npm run build
+
+  production-smoke-preflight:
+    needs: test-and-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ vars.SMOKE_BASE_URL != '' && secrets.SMOKE_EMAIL != '' && secrets.SMOKE_PASSWORD != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run production smoke preflight
+        env:
+          SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL }}
+          SMOKE_EMAIL: ${{ secrets.SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.SMOKE_PASSWORD }}
+        run: node scripts/release-smoke-check.mjs
