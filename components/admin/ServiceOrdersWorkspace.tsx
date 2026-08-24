@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Wrench, Smartphone, UserRound, ClipboardList, CircleDollarSign } from "lucide-react";
+import { Wrench, Smartphone, UserRound, ClipboardList, CircleDollarSign, type LucideIcon } from "lucide-react";
 import { PageSectionHeader } from "@/components/shared/PageSectionHeader";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,13 @@ const statusLabels = {
   delivered: "Entregado",
   cancelled: "Cancelado",
 } as const;
+
+const statCards: { icon: LucideIcon; label: string; value: string }[] = [
+  { icon: ClipboardList, label: "Órdenes abiertas", value: "0" },
+  { icon: Smartphone, label: "En reparación", value: "0" },
+  { icon: UserRound, label: "Pendientes de aprobación", value: "0" },
+  { icon: CircleDollarSign, label: "Saldo pendiente", value: "$0" },
+];
 
 export default function ServiceOrdersWorkspace() {
   const [status, setStatus] = useState<keyof typeof statusLabels>("received");
@@ -45,16 +52,16 @@ export default function ServiceOrdersWorkspace() {
       />
 
       <div className="grid gap-4 md:grid-cols-4">
-        {[
-          [ClipboardList, "Órdenes abiertas", "0"],
-          [Smartphone, "En reparación", "0"],
-          [UserRound, "Pendientes de aprobación", "0"],
-          [CircleDollarSign, "Saldo pendiente", "$0"],
-        ].map(([Icon, label, value]) => (
-          <Card key={String(label)}>
+        {statCards.map(({ icon: Icon, label, value }) => (
+          <Card key={label}>
             <CardContent className="flex items-center gap-3 p-4">
-              <div className="rounded-lg border p-2"><Icon className="h-5 w-5" /></div>
-              <div><p className="text-xs text-muted-foreground">{label}</p><p className="text-xl font-semibold">{value}</p></div>
+              <div className="rounded-lg border p-2">
+                <Icon className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-xl font-semibold">{value}</p>
+              </div>
             </CardContent>
           </Card>
         ))}
