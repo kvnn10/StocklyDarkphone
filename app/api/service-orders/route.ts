@@ -59,9 +59,12 @@ export async function PUT(request: NextRequest) {
 
     if (action === "add_part") {
       const productId = typeof body.productId === "string" && ObjectId.isValid(body.productId) ? body.productId : "";
-      const name = typeof body.name === "string" ? body.name.trim() : "", quantity = Number(body.quantity), unitPrice = money(body.unitPrice);
-      if (!productId || !name || !Number.isInteger(quantity) || quantity <= 0 || unitPrice === null) return NextResponse.json({ error: "Repuesto inválido" }, { status: 400 });
-      const part = { id: new ObjectId().toString(), productId, name, sku: typeof body.sku === "string" ? body.sku.trim() : "", quantity, unitPrice, subtotal: quantity * unitPrice, consumed: false, warehouseId: "", addedAt: new Date(), addedBy: session.id };
+      const quantity = Number(body.quantity);
+      if (!productId || !Number.isInteger(quantity) || quantity <= 0) return NextResponse.json({ error: "Producto y cantidad válidos son obligatorios" }, { status: 400 });
+      const product = await client.db().collection("Product").findOne({ _id: new ObjectId(productId), userId: session.id, deletedAt: { $in: [null, undefined] } });
+      if (!product) return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
+      const unitPrice = money(product.price); if (unitPrice === null) return NextResponse.json({ error: "Precio del producto inválido" }, { status: 400 });
+      const part = { id: new ObjectId().toString(), productId, name: String(product.name), sku: String(product.sku || ""), quantity, unitPrice, subtotal: quantity * unitPrice, consumed: false, warehouseId: "", addedAt: new Date(), addedBy: session.id };
       const parts = [...((existing.parts as any[]) || []), part];
       const subtotalParts = parts.reduce((sum, p) => sum + Number(p.subtotal || 0), 0);
       const total = Math.max(0, subtotalParts + Number(existing.labor || 0) - Number(existing.discount || 0));
@@ -83,6 +86,7 @@ export async function PUT(request: NextRequest) {
       const parts = (existing.parts as any[]) || [], subtotalParts = parts.reduce((sum, p) => sum + Number(p.subtotal || 0), 0), labor = Number(existing.labor || 0), total = Math.max(0, subtotalParts + labor - discount);
       if (Number(existing.paid || 0) > total) return NextResponse.json({ error: "El descuento no puede dejar el total por debajo de lo ya pagado" }, { status: 400 });
       await orders.updateOne({ _id: existing._id }, { $set: { discount, total, balance: total - Number(existing.paid || 0), updatedAt: new Date(), updatedBy: session.id } });
+      await writeAuditLog({ userId: session.id, action: "SERVICE_DISCOUNT_UPDATED", entityType: "ServiceOrder", entityId: id, details: { discount, total } });
       return NextResponse.json(await orders.findOne({ _id: existing._id }));
     }
 
@@ -93,8 +97,7 @@ export async function PUT(request: NextRequest) {
       if (!warehouseId) return NextResponse.json({ error: "Selecciona la bodega antes de descontar inventario" }, { status: 400 });
       const products = client.db().collection("Product"), movements = client.db().collection("InventoryMovement"), product = await products.findOne({ _id: new ObjectId(part.productId), userId: session.id });
       if (!product) return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
-      const qty = Long.fromNumber(Number(part.quantity));
-      const current = Long.fromValue(product.quantity as any);
+      const qty = Long.fromNumber(Number(part.quantity)); const current = Long.fromValue(product.quantity as any);
       if (current.lt(qty)) return NextResponse.json({ error: `Stock insuficiente. Disponible: ${current.toString()}` }, { status: 400 });
       const newStock = current.subtract(qty);
       const result = await products.updateOne({ _id: product._id, userId: session.id, quantity: { $gte: qty } }, { $set: { quantity: newStock, updatedAt: new Date(), updatedBy: session.id } });
