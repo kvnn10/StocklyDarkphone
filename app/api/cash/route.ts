@@ -43,37 +43,17 @@ export async function GET(request: NextRequest) {
     }
 
     const normalizedMovements = movements.map((movement) => {
-      const isCancelledSale =
-        movement.source === "sale" &&
-        typeof movement.orderId === "string" &&
-        cancelledOrderIds.has(movement.orderId);
-
+      const isCancelledSale = movement.source === "sale" && typeof movement.orderId === "string" && cancelledOrderIds.has(movement.orderId);
       if (!isCancelledSale || movement.status === "voided") return movement;
-
-      return {
-        ...movement,
-        status: "voided",
-        voidedAt: movement.voidedAt ?? new Date(),
-        voidReason: "Venta cancelada o reembolsada",
-        automaticallyVoided: true,
-      };
+      return { ...movement, status: "voided", voidedAt: movement.voidedAt ?? new Date(), voidReason: "Venta cancelada o reembolsada", automaticallyVoided: true };
     });
 
     const activeMovements = normalizedMovements.filter((m) => m.status !== "voided");
-    const income = activeMovements
-      .filter((m) => m.type === "income")
-      .reduce((sum, m) => sum + Number(m.amount || 0), 0);
-    const expense = activeMovements
-      .filter((m) => m.type === "expense")
-      .reduce((sum, m) => sum + Number(m.amount || 0), 0);
-    const refunds = activeMovements
-      .filter((m) => m.source === "refund")
-      .reduce((sum, m) => sum + Number(m.amount || 0), 0);
+    const income = activeMovements.filter((m) => m.type === "income").reduce((sum, m) => sum + Number(m.amount || 0), 0);
+    const expense = activeMovements.filter((m) => m.type === "expense").reduce((sum, m) => sum + Number(m.amount || 0), 0);
+    const refunds = activeMovements.filter((m) => m.source === "refund").reduce((sum, m) => sum + Number(m.amount || 0), 0);
 
-    return NextResponse.json({
-      movements: normalizedMovements,
-      summary: { income, expense, refunds, balance: income - expense },
-    });
+    return NextResponse.json({ movements: normalizedMovements, summary: { income, expense, refunds, balance: income - expense } });
   } finally {
     await client.close();
   }
@@ -104,7 +84,14 @@ export async function POST(request: NextRequest) {
       const db = client.db();
       const collection = db.collection("CashMovement");
 
-      if (orderId && ObjectId.isValid(orderId)) {
+      // A movement linked to a sale must reference a real, authorized Order.
+      // Previously an arbitrary non-ObjectId string could bypass this validation
+      // and create a fake sale movement in CashMovement.
+      if (orderId) {
+        if (!ObjectId.isValid(orderId)) {
+          return NextResponse.json({ error: "ID de venta inválido" }, { status: 400 });
+        }
+
         const order = await db.collection("Order").findOne({
           _id: new ObjectId(orderId),
           userId: session.id,
@@ -119,18 +106,11 @@ export async function POST(request: NextRequest) {
       }
 
       if (orderId) {
-        const existing = await collection.findOne({
-          userId: session.id,
-          orderId,
-          source: "sale",
-          status: { $ne: "voided" },
-        });
+        const existing = await collection.findOne({ userId: session.id, orderId, source: "sale", status: { $ne: "voided" } });
         if (existing) return NextResponse.json(existing, { status: 200 });
       }
 
-      const description = typeof body.description === "string"
-        ? body.description.trim()
-        : orderId ? "Venta" : "Movimiento manual";
+      const description = typeof body.description === "string" ? body.description.trim() : orderId ? "Venta" : "Movimiento manual";
       const movement = {
         type: body.type,
         source,
@@ -151,14 +131,7 @@ export async function POST(request: NextRequest) {
         action: "CASH_MOVEMENT_CREATED",
         entityType: "CashMovement",
         entityId: String(result.insertedId),
-        details: {
-          type: movement.type,
-          source: movement.source,
-          amount: movement.amount,
-          paymentMethod: movement.paymentMethod,
-          orderId: movement.orderId ?? null,
-          description: movement.description,
-        },
+        details: { type: movement.type, source: movement.source, amount: movement.amount, paymentMethod: movement.paymentMethod, orderId: movement.orderId ?? null, description: movement.description },
         userAgent: request.headers.get("user-agent"),
         ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip"),
       });
@@ -182,35 +155,20 @@ export async function DELETE(request: NextRequest) {
   try {
     const body = await request.json();
     const id = typeof body.id === "string" ? body.id.trim() : "";
-    if (!id || !ObjectId.isValid(id)) {
-      return NextResponse.json({ error: "Movimiento inválido" }, { status: 400 });
-    }
+    if (!id || !ObjectId.isValid(id)) return NextResponse.json({ error: "Movimiento inválido" }, { status: 400 });
 
     const client = new MongoClient(process.env.DATABASE_URL!);
     await client.connect();
     try {
       const collection = client.db().collection("CashMovement");
       const movement = await collection.findOne({ _id: new ObjectId(id), userId: session.id });
-
       if (!movement) return NextResponse.json({ error: "Movimiento no encontrado" }, { status: 404 });
-      if (movement.status === "voided") {
-        return NextResponse.json({ error: "El movimiento ya está anulado" }, { status: 409 });
-      }
+      if (movement.status === "voided") return NextResponse.json({ error: "El movimiento ya está anulado" }, { status: 409 });
 
-      const voidReason = typeof body.reason === "string" && body.reason.trim()
-        ? body.reason.trim()
-        : "Movimiento anulado manualmente";
-
+      const voidReason = typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : "Movimiento anulado manualmente";
       await collection.updateOne(
         { _id: movement._id, userId: session.id, status: { $ne: "voided" } },
-        {
-          $set: {
-            status: "voided",
-            voidedAt: new Date(),
-            voidedBy: session.id,
-            voidReason,
-          },
-        },
+        { $set: { status: "voided", voidedAt: new Date(), voidedBy: session.id, voidReason } },
       );
 
       await writeAuditLog({
@@ -218,14 +176,7 @@ export async function DELETE(request: NextRequest) {
         action: "CASH_MOVEMENT_VOIDED",
         entityType: "CashMovement",
         entityId: id,
-        details: {
-          type: movement.type,
-          source: movement.source,
-          amount: Number(movement.amount || 0),
-          paymentMethod: movement.paymentMethod,
-          orderId: movement.orderId ?? null,
-          reason: voidReason,
-        },
+        details: { type: movement.type, source: movement.source, amount: Number(movement.amount || 0), paymentMethod: movement.paymentMethod, orderId: movement.orderId ?? null, reason: voidReason },
         userAgent: request.headers.get("user-agent"),
         ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip"),
       });
