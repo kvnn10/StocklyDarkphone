@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { MongoClient, ObjectId, Long } from "mongodb";
 import { getSessionFromRequest } from "@/utils/auth";
 import { writeAuditLog } from "@/lib/audit/log";
+import { prisma } from "@/prisma/client";
 
 const STATUSES = ["received", "diagnosis", "awaiting_approval", "repairing", "ready", "delivered", "cancelled"] as const;
 type Status = (typeof STATUSES)[number];
@@ -64,7 +65,7 @@ export async function PUT(request: NextRequest) {
       const product = await client.db().collection("Product").findOne({ _id: new ObjectId(productId), userId: session.id, deletedAt: { $in: [null, undefined] } });
       if (!product) return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
       const unitPrice = money(product.price); if (unitPrice === null) return NextResponse.json({ error: "Precio del producto inválido" }, { status: 400 });
-      const part = { id: new ObjectId().toString(), productId, name: String(product.name), sku: String(product.sku || ""), quantity, unitPrice, subtotal: quantity * unitPrice, consumed: false, warehouseId: "", addedAt: new Date(), addedBy: session.id };
+      const part = { id: new ObjectId().toString(), productId, name: String(product.name), sku: String(product.sku || ""), quantity, unitPrice, subtotal: quantity * unitPrice, consumed: false, warehouseId: "", warehouseName: "", addedAt: new Date(), addedBy: session.id };
       const parts = [...((existing.parts as any[]) || []), part];
       const subtotalParts = parts.reduce((sum, p) => sum + Number(p.subtotal || 0), 0);
       const total = Math.max(0, subtotalParts + Number(existing.labor || 0) - Number(existing.discount || 0));
@@ -95,6 +96,8 @@ export async function PUT(request: NextRequest) {
       const part = ((existing.parts as any[]) || []).find(p => p.id === partId);
       if (!part || part.consumed) return NextResponse.json({ error: "Repuesto no encontrado o ya consumido" }, { status: 400 });
       if (!warehouseId) return NextResponse.json({ error: "Selecciona la bodega antes de descontar inventario" }, { status: 400 });
+      const warehouse = await prisma.warehouse.findFirst({ where: { id: warehouseId, userId: session.id, status: true } });
+      if (!warehouse) return NextResponse.json({ error: "La bodega seleccionada no existe, está inactiva o no pertenece a tu cuenta" }, { status: 400 });
       const products = client.db().collection("Product"), movements = client.db().collection("InventoryMovement"), product = await products.findOne({ _id: new ObjectId(part.productId), userId: session.id });
       if (!product) return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
       const qty = Long.fromNumber(Number(part.quantity)); const current = Long.fromValue(product.quantity as any);
@@ -102,10 +105,10 @@ export async function PUT(request: NextRequest) {
       const newStock = current.subtract(qty);
       const result = await products.updateOne({ _id: product._id, userId: session.id, quantity: { $gte: qty } }, { $set: { quantity: newStock, updatedAt: new Date(), updatedBy: session.id } });
       if (!result.modifiedCount) return NextResponse.json({ error: "El stock cambió; vuelve a intentar" }, { status: 409 });
-      const parts = ((existing.parts as any[]) || []).map(p => p.id === partId ? { ...p, consumed: true, warehouseId, consumedAt: new Date(), consumedBy: session.id } : p);
+      const parts = ((existing.parts as any[]) || []).map(p => p.id === partId ? { ...p, consumed: true, warehouseId, warehouseName: warehouse.name, consumedAt: new Date(), consumedBy: session.id } : p);
       await orders.updateOne({ _id: existing._id }, { $set: { parts, updatedAt: new Date(), updatedBy: session.id } });
       await movements.insertOne({ productId: product._id, warehouseId: new ObjectId(warehouseId), userId: new ObjectId(session.id), type: "exit", quantity: qty, previousStock: current, newStock, reason: "service_order", referenceId: id, notes: existing.orderNumber, createdAt: new Date() });
-      await writeAuditLog({ userId: session.id, action: "SERVICE_PART_CONSUMED", entityType: "ServiceOrder", entityId: id, details: { partId, productId: part.productId, quantity: Number(part.quantity), warehouseId } });
+      await writeAuditLog({ userId: session.id, action: "SERVICE_PART_CONSUMED", entityType: "ServiceOrder", entityId: id, details: { partId, productId: part.productId, quantity: Number(part.quantity), warehouseId, warehouseName: warehouse.name } });
       return NextResponse.json(await orders.findOne({ _id: existing._id }));
     }
 
@@ -122,7 +125,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const update: any = { updatedAt: new Date(), updatedBy: session.id };
-    for (const key of ["customer", "phone", "device", "imei", "serial", "issue", "diagnosis", "technicianNotes", "technicianId", "deliveredAt"]) if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
+    for (const key of ["customer", "phone", "device", "imei", "serial", "issue", "diagnosis", "technicianNotes", "technicianId"]) if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
     if (body.status !== undefined) { if (!STATUSES.includes(body.status)) return NextResponse.json({ error: "Estado inválido" }, { status: 400 }); update.status = body.status; update.$statusHistory = { status: body.status, at: new Date(), by: session.id }; }
     if (body.total !== undefined) update.total = money(body.total); if (body.paid !== undefined) update.paid = money(body.paid);
     if (update.total === null || update.paid === null || (update.total !== undefined && update.paid !== undefined && update.paid > update.total)) return NextResponse.json({ error: "Valores de dinero inválidos" }, { status: 400 });
