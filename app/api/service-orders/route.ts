@@ -122,7 +122,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const update: any = { updatedAt: new Date(), updatedBy: session.id };
-    for (const key of ["customer", "phone", "device", "imei", "serial", "issue", "diagnosis", "technicianNotes", "technicianId"]) if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
+    for (const key of ["customer", "phone", "device", "imei", "serial", "issue", "diagnosis", "technicianNotes", "technicianId", "deliveredAt"]) if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
     if (body.status !== undefined) { if (!STATUSES.includes(body.status)) return NextResponse.json({ error: "Estado inválido" }, { status: 400 }); update.status = body.status; update.$statusHistory = { status: body.status, at: new Date(), by: session.id }; }
     if (body.total !== undefined) update.total = money(body.total); if (body.paid !== undefined) update.paid = money(body.paid);
     if (update.total === null || update.paid === null || (update.total !== undefined && update.paid !== undefined && update.paid > update.total)) return NextResponse.json({ error: "Valores de dinero inválidos" }, { status: 400 });
