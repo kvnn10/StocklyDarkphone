@@ -63,7 +63,8 @@ export async function PUT(request: NextRequest) {
       if (!productId || !name || !Number.isInteger(quantity) || quantity <= 0 || unitPrice === null) return NextResponse.json({ error: "Repuesto inválido" }, { status: 400 });
       const part = { id: new ObjectId().toString(), productId, name, sku: typeof body.sku === "string" ? body.sku.trim() : "", quantity, unitPrice, subtotal: quantity * unitPrice, consumed: false, warehouseId: "", addedAt: new Date(), addedBy: session.id };
       const parts = [...((existing.parts as any[]) || []), part];
-      const total = parts.reduce((sum, p) => sum + Number(p.subtotal || 0), 0) + Number(existing.labor || 0) + Number(existing.discount || 0) * -1;
+      const subtotalParts = parts.reduce((sum, p) => sum + Number(p.subtotal || 0), 0);
+      const total = Math.max(0, subtotalParts + Number(existing.labor || 0) - Number(existing.discount || 0));
       await orders.updateOne({ _id: existing._id }, { $set: { parts, total, balance: total - Number(existing.paid || 0), updatedAt: new Date(), updatedBy: session.id } });
       await writeAuditLog({ userId: session.id, action: "SERVICE_PART_ADDED", entityType: "ServiceOrder", entityId: id, details: { part } });
       return NextResponse.json(await orders.findOne({ _id: existing._id }));
