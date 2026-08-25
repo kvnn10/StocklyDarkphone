@@ -9,6 +9,7 @@ type Status = (typeof STATUSES)[number];
 function allowed(session: any) { return !!session && ["admin", "user", "retailer"].includes(session.role ?? ""); }
 async function db() { const client = new MongoClient(process.env.DATABASE_URL!); await client.connect(); return client; }
 const money = (value: unknown) => { const n = Number(value); return Number.isFinite(n) && n >= 0 ? n : null; };
+const terminal = (status: string) => status === "delivered" || status === "cancelled";
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
     if (status && STATUSES.includes(status as Status)) query.status = status;
     if (search) query.$or = ["orderNumber", "customer", "phone", "device", "imei", "serial"].map(field => ({ [field]: { $regex: search, $options: "i" } }));
     const orders = await client.db().collection("ServiceOrder").find(query).sort({ createdAt: -1 }).limit(500).toArray();
-    const stats = { open: orders.filter((o: any) => !["delivered", "cancelled"].includes(o.status)).length, repairing: orders.filter((o: any) => o.status === "repairing").length, awaitingApproval: orders.filter((o: any) => o.status === "awaiting_approval").length, pendingBalance: orders.reduce((s: number, o: any) => s + Math.max(0, Number(o.total || 0) - Number(o.paid || 0)), 0) };
+    const stats = { open: orders.filter((o: any) => !terminal(o.status)).length, repairing: orders.filter((o: any) => o.status === "repairing").length, awaitingApproval: orders.filter((o: any) => o.status === "awaiting_approval").length, pendingBalance: orders.reduce((s: number, o: any) => s + Math.max(0, Number(o.total || 0) - Number(o.paid || 0)), 0) };
     return NextResponse.json({ orders, stats });
   } catch (error) { console.error("GET /api/service-orders", error); return NextResponse.json({ error: "No se pudieron cargar las órdenes" }, { status: 500 }); }
   finally { await client.close(); }
@@ -57,6 +58,7 @@ export async function PUT(request: NextRequest) {
     const orders = client.db().collection("ServiceOrder"), existing = await orders.findOne({ _id: new ObjectId(id), userId: session.id });
     if (!existing) return NextResponse.json({ error: "Orden no encontrada" }, { status: 404 });
     const action = body.action as string | undefined;
+    if (terminal(existing.status) && action !== undefined) return NextResponse.json({ error: "La orden está cerrada y no admite operaciones" }, { status: 409 });
 
     if (action === "add_part") {
       const productId = typeof body.productId === "string" && ObjectId.isValid(body.productId) ? body.productId : "";
@@ -77,6 +79,7 @@ export async function PUT(request: NextRequest) {
     if (action === "set_labor") {
       const labor = money(body.amount); if (labor === null) return NextResponse.json({ error: "Mano de obra inválida" }, { status: 400 });
       const parts = (existing.parts as any[]) || [], subtotalParts = parts.reduce((sum, p) => sum + Number(p.subtotal || 0), 0), discount = Number(existing.discount || 0), total = Math.max(0, subtotalParts + labor - discount);
+      if (Number(existing.paid || 0) > total) return NextResponse.json({ error: "La mano de obra no puede reducir el total por debajo de lo ya pagado" }, { status: 400 });
       await orders.updateOne({ _id: existing._id }, { $set: { labor, total, balance: total - Number(existing.paid || 0), updatedAt: new Date(), updatedBy: session.id } });
       await writeAuditLog({ userId: session.id, action: "SERVICE_LABOR_UPDATED", entityType: "ServiceOrder", entityId: id, details: { labor, total } });
       return NextResponse.json(await orders.findOne({ _id: existing._id }));
@@ -126,11 +129,17 @@ export async function PUT(request: NextRequest) {
 
     const update: any = { updatedAt: new Date(), updatedBy: session.id };
     for (const key of ["customer", "phone", "device", "imei", "serial", "issue", "diagnosis", "technicianNotes", "technicianId"]) if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
-    if (body.status !== undefined) { if (!STATUSES.includes(body.status)) return NextResponse.json({ error: "Estado inválido" }, { status: 400 }); update.status = body.status; update.$statusHistory = { status: body.status, at: new Date(), by: session.id }; }
+    if (body.status !== undefined) {
+      if (!STATUSES.includes(body.status)) return NextResponse.json({ error: "Estado inválido" }, { status: 400 });
+      if (body.status === "delivered" && Number(existing.balance || 0) > 0) return NextResponse.json({ error: "No se puede entregar una orden con saldo pendiente" }, { status: 409 });
+      if (body.status === "delivered" && !existing.diagnosis?.trim()) return NextResponse.json({ error: "Registra el diagnóstico antes de entregar la orden" }, { status: 409 });
+      update.status = body.status;
+    }
     if (body.total !== undefined) update.total = money(body.total); if (body.paid !== undefined) update.paid = money(body.paid);
     if (update.total === null || update.paid === null || (update.total !== undefined && update.paid !== undefined && update.paid > update.total)) return NextResponse.json({ error: "Valores de dinero inválidos" }, { status: 400 });
     const total = update.total !== undefined ? update.total : Number(existing.total || 0), paid = update.paid !== undefined ? update.paid : Number(existing.paid || 0); update.balance = total - paid;
-    const push: any = {}; if (update.$statusHistory) { push.statusHistory = update.$statusHistory; delete update.$statusHistory; }
+    const push: any = {}; if (update.status && update.status !== existing.status) push.statusHistory = { status: update.status, at: new Date(), by: session.id };
+    if (update.status === "delivered") update.deliveredAt = new Date();
     await orders.updateOne({ _id: existing._id }, { $set: update, ...(Object.keys(push).length ? { $push: push } : {}) });
     const saved = await orders.findOne({ _id: existing._id });
     await writeAuditLog({ userId: session.id, action: "SERVICE_ORDER_UPDATED", entityType: "ServiceOrder", entityId: id, details: { changes: update } });
