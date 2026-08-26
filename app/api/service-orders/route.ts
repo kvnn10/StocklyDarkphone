@@ -19,7 +19,11 @@ export async function GET(request: NextRequest) {
     const params = new URL(request.url).searchParams, search = params.get("search")?.trim() ?? "", status = params.get("status")?.trim() ?? "";
     const query: any = { userId: session.id };
     if (status && STATUSES.includes(status as Status)) query.status = status;
-    if (search) query.$or = ["orderNumber", "customer", "phone", "device", "imei", "serial"].map(field => ({ [field]: { $regex: search, $options: "i" } }));
+    if (search) {
+      const searchFields: any[] = ["orderNumber", "customer", "phone", "device", "imei", "serial"].map(field => ({ [field]: { $regex: search, $options: "i" } }));
+      if (ObjectId.isValid(search)) searchFields.push({ _id: new ObjectId(search) });
+      query.$or = searchFields;
+    }
     const orders = await client.db().collection("ServiceOrder").find(query).sort({ createdAt: -1 }).limit(500).toArray();
     const stats = { open: orders.filter((o: any) => !terminal(o.status)).length, repairing: orders.filter((o: any) => o.status === "repairing").length, awaitingApproval: orders.filter((o: any) => o.status === "awaiting_approval").length, pendingBalance: orders.reduce((s: number, o: any) => s + Math.max(0, Number(o.total || 0) - Number(o.paid || 0)), 0) };
     return NextResponse.json({ orders, stats });
@@ -67,7 +71,8 @@ export async function PUT(request: NextRequest) {
       const product = await client.db().collection("Product").findOne({ _id: new ObjectId(productId), userId: session.id, deletedAt: { $in: [null, undefined] } });
       if (!product) return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
       const unitPrice = money(product.price); if (unitPrice === null) return NextResponse.json({ error: "Precio del producto inválido" }, { status: 400 });
-      const part = { id: new ObjectId().toString(), productId, name: String(product.name), sku: String(product.sku || ""), quantity, unitPrice, subtotal: quantity * unitPrice, consumed: false, warehouseId: "", warehouseName: "", addedAt: new Date(), addedBy: session.id };
+      const unitCost = money(product.purchasePrice) ?? 0;
+      const part = { id: new ObjectId().toString(), productId, name: String(product.name), sku: String(product.sku || ""), quantity, unitPrice, unitCost, subtotal: quantity * unitPrice, costSubtotal: quantity * unitCost, consumed: false, warehouseId: "", warehouseName: "", addedAt: new Date(), addedBy: session.id };
       const parts = [...((existing.parts as any[]) || []), part];
       const subtotalParts = parts.reduce((sum, p) => sum + Number(p.subtotal || 0), 0);
       const total = Math.max(0, subtotalParts + Number(existing.labor || 0) - Number(existing.discount || 0));
