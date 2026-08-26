@@ -1,6 +1,7 @@
 /**
  * Admin sidebar nav config.
  * Single source for AdminSidebar hrefs and RouteWarmPrefetch admin RSC warm.
+ * CRM links are intentionally part of the primary store navigation.
  */
 
 import type { AdminCounts } from "@/types";
