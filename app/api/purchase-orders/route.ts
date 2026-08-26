@@ -52,8 +52,10 @@ export async function PATCH(request: NextRequest) {
 
   const requested = Array.isArray(body.items) ? body.items : order.items.map((i) => ({ id: i.id, quantity: i.orderedQuantity - i.receivedQuantity }));
   const receivedMap = new Map<string, number>(requested.map((i: any) => [String(i.id), Math.max(0, Math.floor(n(i.quantity)))]));
-  const warehouse = await prisma.warehouse.findFirst({ where: { userId: session.id, status: true }, orderBy: { createdAt: "asc" } });
-  if (!warehouse) return NextResponse.json({ error: "Crea al menos una bodega activa antes de recibir mercancía" }, { status: 400 });
+  const warehouseId = typeof body.warehouseId === "string" ? body.warehouseId : "";
+  if (!warehouseId) return NextResponse.json({ error: "Selecciona la bodega donde recibir la mercancía" }, { status: 400 });
+  const warehouse = await prisma.warehouse.findFirst({ where: { id: warehouseId, userId: session.id, status: true }, select: { id: true, name: true } });
+  if (!warehouse) return NextResponse.json({ error: "Bodega no encontrada o inactiva" }, { status: 404 });
 
   const result = await prisma.$transaction(async (tx) => {
     let allReceived = true;
@@ -66,14 +68,28 @@ export async function PATCH(request: NextRequest) {
       }
       const product = await tx.product.findFirst({ where: { id: item.productId, userId: session.id, deletedAt: null } });
       if (!product) throw new Error(`Producto no encontrado: ${item.productName}`);
-      const oldQty = n(product.quantity);
+
+      const oldGlobalQty = n(product.quantity);
       const oldCost = n(product.purchasePrice);
-      const newQty = oldQty + qty;
-      const weightedCost = newQty > 0 ? ((oldQty * oldCost) + (qty * item.unitCost)) / newQty : item.unitCost;
-      await tx.product.update({ where: { id: product.id }, data: { quantity: BigInt(newQty), purchasePrice: weightedCost, updatedAt: new Date(), updatedBy: session.id } });
+      const newGlobalQty = oldGlobalQty + qty;
+      const weightedCost = newGlobalQty > 0 ? ((oldGlobalQty * oldCost) + (qty * item.unitCost)) / newGlobalQty : item.unitCost;
+
+      const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: product.id, warehouseId: warehouse.id } } });
+      const previousWarehouseStock = allocation?.quantity ?? 0n;
+      const newWarehouseStock = previousWarehouseStock + BigInt(qty);
+      if (allocation) {
+        await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: newWarehouseStock, updatedAt: new Date() } });
+      } else {
+        await tx.stockAllocation.create({ data: { productId: product.id, warehouseId: warehouse.id, userId: session.id, quantity: newWarehouseStock, reservedQuantity: 0n, createdAt: new Date() } });
+      }
+
+      const allocations = await tx.stockAllocation.findMany({ where: { productId: product.id }, select: { quantity: true } });
+      const totalStock = allocations.reduce((sum, row) => sum + row.quantity, 0n);
+      await tx.product.update({ where: { id: product.id }, data: { quantity: totalStock, purchasePrice: weightedCost, updatedAt: new Date(), updatedBy: session.id } });
+
       const nextReceived = item.receivedQuantity + qty;
       await tx.purchaseOrderItem.update({ where: { id: item.id }, data: { receivedQuantity: nextReceived } });
-      await tx.inventoryMovement.create({ data: { productId: product.id, warehouseId: warehouse.id, userId: session.id, type: "purchase_receipt", quantity: BigInt(qty), previousStock: BigInt(oldQty), newStock: BigInt(newQty), reason: "Recepción de compra", referenceId: order.id, notes: `${order.purchaseNumber} · ${item.productName}` } });
+      await tx.inventoryMovement.create({ data: { productId: product.id, warehouseId: warehouse.id, userId: session.id, type: "entry", quantity: BigInt(qty), previousStock: previousWarehouseStock, newStock: newWarehouseStock, reason: "Recepción de compra", referenceId: order.id, notes: `${order.purchaseNumber} · ${item.productName}` } });
       if (nextReceived < item.orderedQuantity) allReceived = false;
     }
     return tx.purchaseOrder.update({ where: { id: order.id }, data: { status: allReceived ? "received" : "partial", receivedAt: allReceived ? new Date() : order.receivedAt, updatedAt: new Date(), updatedBy: session.id }, include: { items: true } });
