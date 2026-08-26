@@ -1,15 +1,8 @@
-// Prisma schema for Stockly: MongoDB models for users, products, orders, invoices, categories, suppliers, warehouses, support tickets, reviews, notifications, etc.
-// Run: npx prisma generate (after schema changes); use prisma/client for DB access.
-
 generator client {
-  provider      = "prisma-client-js"
+  provider = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
-
-datasource db {
-  provider = "mongodb"
-  url      = env("DATABASE_URL")
-}
+datasource db { provider = "mongodb" url = env("DATABASE_URL") }
 
 model Category {
   id String @id @default(auto()) @map("_id") @db.ObjectId
@@ -23,7 +16,9 @@ model Category {
   createdBy String @db.ObjectId
   updatedBy String? @db.ObjectId
 }
-model Department { id String @id @default(auto()) @map("_id") @db.ObjectId }
+model Department {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+}
 model Invoice {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   invoiceNumber String @unique
@@ -100,7 +95,12 @@ model OrderItem {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
 }
-model Permission { id String @id @default(auto()) @map("_id") @db.ObjectId resource Json? userId Json? @@unique([userId, resource]) }
+model Permission {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  resource Json?
+  userId Json?
+  @@unique([userId, resource])
+}
 model Product {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   categoryId String @db.ObjectId
@@ -127,8 +127,13 @@ model Product {
   orderItems OrderItem[]
   @@index([deletedAt])
 }
-model Session { id String @id @default(auto()) @map("_id") @db.ObjectId sessionToken Json? @unique }
-model StockAlert { id String @id @default(auto()) @map("_id") @db.ObjectId }
+model Session {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  sessionToken Json? @unique
+}
+model StockAlert {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+}
 model StockAllocation {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   productId String @db.ObjectId
@@ -197,8 +202,13 @@ model User {
   emailPreferences Json?
   notifications Notification[]
 }
-model UserAction { id String @id @default(auto()) @map("_id") @db.ObjectId }
-model VerificationToken { id String @id @default(auto()) @map("_id") @db.ObjectId token Json? @unique }
+model UserAction {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+}
+model VerificationToken {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  token Json? @unique
+}
 model ImportHistory {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   userId String @db.ObjectId
