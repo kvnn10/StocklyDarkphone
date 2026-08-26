@@ -21,8 +21,9 @@ const SortableHeader: React.FC<SortableHeaderProps> = ({ column, label }) => { c
 function ProductWarehouseCell({ productId }: { productId: string }) {
  const { data: allocations = [], isLoading } = useStockByProduct(productId);
  if (isLoading) return <span className="text-xs text-muted-foreground">Cargando…</span>;
- if (allocations.length === 0) return <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><MapPin className="h-3.5 w-3.5 shrink-0"/>Sin bodega asignada</div>;
- return <div className="flex min-w-[145px] flex-col gap-1">{allocations.map((allocation) => { const available = Math.max(0, Number(allocation.quantity ?? 0) - Number(allocation.reservedQuantity ?? 0)); return <div key={allocation.id} className="flex items-center gap-1.5 text-xs"><MapPin className="h-3.5 w-3.5 shrink-0 text-rose-400"/><span className="truncate" title={allocation.warehouse?.name ?? allocation.warehouseId}>{allocation.warehouse?.name ?? "Bodega"}</span><span className="ml-auto whitespace-nowrap font-semibold text-white/80">{available}</span></div>; })}</div>;
+ const availableAllocations = allocations.filter((allocation) => Math.max(0, Number(allocation.quantity ?? 0) - Number(allocation.reservedQuantity ?? 0)) > 0);
+ if (availableAllocations.length === 0) return <span className="text-xs text-muted-foreground">Sin stock</span>;
+ return <div className="flex min-w-[145px] flex-col gap-1">{availableAllocations.map((allocation) => { const available = Math.max(0, Number(allocation.quantity ?? 0) - Number(allocation.reservedQuantity ?? 0)); return <div key={allocation.id} className="flex items-center gap-1.5 text-xs"><MapPin className="h-3.5 w-3.5 shrink-0 text-rose-400"/><span className="truncate" title={allocation.warehouse?.name ?? allocation.warehouseId}>{allocation.warehouse?.name ?? "Bodega"}</span><span className="ml-auto whitespace-nowrap font-semibold text-white/80">{available}</span></div>; })}</div>;
 }
 
 function ProductMarginCell({ product }: { product: Product }) {
