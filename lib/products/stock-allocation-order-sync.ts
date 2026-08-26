@@ -4,6 +4,9 @@
  * non-picked orders reserve only Product. Operations below use optimistic
  * compare-and-swap updates so concurrent requests cannot over-reserve or release
  * more units than are actually reserved.
+ *
+ * Inventory movements are recorded here for automatic order fulfillment/cancellation
+ * so the Kardex reflects real stock changes without requiring a manual adjustment.
  */
 
 import { prisma } from "@/prisma/client";
@@ -95,10 +98,15 @@ export async function fulfillAllocationFromPick(productId: string, warehouseId: 
   assertPositiveQuantity(quantity);
   const releaseReservation = options?.releaseReservation ?? true;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const allocation = await prisma.stockAllocation.findUnique({ where: { productId_warehouseId: { productId, warehouseId } }, select: { id: true, quantity: true, reservedQuantity: true } });
+    const allocation = await prisma.stockAllocation.findUnique({
+      where: { productId_warehouseId: { productId, warehouseId } },
+      select: { id: true, quantity: true, reservedQuantity: true, userId: true },
+    });
     if (!allocation) throw new Error(`No stock allocation for product ${productId} at warehouse ${warehouseId}`);
     if (Number(allocation.quantity) < quantity) throw new Error(`Insufficient stock at warehouse ${warehouseId}`);
     if (releaseReservation && Number(allocation.reservedQuantity ?? 0) < quantity) throw new Error(`Insufficient reservation at warehouse ${warehouseId}`);
+    const previousStock = allocation.quantity;
+    const newStock = previousStock - BigInt(quantity);
     const result = await prisma.stockAllocation.updateMany({
       where: { id: allocation.id, quantity: allocation.quantity, reservedQuantity: allocation.reservedQuantity },
       data: {
@@ -107,15 +115,54 @@ export async function fulfillAllocationFromPick(productId: string, warehouseId: 
         updatedAt: new Date(),
       },
     });
-    if (result.count === 1) return;
+    if (result.count === 1) {
+      await prisma.inventoryMovement.create({
+        data: {
+          productId,
+          warehouseId,
+          userId: allocation.userId,
+          type: "exit",
+          quantity: -BigInt(quantity),
+          previousStock,
+          newStock,
+          reason: "Salida por pedido facturado",
+          referenceId: null,
+          notes: null,
+          createdAt: new Date(),
+        },
+      });
+      return;
+    }
   }
   throw new Error("Stock changed while fulfilling the order; please retry.");
 }
 
 export async function restoreAllocationOnCancelConfirmed(productId: string, warehouseId: string, quantity: number): Promise<void> {
   assertPositiveQuantity(quantity);
-  const result = await prisma.stockAllocation.updateMany({ where: { productId, warehouseId }, data: { quantity: { increment: quantity }, updatedAt: new Date() } });
-  if (result.count !== 1) throw new Error(`No stock allocation for product ${productId} at warehouse ${warehouseId}`);
+  const allocation = await prisma.stockAllocation.findUnique({
+    where: { productId_warehouseId: { productId, warehouseId } },
+    select: { quantity: true, userId: true },
+  });
+  if (!allocation) throw new Error(`No stock allocation for product ${productId} at warehouse ${warehouseId}`);
+  const previousStock = allocation.quantity;
+  const newStock = previousStock + BigInt(quantity);
+  const result = await prisma.stockAllocation.updateMany({ where: { productId, warehouseId, quantity: previousStock }, data: { quantity: { increment: quantity }, updatedAt: new Date() } });
+  if (result.count !== 1) throw new Error(`Stock changed while restoring product ${productId}; please retry.`);
+  await prisma.inventoryMovement.create({
+    data: {
+      productId,
+      warehouseId,
+      userId: allocation.userId,
+      type: "entry",
+      quantity: BigInt(quantity),
+      previousStock,
+      newStock,
+      reason: "Reintegro por cancelación de pedido",
+      referenceId: null,
+      notes: null,
+      createdAt: new Date(),
+    },
+  });
 }
 
 export async function syncReleasePendingOrderAllocations(items: OrderLineAllocationRef[]): Promise<void> {
