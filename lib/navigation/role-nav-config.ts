@@ -14,6 +14,8 @@ const ADMIN_NAV_ITEMS: RoleNavItem[] = [
   { label: "Proveedores", path: "/suppliers", hasDropdown: false },
   { label: "Almacenes", path: "/warehouses", hasDropdown: false },
   { label: "Movimientos", path: "/inventory-movements", hasDropdown: false },
+  { label: "Kardex", path: "/admin/kardex", hasDropdown: false },
+  { label: "Servicio técnico", path: "/admin/service-orders", hasDropdown: false },
   { label: "Análisis del negocio", path: "/business-insights", hasDropdown: false },
   { label: "Panel de administración", path: "/admin", hasDropdown: false },
 ];
