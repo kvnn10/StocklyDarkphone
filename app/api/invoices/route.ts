@@ -16,6 +16,7 @@ import { attachInvoiceListOrderPreview, fetchInvoiceListOrderPreviewMap } from "
 import { getInvoicesForSupplierId } from "@/lib/server/invoices-data";
 import { getSupplierByUserId } from "@/prisma/supplier";
 import { cacheKeys, getCache, scheduleInvalidateInvoiceCaches, setCache } from "@/lib/cache";
+import { updateOrder, cancelOrder } from "@/prisma/order-lifecycle";
 import type { CreateInvoiceInput, InvoiceFilters } from "@/types";
 
 export async function GET(request: NextRequest) {
@@ -100,11 +101,33 @@ export async function POST(request: NextRequest) {
     const newInvoiceData: CreateInvoiceInput = validationResult.data;
 
     // Security: an issuer may only create invoices for orders owned by that issuer.
-    const order = await prisma.order.findUnique({ where: { id: newInvoiceData.orderId }, select: { id: true, userId: true } });
+    const order = await prisma.order.findUnique({ where: { id: newInvoiceData.orderId }, select: { id: true, userId: true, status: true } });
     if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
     if (order.userId !== userId) return NextResponse.json({ error: "Forbidden: order does not belong to current user" }, { status: 403 });
 
-    const invoice = await createInvoice(newInvoiceData, userId);
+    // Never fulfill stock twice. The database also enforces one invoice per order.
+    const existingInvoice = await prisma.invoice.findUnique({ where: { orderId: newInvoiceData.orderId }, select: { id: true, invoiceNumber: true } });
+    if (existingInvoice) return NextResponse.json({ error: `Invoice already exists for this order: ${existingInvoice.invoiceNumber}` }, { status: 409 });
+
+    // A pending order is only a reservation. Creating its invoice is the point
+    // where the sale is confirmed and the reserved stock is actually consumed.
+    const wasPending = order.status === "pending";
+    if (wasPending) {
+      await updateOrder(newInvoiceData.orderId, { status: "confirmed" }, userId);
+    }
+
+    let invoice;
+    try {
+      invoice = await createInvoice(newInvoiceData, userId);
+    } catch (invoiceError) {
+      // If inventory was fulfilled but invoice creation failed, restore the order
+      // so the stock/reservations return to their previous consistent state.
+      if (wasPending) {
+        try { await cancelOrder(newInvoiceData.orderId, userId); } catch (rollbackError) { logger.error("Failed to rollback order after invoice creation failure", rollbackError); }
+      }
+      throw invoiceError;
+    }
+
     createAuditLog({ userId, action: "create", entityType: "invoice", entityId: invoice.id, details: { invoiceNumber: invoice.invoiceNumber } }).catch(() => {});
     await scheduleInvalidateInvoiceCaches();
     const orderPreviewMap = await fetchInvoiceListOrderPreviewMap([invoice.orderId]);
