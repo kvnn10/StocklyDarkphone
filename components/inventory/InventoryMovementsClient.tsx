@@ -20,16 +20,20 @@ export default function InventoryMovementsClient() {
   const [success, setSuccess] = useState("");
   const [form, setForm] = useState({ productId: "", warehouseId: "", type: "entry", quantity: "", reason: "", referenceId: "", notes: "" });
 
-  async function load() {
+  async function load(): Promise<Movement[]> {
     setLoading(true); setError("");
     try {
       const query = type === "all" ? "" : `?type=${encodeURIComponent(type)}`;
       const response = await fetch(`/api/inventory-movements${query}`, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se pudieron cargar los movimientos");
-      setMovements(Array.isArray(data) ? data : []);
-    } catch (err) { setError(err instanceof Error ? err.message : "Error cargando movimientos"); }
-    finally { setLoading(false); }
+      const next = Array.isArray(data) ? data as Movement[] : [];
+      setMovements(next);
+      return next;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error cargando movimientos");
+      return [];
+    } finally { setLoading(false); }
   }
 
   useEffect(() => { void load(); }, [type]);
@@ -66,14 +70,18 @@ export default function InventoryMovementsClient() {
       const response = await fetch("/api/inventory-movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, quantity, reason: form.reason || null, referenceId: form.referenceId || null, notes: form.notes || null }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se pudo registrar el movimiento");
+      const created = data as Movement;
       setSuccess("Movimiento registrado correctamente.");
       setForm((current) => ({ ...current, quantity: "", reason: "", referenceId: "", notes: "" }));
-      await load();
+      const refreshed = await load();
+      if (!refreshed.some((movement) => movement.id === created.id)) {
+        setMovements((current) => [created, ...current.filter((movement) => movement.id !== created.id)]);
+      }
     } catch (err) { setError(err instanceof Error ? err.message : "Error registrando movimiento"); }
     finally { setSaving(false); }
   }
 
-  const totals = useMemo(() => ({ entries: movements.filter((m) => m.type === "entry").length, exits: movements.filter((m) => m.type === "exit").length, adjustments: movements.filter((m) => m.type === "adjustment").length }), [movements]);
+  const totals = useMemo(() => ({ entries: movements.filter((m) => m.type === "entry").length, exits: movements.filter((m) => m.type === "exit").length, adjustments: movements.filter((m) => m.type === "adjustment").length, transfers: movements.filter((m) => m.type === "transfer_in" || m.type === "transfer_out").length }), [movements]);
 
   return (
     <main className="mx-auto w-full max-w-7xl p-6">
@@ -90,8 +98,8 @@ export default function InventoryMovementsClient() {
       </form>
       {success && <div className="mb-4 rounded-lg border p-3 text-sm">{success}</div>}
       {error && <div className="mb-4 rounded-lg border p-3 text-sm">{error}</div>}
-      <div className="mb-6 grid gap-4 sm:grid-cols-3"><div className="rounded-xl border p-4"><div className="text-sm text-muted-foreground">Entradas</div><div className="mt-1 text-2xl font-semibold">{totals.entries}</div></div><div className="rounded-xl border p-4"><div className="text-sm text-muted-foreground">Salidas</div><div className="mt-1 text-2xl font-semibold">{totals.exits}</div></div><div className="rounded-xl border p-4"><div className="text-sm text-muted-foreground">Ajustes</div><div className="mt-1 text-2xl font-semibold">{totals.adjustments}</div></div></div>
-      <div className="mb-4"><select className="rounded-lg border bg-background px-3 py-2 text-sm" value={type} onChange={(e) => setType(e.target.value)}><option value="all">Todos</option><option value="entry">Entradas</option><option value="exit">Salidas</option><option value="adjustment">Ajustes</option><option value="transfer_in">Transferencias de entrada</option><option value="transfer_out">Transferencias de salida</option></select></div>
+      <div className="mb-6 grid gap-4 sm:grid-cols-4"><div className="rounded-xl border p-4"><div className="text-sm text-muted-foreground">Entradas</div><div className="mt-1 text-2xl font-semibold">{totals.entries}</div></div><div className="rounded-xl border p-4"><div className="text-sm text-muted-foreground">Salidas</div><div className="mt-1 text-2xl font-semibold">{totals.exits}</div></div><div className="rounded-xl border p-4"><div className="text-sm text-muted-foreground">Ajustes</div><div className="mt-1 text-2xl font-semibold">{totals.adjustments}</div></div><div className="rounded-xl border p-4"><div className="text-sm text-muted-foreground">Transferencias</div><div className="mt-1 text-2xl font-semibold">{totals.transfers}</div></div></div>
+      <div className="mb-4 flex flex-wrap items-center gap-3"><select className="rounded-lg border bg-background px-3 py-2 text-sm" value={type} onChange={(e) => setType(e.target.value)}><option value="all">Todos</option><option value="entry">Entradas</option><option value="exit">Salidas</option><option value="adjustment">Ajustes</option><option value="transfer_in">Transferencias de entrada</option><option value="transfer_out">Transferencias de salida</option></select><button type="button" onClick={() => void load()} disabled={loading} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-50">{loading ? "Actualizando…" : "Actualizar historial"}</button></div>
       <div className="overflow-hidden rounded-xl border"><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="border-b bg-muted/30"><tr><th className="px-4 py-3 text-left">Fecha</th><th className="px-4 py-3 text-left">Tipo</th><th className="px-4 py-3 text-right">Cantidad</th><th className="px-4 py-3 text-right">Anterior</th><th className="px-4 py-3 text-right">Nuevo</th><th className="px-4 py-3 text-left">Motivo</th></tr></thead><tbody>{loading ? <tr><td colSpan={6} className="px-4 py-10 text-center">Cargando…</td></tr> : movements.length === 0 ? <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">No hay movimientos todavía.</td></tr> : movements.map((m) => <tr key={m.id} className="border-b last:border-0"><td className="px-4 py-3">{new Date(m.createdAt).toLocaleString("es-CO")}</td><td className="px-4 py-3 font-medium">{labels[m.type] ?? m.type}</td><td className="px-4 py-3 text-right">{m.quantity}</td><td className="px-4 py-3 text-right">{m.previousStock}</td><td className="px-4 py-3 text-right font-medium">{m.newStock}</td><td className="px-4 py-3">{m.reason || "—"}</td></tr>)}</tbody></table></div></div>
     </main>
   );
