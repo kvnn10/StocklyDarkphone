@@ -229,7 +229,7 @@ export default function Navbar({ children }: NavbarProps) {
               <h1 className="text-sm sm:text-lg font-medium tracking-tight bg-gradient-to-r from-rose-600 to-gray-900 dark:from-rose-400 dark:to-gray-100 bg-clip-text text-transparent transition-all duration-300 ease-in-out group-hover:from-rose-700 group-hover:to-gray-950 dark:group-hover:from-rose-300 dark:group-hover:to-gray-50">
                 Stockly
               </h1>
-              <span className="mt-0.5 text-[11px] sm:text-xs font-medium tracking-tight text-gray-700 dark:text-gray-200">
+              <span className="mt-0.5 text-[11px] sm:text-xs font-medium tracking-tight bg-gradient-to-r from-rose-600 to-gray-900 dark:from-rose-400 dark:to-gray-100 bg-clip-text text-transparent transition-all duration-300 ease-in-out group-hover:from-rose-700 group-hover:to-gray-950 dark:group-hover:from-rose-300 dark:group-hover:to-gray-50">
                 Darkphone
               </span>
             </div>
