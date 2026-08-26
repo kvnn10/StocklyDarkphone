@@ -14,9 +14,7 @@ async function db() {
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
-  if (!session || !allowed(session)) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
+  if (!session || !allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   const client = await db();
   try {
@@ -45,9 +43,17 @@ export async function GET(request: NextRequest) {
     const rows = orders.map((order: any) => {
       const parts = Array.isArray(order.parts) ? order.parts : [];
       const partsCost = parts.reduce((sum: number, part: any) => {
+        const quantity = Math.max(0, Number(part?.quantity ?? 0));
+        // Prefer the immutable cost snapshot stored on the service order.
+        // This is essential for spot/external purchases and prevents later
+        // product-price edits from rewriting historical profitability.
+        const snapshotUnitCost = Number(part?.unitCost);
         const product = productMap.get(String(part.productId));
-        const purchasePrice = Number(product?.purchasePrice ?? part?.purchasePrice ?? 0);
-        return sum + purchasePrice * Math.max(0, Number(part?.quantity ?? 0));
+        const purchasePrice = Number(product?.purchasePrice ?? 0);
+        const unitCost = Number.isFinite(snapshotUnitCost) && snapshotUnitCost >= 0
+          ? snapshotUnitCost
+          : purchasePrice;
+        return sum + unitCost * quantity;
       }, 0);
       const partsRevenue = parts.reduce((sum: number, part: any) => sum + Math.max(0, Number(part?.subtotal ?? 0)), 0);
       const labor = Math.max(0, Number(order.labor ?? 0));
@@ -79,17 +85,10 @@ export async function GET(request: NextRequest) {
     const averageMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
 
     return NextResponse.json({
-      summary: {
-        orders: rows.length,
-        revenue,
-        partsCost,
-        labor,
-        grossProfit,
-        averageMargin,
-      },
+      summary: { orders: rows.length, revenue, partsCost, labor, grossProfit, averageMargin },
       orders: rows.slice(0, 100),
       warning: products.length < productIds.size
-        ? "Algunos repuestos ya no tienen producto asociado; su costo se tomó como 0 si no quedó guardado en la orden."
+        ? "Algunos repuestos ya no tienen producto asociado; se usa el costo guardado en la orden cuando está disponible."
         : null,
     });
   } catch (error) {
