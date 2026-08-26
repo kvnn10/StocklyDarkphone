@@ -1,7 +1,3 @@
-/**
- * Role-scoped navbar items + paths (REQ-0093, REQ-0094).
- * Single source for Navbar rendering and RouteWarmPrefetch RSC warm.
- */
 import { getAdminSidebarWarmPaths } from "@/lib/navigation/admin-nav-config";
 
 export type RoleNavItem =
@@ -17,6 +13,7 @@ const ADMIN_NAV_ITEMS: RoleNavItem[] = [
   { label: "Categorías", path: "/categories", hasDropdown: false },
   { label: "Proveedores", path: "/suppliers", hasDropdown: false },
   { label: "Almacenes", path: "/warehouses", hasDropdown: false },
+  { label: "Movimientos", path: "/inventory-movements", hasDropdown: false },
   { label: "Análisis del negocio", path: "/business-insights", hasDropdown: false },
   { label: "Panel de administración", path: "/admin", hasDropdown: false },
 ];
@@ -40,35 +37,13 @@ export function getNavItemsForRole(role: string | null | undefined): RoleNavItem
   if (role === "supplier") return SUPPLIER_NAV_ITEMS;
   return ADMIN_NAV_ITEMS;
 }
-
-export function getNavPathsForRole(role: string | null | undefined): string[] {
-  return getNavItemsForRole(role).map((item) => item.path);
-}
-
-export const PROFILE_MENU_PATHS = [
-  "/support-tickets",
-  "/settings/email-preferences",
-  "/api-docs",
-  "/api-status",
-] as const;
-
-export function getProfileMenuPaths(): string[] {
-  return [...PROFILE_MENU_PATHS];
-}
-
-function resolveWarmNavPath(path: string): string {
-  if (path === "/admin") return "/admin/dashboard-overall-insights";
-  return path;
-}
-
+export function getNavPathsForRole(role: string | null | undefined): string[] { return getNavItemsForRole(role).map((item) => item.path); }
+export const PROFILE_MENU_PATHS = ["/support-tickets", "/settings/email-preferences", "/api-docs", "/api-status"] as const;
+export function getProfileMenuPaths(): string[] { return [...PROFILE_MENU_PATHS]; }
+function resolveWarmNavPath(path: string): string { return path === "/admin" ? "/admin/dashboard-overall-insights" : path; }
 export function getWarmPathsForRole(role: string | null | undefined): string[] {
   const paths = [...getNavPathsForRole(role).map(resolveWarmNavPath), ...getProfileMenuPaths()];
   if (role !== "client" && role !== "supplier") paths.push(...getAdminSidebarWarmPaths());
   return [...new Set(paths)];
 }
-
-export function getHomePathForRole(role: string | null | undefined): string {
-  if (role === "client") return "/client";
-  if (role === "supplier") return "/supplier";
-  return "/";
-}
+export function getHomePathForRole(role: string | null | undefined): string { if (role === "client") return "/client"; if (role === "supplier") return "/supplier"; return "/"; }
