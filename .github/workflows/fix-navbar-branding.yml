@@ -1,0 +1,66 @@
+name: Fix navbar branding
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-navbar-branding.yml'
+      - 'components/layouts/Footer.tsx'
+      - 'components/layouts/Navbar.tsx'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove accidental global header branding override
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('components/layouts/Footer.tsx')
+          s = p.read_text()
+          start = s.find('      <style jsx global>{`')
+          if start != -1:
+              end_marker = '      `}</style>\n\n'
+              end = s.find(end_marker, start)
+              if end == -1:
+                  raise SystemExit('Branding style block found but its end marker is missing; refusing unsafe edit')
+              s = s[:start] + s[end + len(end_marker):]
+              s = s.replace('  return (\n    <>\n\n      <footer', '  return (\n    <footer', 1)
+              s = s.replace('      </footer>\n    </>\n  );', '    </footer>\n  );', 1)
+              p.write_text(s)
+          else:
+              print('Global header branding override already absent')
+          PY
+
+      - name: Verify navbar keeps left aligned two-line brand
+        shell: bash
+        run: |
+          grep -q 'Stockly' components/layouts/Navbar.tsx
+          grep -q 'Darkphone' components/layouts/Navbar.tsx
+          if grep -R -n 'content: "Stockly Darkphone"' components/layouts --include='*.tsx'; then
+            echo 'Unexpected centered branding override remains'
+            exit 1
+          fi
+
+      - name: Commit and remove one-shot workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/fix-navbar-branding.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add components/layouts/Footer.tsx
+          if git diff --cached --quiet; then
+            echo 'No branding changes needed.'
+            exit 0
+          fi
+          git commit -m 'fix: restore left aligned Stockly Darkphone branding'
+          git push
