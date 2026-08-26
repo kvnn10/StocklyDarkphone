@@ -100,6 +100,11 @@ export async function POST(request: NextRequest) {
           transform: (value) => String(value).trim().toUpperCase(),
         },
         {
+          importColumn: "Purchase Price",
+          schemaField: "purchasePrice",
+          transform: transformFunctions.toNumber,
+        },
+        {
           importColumn: "Price",
           schemaField: "price",
           transform: transformFunctions.toNumber,
@@ -117,7 +122,6 @@ export async function POST(request: NextRequest) {
             if (["Available", "Stock Low", "Stock Out"].includes(status)) {
               return status;
             }
-            // Default to Available if invalid
             return "Available";
           },
         },
@@ -125,7 +129,6 @@ export async function POST(request: NextRequest) {
           importColumn: "Category",
           schemaField: "categoryId",
           transform: async (value) => {
-            // Look up category by name
             const categoryName = String(value).trim();
             if (!categoryName) {
               throw new Error("Category is required");
@@ -146,7 +149,6 @@ export async function POST(request: NextRequest) {
           importColumn: "Supplier",
           schemaField: "supplierId",
           transform: async (value) => {
-            // Look up supplier by name
             const supplierName = String(value).trim();
             if (!supplierName) {
               throw new Error("Supplier is required");
@@ -177,6 +179,11 @@ export async function POST(request: NextRequest) {
           importColumn: "SKU",
           schemaField: "sku",
           transform: (value) => String(value).trim().toUpperCase(),
+        },
+        {
+          importColumn: "Purchase Price",
+          schemaField: "purchasePrice",
+          transform: transformFunctions.toNumber,
         },
         {
           importColumn: "Price",
@@ -262,7 +269,7 @@ export async function POST(request: NextRequest) {
           if (!categoryId) {
             failCount++;
             errors.push({
-              rowNumber: 0, // Will be set from original row
+              rowNumber: 0,
               field: "categoryName",
               message: `Category "${rowData.categoryName}" not found`,
             });
@@ -299,6 +306,7 @@ export async function POST(request: NextRequest) {
             data: {
               name: String(rowData.name),
               sku: String(rowData.sku),
+              purchasePrice: Number(rowData.purchasePrice ?? 0),
               price: Number(rowData.price),
               quantity: BigInt(Number(rowData.quantity)),
               status: String(rowData.status),
@@ -326,11 +334,8 @@ export async function POST(request: NextRequest) {
         errors: errors.length > 0 ? errors : undefined,
         status: failCount === 0 ? "completed" : "completed",
       });
-    await scheduleInvalidateImportCaches();
+      await scheduleInvalidateImportCaches();
       // Check and send stock alerts for newly imported products
-      // This is done asynchronously to not block the response
-      // Note: We check alerts for all products, not just imported ones
-      // The stock alert system will check all products and send alerts as needed
       const allProducts = await prisma.product.findMany({
         where: { userId },
       });
@@ -355,10 +360,9 @@ export async function POST(request: NextRequest) {
         totalRows: dataRows.length,
         successRows: successCount,
         failedRows: failCount,
-        errors: errors.length > 0 ? errors.slice(0, 10) : undefined, // Return first 10 errors
+        errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
       });
     } catch (error) {
-      // Update import history with error
       await updateImportHistory(importHistory.id, {
         status: "failed",
         errors: [
@@ -368,7 +372,7 @@ export async function POST(request: NextRequest) {
           },
         ],
       });
-    await scheduleInvalidateImportCaches();
+      await scheduleInvalidateImportCaches();
       logger.error("Product import failed:", error);
       return NextResponse.json(
         {

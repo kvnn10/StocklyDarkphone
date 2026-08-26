@@ -11,8 +11,13 @@ on:
         description: SKU
         required: true
         type: string
+      purchasePrice:
+        description: Purchase price per unit
+        required: false
+        default: "0"
+        type: string
       price:
-        description: Sale price
+        description: Sale price per unit
         required: true
         type: string
       quantity:
@@ -43,6 +48,7 @@ jobs:
         env:
           NAME: ${{ inputs.name }}
           SKU: ${{ inputs.sku }}
+          PURCHASE_PRICE: ${{ inputs.purchasePrice }}
           PRICE: ${{ inputs.price }}
           QUANTITY: ${{ inputs.quantity }}
           CATEGORY: ${{ inputs.category }}
@@ -55,6 +61,7 @@ jobs:
           data = {
             "name": os.environ["NAME"],
             "sku": os.environ["SKU"],
+            "purchasePrice": float(os.environ["PURCHASE_PRICE"] or 0),
             "price": float(os.environ["PRICE"]),
             "quantity": int(os.environ["QUANTITY"]),
             "category": os.environ["CATEGORY"],

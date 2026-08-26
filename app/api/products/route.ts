@@ -134,6 +134,7 @@ export async function GET(request: NextRequest) {
           name: product.name,
           sku: product.sku,
           price: Number(product.price),
+          purchasePrice: Number(product.purchasePrice ?? 0),
           quantity: Number(product.quantity),
           reservedQuantity: Number(product.reservedQuantity ?? 0),
           status: product.status,
@@ -208,6 +209,7 @@ export async function POST(request: NextRequest) {
     const {
       name,
       sku,
+      purchasePrice,
       price,
       quantity,
       status,
@@ -235,6 +237,7 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         sku,
+        purchasePrice,
         price,
         quantity: BigInt(quantity) as any,
         status,
@@ -328,6 +331,7 @@ export async function POST(request: NextRequest) {
       name: product.name,
       sku: product.sku,
       price: Number(product.price),
+      purchasePrice: Number(product.purchasePrice ?? 0),
       quantity: Number(product.quantity),
       status: product.status,
       categoryId: product.categoryId,
@@ -390,6 +394,7 @@ export async function PUT(request: NextRequest) {
       id,
       name,
       sku,
+      purchasePrice,
       price,
       quantity,
       status,
@@ -440,6 +445,7 @@ export async function PUT(request: NextRequest) {
     const productUpdateData = {
       ...(name && { name }),
       ...(sku && { sku }),
+      ...(purchasePrice !== undefined && { purchasePrice }),
       ...(price !== undefined && { price }),
       ...(status && { status }),
       ...(categoryId && { categoryId }),
@@ -543,7 +549,8 @@ export async function PUT(request: NextRequest) {
     const fieldsUpdated: string[] = [];
     if (name && name !== existingProduct.name) fieldsUpdated.push("Name");
     if (sku && sku !== existingProduct.sku) fieldsUpdated.push("SKU");
-    if (price !== undefined && Number(existingProduct.price) !== price) fieldsUpdated.push("Price");
+    if (purchasePrice !== undefined && Number(existingProduct.purchasePrice ?? 0) !== purchasePrice) fieldsUpdated.push("Purchase Price");
+    if (price !== undefined && Number(existingProduct.price) !== price) fieldsUpdated.push("Sale Price");
     if (quantity !== undefined && existingProduct.quantity !== BigInt(quantity)) fieldsUpdated.push("Quantity");
     if (status && status !== existingProduct.status) fieldsUpdated.push("Status");
     if (categoryId && categoryId !== existingProduct.categoryId) fieldsUpdated.push("Category");
@@ -662,6 +669,7 @@ export async function PUT(request: NextRequest) {
       name: product.name,
       sku: product.sku,
       price: Number(product.price),
+      purchasePrice: Number(product.purchasePrice ?? 0),
       quantity: Number(product.quantity),
       status: product.status,
       categoryId: product.categoryId,
@@ -772,7 +780,7 @@ export async function DELETE(request: NextRequest) {
         (order) => order.invoice,
       );
 
-      let errorMessage = `Cannot delete product "${existingProduct.name}" because `;
+      let errorMessage = `Cannot delete product \"${existingProduct.name}\" because `;
       const reasons: string[] = [];
       const statusCounts: Record<string, number> = {};
       uniqueActiveOrders.forEach((order) => {

@@ -24,20 +24,10 @@ import { GLASS_GHOST_BUTTON } from "@/components/shared";
 import { cn } from "@/lib/utils";
 
 interface ProductImportDialogProps {
-  /**
-   * Whether the dialog is open
-   */
   open?: boolean;
-  /**
-   * Callback when dialog open state changes
-   */
   onOpenChange?: (open: boolean) => void;
 }
 
-/**
- * Product Import Dialog
- * Allows users to upload CSV/Excel files to import products
- */
 export function ProductImportDialog({
   open: controlledOpen,
   onOpenChange,
@@ -55,20 +45,15 @@ export function ProductImportDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Use controlled or internal state
   const isOpen = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setIsOpen = onOpenChange || setInternalOpen;
 
-  /**
-   * Handle file selection
-   */
   const handleFileSelect = async (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     const fileExtension = file.name.split(".").pop()?.toLowerCase();
     if (!["csv", "xlsx", "xls"].includes(fileExtension || "")) {
       toast({
@@ -79,8 +64,7 @@ export function ProductImportDialog({
       return;
     }
 
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
       toast({
         title: "File Too Large",
@@ -94,15 +78,13 @@ export function ProductImportDialog({
     setImportResult(null);
 
     try {
-      // Create form data
       const formData = new FormData();
       formData.append("file", file);
 
-      // Call import API
       const response = await fetch("/api/products/import", {
         method: "POST",
         body: formData,
-        credentials: "include", // Include cookies for authentication
+        credentials: "include",
       });
 
       const data = await response.json();
@@ -126,12 +108,10 @@ export function ProductImportDialog({
         description: `Successfully imported ${data.successRows} of ${data.totalRows} products.`,
       });
 
-      // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
 
-      // Close dialog after a short delay if all rows succeeded
       if (data.failedRows === 0) {
         setTimeout(() => {
           setIsOpen(false);
@@ -162,16 +142,10 @@ export function ProductImportDialog({
     }
   };
 
-  /**
-   * Handle dialog open/close state changes
-   * Allows opening, but prevents closing while importing
-   */
   const handleOpenChange = (open: boolean) => {
     if (open) {
-      // Allow opening the dialog
       setIsOpen(true);
     } else if (!isImporting) {
-      // Only allow closing if not currently importing
       setIsOpen(false);
       setImportResult(null);
       if (fileInputRef.current) {
@@ -200,14 +174,13 @@ export function ProductImportDialog({
             Import Products
           </DialogTitle>
           <DialogDescription className="text-white/70">
-            Upload a CSV or Excel file to import products. The file should
-            include columns: Product Name, SKU, Price, Quantity, Status,
-            Category, Supplier.
+            Upload a CSV or Excel file to import products. The file can include:
+            Product Name, SKU, Purchase Price, Price, Quantity, Status,
+            Category, Supplier. Purchase Price is optional and defaults to 0.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 mt-4">
-          {/* File Input */}
           <div className="flex flex-col gap-2">
             <label
               htmlFor="file-upload"
@@ -241,7 +214,6 @@ export function ProductImportDialog({
             </label>
           </div>
 
-          {/* Import Result */}
           {importResult && (
             <div
               className={`p-4 rounded-xl border backdrop-blur-md ${

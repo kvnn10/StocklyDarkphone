@@ -92,6 +92,7 @@ export default function AddProductDialog({
       productName: "",
       sku: "",
       quantity: "" as unknown as number,
+      purchasePrice: 0,
       price: "" as unknown as number,
       imageUrl: "",
       imageFileId: "",
@@ -164,6 +165,7 @@ export default function AddProductDialog({
           productName: selectedProduct.name,
           sku: selectedProduct.sku,
           quantity: selectedProduct.quantity,
+          purchasePrice: selectedProduct.purchasePrice ?? 0,
           price: selectedProduct.price,
           imageUrl: selectedProduct.imageUrl || "",
           imageFileId: selectedProduct.imageFileId || "",
@@ -180,6 +182,7 @@ export default function AddProductDialog({
           productName: "",
           sku: "",
           quantity: "" as unknown as number,
+          purchasePrice: 0,
           price: "" as unknown as number,
           imageUrl: "",
           imageFileId: "",
@@ -223,11 +226,15 @@ export default function AddProductDialog({
     }
     setCategoryError("");
     setSupplierError("");
-    // Convert empty strings to 0 for quantity and price
+    // Convert empty strings to 0 for quantity and prices
     const quantity =
       typeof data.quantity === "string" && data.quantity === ""
         ? 0
         : Number(data.quantity);
+    const purchasePrice =
+      typeof data.purchasePrice === "string" && data.purchasePrice === ""
+        ? 0
+        : Number(data.purchasePrice);
     const price =
       typeof data.price === "string" && data.price === ""
         ? 0
@@ -248,8 +255,9 @@ export default function AddProductDialog({
         await createProductMutation.mutateAsync({
           name: data.productName,
           sku: data.sku,
-          price: price,
-          quantity: quantity,
+          purchasePrice,
+          price,
+          quantity,
           status,
           categoryId: selectedCategory,
           supplierId: selectedSupplier,
@@ -288,8 +296,9 @@ export default function AddProductDialog({
           id: selectedProduct.id,
           name: data.productName,
           sku: data.sku,
-          price: price,
-          quantity: quantity,
+          purchasePrice,
+          price,
+          quantity,
           status,
           categoryId: selectedCategory,
           supplierId: selectedSupplier,

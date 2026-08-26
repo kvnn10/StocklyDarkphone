@@ -38,7 +38,7 @@ export default function ProductsDropDown({ row, detailBase = "" }: ProductsDropD
   const isDeleting = deleteProductMutation.isPending;
   const readOnlyCatalog = user?.role === "supplier" || user?.role === "client";
 
-  const handleCopyProduct = async () => { try { await createProductMutation.mutateAsync({ name: `${row.original.name} (copia)`, sku: `${row.original.sku}-${Date.now()}`, price: row.original.price, quantity: row.original.quantity, status: row.original.status || "Available", categoryId: row.original.categoryId, supplierId: row.original.supplierId, userId: row.original.userId }); } catch (error) { logger.error("Error copying product:", error); } };
+  const handleCopyProduct = async () => { try { await createProductMutation.mutateAsync({ name: `${row.original.name} (copia)`, sku: `${row.original.sku}-${Date.now()}`, price: row.original.price, purchasePrice: row.original.purchasePrice ?? 0, quantity: row.original.quantity, status: row.original.status || "Available", categoryId: row.original.categoryId, supplierId: row.original.supplierId, userId: row.original.userId }); } catch (error) { logger.error("Error copying product:", error); } };
   const handleEditProduct = () => { try { setSelectedProduct(row.original); setOpenProductDialog(true); } catch (error) { logger.error("Error opening edit dialog:", error); } };
   const handleOpenWriteReview = () => { setEditingReview(null); setReviewDialogOpen(true); };
   const handleOpenEditReview = () => { const first = myReviews[0]; if (first) { setEditingReview(first); setReviewDialogOpen(true); } };

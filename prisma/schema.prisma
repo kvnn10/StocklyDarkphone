@@ -121,10 +121,11 @@ model Product {
   updatedAt        DateTime?   @db.Date
   name             String
   price            Float
+  purchasePrice    Float       @default(0)
   quantity         BigInt
   reservedQuantity BigInt      @default(0)
   sku              String      @unique
-  status           String
+  status            String
   supplierId       String      @db.ObjectId
   userId           String      @db.ObjectId
   createdBy        String      @db.ObjectId
@@ -155,9 +156,9 @@ model StockAllocation {
   warehouseId      String    @db.ObjectId
   quantity         BigInt    @default(0)
   reservedQuantity BigInt    @default(0)
-  userId            String    @db.ObjectId
-  createdAt         DateTime  @default(now()) @db.Date
-  updatedAt         DateTime? @db.Date
+  userId           String    @db.ObjectId
+  createdAt        DateTime  @default(now()) @db.Date
+  updatedAt        DateTime? @db.Date
   @@unique([productId, warehouseId])
   @@index([productId])
   @@index([warehouseId])
@@ -200,11 +201,11 @@ model Supplier {
   userId      String    @db.ObjectId
   status      Boolean   @default(true)
   description String?
-  notes       String?
+  notes        String?
   createdAt   DateTime  @default(now()) @db.Date
   updatedAt   DateTime? @db.Date
   createdBy   String    @db.ObjectId
-  updatedBy   String?   @db.ObjectId
+  updatedBy   String?  @db.ObjectId
 }
 
 model User {

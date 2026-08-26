@@ -16,7 +16,10 @@ export interface Product {
   id: string;
   name: string;
   sku: string;
+  /** Current sale/list price. Kept as `price` for compatibility with orders/client catalog. */
   price: number;
+  /** Internal acquisition cost per unit. */
+  purchasePrice: number;
   quantity: number;
   reservedQuantity?: number; // Product-level pending reservation (no warehouse pick)
   /** REQ-0103 — display-only; sum of disjoint reservation paths for list badges */
@@ -113,6 +116,7 @@ export interface Product {
 export interface CreateProductInput {
   name: string;
   sku: string;
+  purchasePrice: number;
   price: number;
   quantity: number;
   status: ProductStatus;
@@ -131,6 +135,7 @@ export interface UpdateProductInput {
   id: string;
   name?: string;
   sku?: string;
+  purchasePrice?: number;
   price?: number;
   quantity?: number;
   status?: ProductStatus;

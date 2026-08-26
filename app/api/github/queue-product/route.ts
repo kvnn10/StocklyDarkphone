@@ -46,6 +46,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Purchase price is optional for backwards compatibility with old queue files.
+  if (args.purchasePrice === undefined || args.purchasePrice === null) args.purchasePrice = 0;
+
   const key = process.env.INTERNAL_API_KEY;
   if (!key) return fail(500, "INTERNAL_API_KEY is not configured");
 

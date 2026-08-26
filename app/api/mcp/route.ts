@@ -23,7 +23,8 @@ const CREATE_PRODUCT_SCHEMA = {
   properties: {
     name: { type: "string", description: "Product name" },
     sku: { type: "string", description: "Unique SKU" },
-    price: { type: "number", minimum: 0, description: "Sale price" },
+    purchasePrice: { type: "number", minimum: 0, description: "Purchase/acquisition price per unit" },
+    price: { type: "number", minimum: 0, description: "Sale price per unit" },
     quantity: { type: "integer", minimum: 0, description: "Initial stock quantity" },
     category: { type: "string", description: "Existing category name or ID" },
     supplier: { type: "string", description: "Existing supplier name or ID" },
@@ -36,7 +37,7 @@ const CREATE_PRODUCT_SCHEMA = {
 
 const TOOLS = [{
   name: "create_product",
-  description: "Create one product in Stockly. Category and supplier are resolved automatically by existing name or ID. Duplicate SKUs are not created.",
+  description: "Create one product in Stockly. Category and supplier are resolved automatically by existing name or ID. Duplicate SKUs are not created. Purchase price is optional and defaults to 0.",
   inputSchema: CREATE_PRODUCT_SCHEMA,
 }];
 
@@ -88,7 +89,7 @@ async function createProduct(args: Record<string, unknown>) {
   if (category.error || supplier.error) throw new Error([category.error, supplier.error].filter(Boolean).join("; "));
 
   const quantity = args.quantity;
-  const candidate = { name: args.name, sku: args.sku, price: args.price, quantity, status: typeof quantity === "number" ? calculateProductStatus(quantity) : undefined, categoryId: category.id, supplierId: supplier.id, imageUrl: args.imageUrl, expirationDate: args.expirationDate };
+  const candidate = { name: args.name, sku: args.sku, purchasePrice: args.purchasePrice, price: args.price, quantity, status: typeof quantity === "number" ? calculateProductStatus(quantity) : undefined, categoryId: category.id, supplierId: supplier.id, imageUrl: args.imageUrl, expirationDate: args.expirationDate };
   const validation = createProductBodySchema.safeParse(candidate);
   if (!validation.success) throw new Error(validation.error.errors.map((e) => `${e.path.join(".")}: ${e.message}`).join("; "));
   const data = validation.data;
@@ -96,7 +97,7 @@ async function createProduct(args: Record<string, unknown>) {
   const existing = await prisma.product.findUnique({ where: { sku: data.sku }, select: { id: true, name: true, sku: true } });
   if (existing) return { status: "skipped", reason: "SKU already exists", product: existing };
 
-  const product = await prisma.product.create({ data: { name: data.name, sku: data.sku, price: data.price, quantity: BigInt(data.quantity), status: data.status, categoryId: data.categoryId, supplierId: data.supplierId, userId: owner.id, createdBy: owner.id, updatedAt: null, imageUrl: data.imageUrl || null, imageFileId: data.imageFileId || null, expirationDate: data.expirationDate ? new Date(data.expirationDate) : null }, select: { id: true, name: true, sku: true, price: true, quantity: true, status: true } });
+  const product = await prisma.product.create({ data: { name: data.name, sku: data.sku, purchasePrice: data.purchasePrice, price: data.price, quantity: BigInt(data.quantity), status: data.status, categoryId: data.categoryId, supplierId: data.supplierId, userId: owner.id, createdBy: owner.id, updatedAt: null, imageUrl: data.imageUrl || null, imageFileId: data.imageFileId || null, expirationDate: data.expirationDate ? new Date(data.expirationDate) : null }, select: { id: true, name: true, sku: true, purchasePrice: true, price: true, quantity: true, status: true } });
 
   await createAuditLog({ userId: owner.id, action: "create", entityType: "product", entityId: product.id, details: { productName: product.name, sku: product.sku, source: "mcp", category: category.name, supplier: supplier.name } }).catch(() => undefined);
   await invalidateOnProductChange();
