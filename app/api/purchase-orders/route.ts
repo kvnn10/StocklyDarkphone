@@ -37,10 +37,9 @@ export async function POST(request: NextRequest) {
   const subtotal = items.reduce((s: number, i: any) => s + i.subtotal, 0);
   const shipping = Math.max(0, n(body.shipping));
   const tax = Math.max(0, n(body.tax));
-  const discount = Math.max(0, n(body.discount));
-  const total = Math.max(0, subtotal + shipping + tax - discount);
+  const total = Math.max(0, subtotal + shipping + tax);
   const purchaseNumber = `OC-${new Date().getFullYear()}-${Date.now().toString().slice(-7)}`;
-  const order = await prisma.purchaseOrder.create({ data: { purchaseNumber, supplierId: supplier.id, userId: session.id, status: "draft", subtotal, shipping, tax, discount, total, notes: body.notes || null, expectedAt: body.expectedAt ? new Date(body.expectedAt) : null, createdBy: session.id, items: { create: items } }, include: { items: true } });
+  const order = await prisma.purchaseOrder.create({ data: { purchaseNumber, supplierId: supplier.id, userId: session.id, status: "draft", subtotal, shipping, tax, total, notes: body.notes || null, createdBy: session.id, items: { create: items } }, include: { items: true } });
   return NextResponse.json(order, { status: 201 });
 }
 
@@ -68,7 +67,6 @@ export async function PATCH(request: NextRequest) {
       const oldQty = n(product.quantity);
       const oldCost = n(product.purchasePrice);
       const newQty = oldQty + qty;
-      // Weighted average cost: preserves existing stock value and incorporates the received batch cost.
       const weightedCost = newQty > 0 ? ((oldQty * oldCost) + (qty * item.unitCost)) / newQty : item.unitCost;
       await tx.product.update({ where: { id: product.id }, data: { quantity: BigInt(newQty), purchasePrice: weightedCost, updatedAt: new Date(), updatedBy: session.id } });
       await tx.purchaseOrderItem.update({ where: { id: item.id }, data: { receivedQuantity: qty } });
