@@ -2,23 +2,27 @@ generator client {
   provider = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
-datasource db { provider = "mongodb" url = env("DATABASE_URL") }
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
 
 model Category {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
-  name String
-  userId String @db.ObjectId
-  status Boolean @default(true)
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  userId      String    @db.ObjectId
+  status      Boolean   @default(true)
   description String?
-  notes String?
-  createdAt DateTime @default(now()) @db.Date
-  updatedAt DateTime? @db.Date
-  createdBy String @db.ObjectId
-  updatedBy String? @db.ObjectId
+  notes       String?
+  createdAt   DateTime  @default(now()) @db.Date
+  updatedAt   DateTime? @db.Date
+  createdBy   String    @db.ObjectId
+  updatedBy   String?   @db.ObjectId
 }
-model Department {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
-}
+
+model Department { id String @id @default(auto()) @map("_id") @db.ObjectId }
+
 model Invoice {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   invoiceNumber String @unique
@@ -49,6 +53,7 @@ model Invoice {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   @@index([userId, status, dueDate])
 }
+
 model Order {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   orderNumber String @unique
@@ -80,6 +85,7 @@ model Order {
   items OrderItem[]
   invoice Invoice?
 }
+
 model OrderItem {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   orderId String @db.ObjectId
@@ -95,12 +101,9 @@ model OrderItem {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
 }
-model Permission {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
-  resource Json?
-  userId Json?
-  @@unique([userId, resource])
-}
+
+model Permission { id String @id @default(auto()) @map("_id") @db.ObjectId resource Json? userId Json? @@unique([userId, resource]) }
+
 model Product {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   categoryId String @db.ObjectId
@@ -127,13 +130,10 @@ model Product {
   orderItems OrderItem[]
   @@index([deletedAt])
 }
-model Session {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
-  sessionToken Json? @unique
-}
-model StockAlert {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
-}
+
+model Session { id String @id @default(auto()) @map("_id") @db.ObjectId sessionToken Json? @unique }
+model StockAlert { id String @id @default(auto()) @map("_id") @db.ObjectId }
+
 model StockAllocation {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   productId String @db.ObjectId
@@ -147,6 +147,7 @@ model StockAllocation {
   @@index([productId])
   @@index([warehouseId])
 }
+
 model StockTransfer {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   productId String @db.ObjectId
@@ -163,6 +164,7 @@ model StockTransfer {
   @@index([toWarehouseId])
   @@index([status])
 }
+
 model Warehouse {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   name String
@@ -176,6 +178,7 @@ model Warehouse {
   updatedBy String? @db.ObjectId
   @@index([userId])
 }
+
 model Supplier {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   name String
@@ -188,6 +191,7 @@ model Supplier {
   createdBy String @db.ObjectId
   updatedBy String? @db.ObjectId
 }
+
 model User {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   createdAt DateTime @db.Date
@@ -202,13 +206,10 @@ model User {
   emailPreferences Json?
   notifications Notification[]
 }
-model UserAction {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
-}
-model VerificationToken {
-  id String @id @default(auto()) @map("_id") @db.ObjectId
-  token Json? @unique
-}
+
+model UserAction { id String @id @default(auto()) @map("_id") @db.ObjectId }
+model VerificationToken { id String @id @default(auto()) @map("_id") @db.ObjectId token Json? @unique }
+
 model ImportHistory {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   userId String @db.ObjectId
@@ -223,6 +224,7 @@ model ImportHistory {
   createdAt DateTime @default(now()) @db.Date
   completedAt DateTime?
 }
+
 model Notification {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   userId String @db.ObjectId
@@ -237,6 +239,7 @@ model Notification {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId, read, createdAt])
 }
+
 model SupportTicket {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   subject String
@@ -257,6 +260,7 @@ model SupportTicket {
   @@index([assignedToId])
   @@index([createdAt])
 }
+
 model SupportTicketReply {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   ticketId String @db.ObjectId
@@ -268,6 +272,7 @@ model SupportTicketReply {
   @@index([userId])
   @@index([createdAt])
 }
+
 model ProductReview {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   productId String @db.ObjectId
@@ -289,6 +294,7 @@ model ProductReview {
   @@index([rating])
   @@index([createdAt])
 }
+
 model SystemConfig {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   key String @unique
@@ -304,6 +310,7 @@ model SystemConfig {
   @@index([category])
   @@index([isPublic])
 }
+
 model AuditLog {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   userId String @db.ObjectId
@@ -319,6 +326,7 @@ model AuditLog {
   @@index([entityType])
   @@index([createdAt])
 }
+
 model CashMovement {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   type String
@@ -334,6 +342,7 @@ model CashMovement {
   @@index([userId, createdAt])
   @@index([orderId])
 }
+
 model SalePayment {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   orderId String @db.ObjectId
@@ -347,6 +356,7 @@ model SalePayment {
   @@unique([orderId])
   @@index([userId, createdAt])
 }
+
 model InventoryMovement {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   productId String @db.ObjectId
@@ -365,6 +375,7 @@ model InventoryMovement {
   @@index([warehouseId, createdAt])
   @@index([type, createdAt])
 }
+
 model PurchaseOrder {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   purchaseNumber String @unique
@@ -372,13 +383,12 @@ model PurchaseOrder {
   userId String @db.ObjectId
   status String @default("draft")
   subtotal Float @default(0)
-  shipping Float @default(0)
   tax Float @default(0)
-  discount Float @default(0)
+  shipping Float @default(0)
   total Float @default(0)
   notes String?
-  expectedAt DateTime?
-  receivedAt DateTime?
+  orderedAt DateTime? @db.Date
+  receivedAt DateTime? @db.Date
   createdAt DateTime @default(now()) @db.Date
   updatedAt DateTime? @db.Date
   createdBy String @db.ObjectId
@@ -387,6 +397,7 @@ model PurchaseOrder {
   @@index([userId, status, createdAt])
   @@index([supplierId, createdAt])
 }
+
 model PurchaseOrderItem {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   purchaseOrderId String @db.ObjectId
