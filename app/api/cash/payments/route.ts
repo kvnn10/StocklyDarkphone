@@ -18,37 +18,56 @@ export async function POST(request: NextRequest) {
 
   const client = new MongoClient(process.env.DATABASE_URL!);
   await client.connect();
+  const mongoSession = client.startSession();
   try {
     const db = client.db();
-    const invoice = await db.collection("Invoice").findOne({ _id: new ObjectId(invoiceId), userId: session.id });
-    if (!invoice) return NextResponse.json({ error: "Factura no encontrada" }, { status: 404 });
-    if (invoice.status === "cancelled") return NextResponse.json({ error: "La factura está cancelada" }, { status: 409 });
-    const total = Number(invoice.total || 0);
-    const paid = Number(invoice.amountPaid || 0);
-    const due = Math.max(0, total - paid);
-    if (due <= 0) return NextResponse.json({ error: "La factura ya está pagada" }, { status: 409 });
-    if (amount > due + 0.01) return NextResponse.json({ error: `El máximo permitido es ${due.toFixed(2)}` }, { status: 400 });
+    const result = await mongoSession.withTransaction(async () => {
+      const invoice = await db.collection("Invoice").findOne({ _id: new ObjectId(invoiceId), userId: session.id }, { session: mongoSession });
+      if (!invoice) throw Object.assign(new Error("Factura no encontrada"), { status: 404 });
+      if (invoice.status === "cancelled") throw Object.assign(new Error("La factura está cancelada"), { status: 409 });
 
-    const now = new Date();
-    const newPaid = Math.min(total, paid + amount);
-    const newDue = Math.max(0, total - newPaid);
-    const paymentStatus = newDue <= 0.01 ? "paid" : "partial";
+      const total = Number(invoice.total || 0);
+      const paid = Number(invoice.amountPaid || 0);
+      const due = Math.max(0, total - paid);
+      if (due <= 0) throw Object.assign(new Error("La factura ya está pagada"), { status: 409 });
+      if (amount > due + 0.01) throw Object.assign(new Error(`El máximo permitido es ${due.toFixed(2)}`), { status: 400 });
 
-    const payment = { invoiceId, orderId: String(invoice.orderId), invoiceNumber: invoice.invoiceNumber, userId: session.id, recordedBy: session.id, amount, paymentMethod, status: "paid", createdAt: now };
-    await db.collection("Payment").insertOne(payment);
+      const now = new Date();
+      const newPaid = Math.min(total, paid + amount);
+      const newDue = Math.max(0, total - newPaid);
+      const paymentStatus = newDue <= 0.01 ? "paid" : "partial";
+      const payment = { invoiceId, orderId: String(invoice.orderId), invoiceNumber: invoice.invoiceNumber, userId: session.id, recordedBy: session.id, amount, paymentMethod, status: "paid", createdAt: now };
 
-    const updated = await db.collection("Invoice").updateOne(
-      { _id: invoice._id, userId: session.id, amountPaid: paid },
-      { $set: { amountPaid: newPaid, amountDue: newDue, paidAt: paymentStatus === "paid" ? now : null, updatedAt: now } },
-    );
-    if (updated.matchedCount !== 1) return NextResponse.json({ error: "La factura cambió mientras se registraba el pago; vuelve a intentarlo" }, { status: 409 });
+      await db.collection("Payment").insertOne(payment, { session: mongoSession });
+      const updated = await db.collection("Invoice").updateOne(
+        { _id: invoice._id, userId: session.id, amountPaid: paid },
+        { $set: { amountPaid: newPaid, amountDue: newDue, paidAt: paymentStatus === "paid" ? now : null, updatedAt: now } },
+        { session: mongoSession },
+      );
+      if (updated.matchedCount !== 1) throw Object.assign(new Error("La factura cambió mientras se registraba el pago; vuelve a intentarlo"), { status: 409 });
 
-    await db.collection("Order").updateOne({ _id: new ObjectId(String(invoice.orderId)), userId: session.id }, { $set: { paymentStatus, updatedAt: now } });
-    await db.collection("CashMovement").insertOne({ type: "income", source: "sale", amount, paymentMethod, orderId: String(invoice.orderId), orderNumber: invoice.invoiceNumber, userId: session.id, createdBy: session.id, description: `Pago factura ${invoice.invoiceNumber}`, status: "active", createdAt: now });
-    await writeAuditLog({ userId: session.id, action: "INVOICE_PAYMENT_RECORDED", entityType: "Invoice", entityId: invoiceId, details: { amount, paymentMethod, previousPaid: paid, newPaid, amountDue: newDue }, userAgent: request.headers.get("user-agent"), ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip") });
-    return NextResponse.json({ ok: true, amountPaid: newPaid, amountDue: newDue, paymentStatus });
+      if (ObjectId.isValid(String(invoice.orderId))) {
+        const orderUpdated = await db.collection("Order").updateOne(
+          { _id: new ObjectId(String(invoice.orderId)), userId: session.id },
+          { $set: { paymentStatus, updatedAt: now } },
+          { session: mongoSession },
+        );
+        if (orderUpdated.matchedCount !== 1) throw Object.assign(new Error("No se pudo actualizar el estado de pago de la venta"), { status: 409 });
+      }
+
+      await db.collection("CashMovement").insertOne({ type: "income", source: "sale", amount, paymentMethod, orderId: String(invoice.orderId), orderNumber: invoice.invoiceNumber, userId: session.id, createdBy: session.id, description: `Pago factura ${invoice.invoiceNumber}`, status: "active", createdAt: now }, { session: mongoSession });
+      return { amountPaid: newPaid, amountDue: newDue, paymentStatus, now };
+    });
+
+    await writeAuditLog({ userId: session.id, action: "INVOICE_PAYMENT_RECORDED", entityType: "Invoice", entityId: invoiceId, details: { amount, paymentMethod, newPaid: result.amountPaid, amountDue: result.amountDue }, userAgent: request.headers.get("user-agent"), ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip") });
+    return NextResponse.json({ ok: true, amountPaid: result.amountPaid, amountDue: result.amountDue, paymentStatus: result.paymentStatus });
   } catch (error) {
     console.error("POST /api/cash/payments", error);
-    return NextResponse.json({ error: "No se pudo registrar el pago" }, { status: 500 });
-  } finally { await client.close(); }
+    const status = typeof error === "object" && error !== null && "status" in error && typeof (error as { status?: unknown }).status === "number" ? Number((error as { status: number }).status) : 500;
+    const message = error instanceof Error ? error.message : "No se pudo registrar el pago";
+    return NextResponse.json({ error: message }, { status });
+  } finally {
+    await mongoSession.endSession();
+    await client.close();
+  }
 }
