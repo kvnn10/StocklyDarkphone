@@ -52,6 +52,9 @@ export async function PATCH(request: NextRequest) {
 
   const requested = Array.isArray(body.items) ? body.items : order.items.map((i) => ({ id: i.id, quantity: i.orderedQuantity - i.receivedQuantity }));
   const receivedMap = new Map<string, number>(requested.map((i: any) => [String(i.id), Math.max(0, Math.floor(n(i.quantity)))]));
+  const warehouse = await prisma.warehouse.findFirst({ where: { userId: session.id, status: true }, orderBy: { createdAt: "asc" } });
+  if (!warehouse) return NextResponse.json({ error: "Crea al menos una bodega activa antes de recibir mercancía" }, { status: 400 });
+
   const result = await prisma.$transaction(async (tx) => {
     let allReceived = true;
     for (const item of order.items) {
@@ -70,6 +73,7 @@ export async function PATCH(request: NextRequest) {
       await tx.product.update({ where: { id: product.id }, data: { quantity: BigInt(newQty), purchasePrice: weightedCost, updatedAt: new Date(), updatedBy: session.id } });
       const nextReceived = item.receivedQuantity + qty;
       await tx.purchaseOrderItem.update({ where: { id: item.id }, data: { receivedQuantity: nextReceived } });
+      await tx.inventoryMovement.create({ data: { productId: product.id, warehouseId: warehouse.id, userId: session.id, type: "purchase_receipt", quantity: BigInt(qty), previousStock: BigInt(oldQty), newStock: BigInt(newQty), reason: "Recepción de compra", referenceId: order.id, notes: `${order.purchaseNumber} · ${item.productName}` } });
       if (nextReceived < item.orderedQuantity) allReceived = false;
     }
     return tx.purchaseOrder.update({ where: { id: order.id }, data: { status: allReceived ? "received" : "partial", receivedAt: allReceived ? new Date() : order.receivedAt, updatedAt: new Date(), updatedBy: session.id }, include: { items: true } });
