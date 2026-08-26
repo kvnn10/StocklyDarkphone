@@ -9,6 +9,7 @@
  */
 
 import React, { useMemo } from "react";
+import Link from "next/link";
 import { Warehouse } from "lucide-react";
 import {
   Select,
@@ -173,10 +174,19 @@ export function OrderLineWarehouseSelect({
         <div
           className={cn(
             DIALOG_FORM_FIELD_VIOLET,
-            "h-11 rounded-md flex items-center px-3 text-sm text-white/50",
+            "rounded-md px-3 py-2 text-sm",
           )}
         >
-          Not warehouse-tracked
+          <p className="text-white/80">Sin stock asignado a bodegas</p>
+          <p className="mt-0.5 text-xs text-white/50">
+            Primero distribuye este producto entre tus bodegas.
+          </p>
+          <Link
+            href="/warehouses"
+            className="mt-2 inline-flex text-xs font-medium text-teal-300 underline underline-offset-2 hover:text-teal-200"
+          >
+            Gestionar stock por bodega →
+          </Link>
         </div>
         {feedback}
       </div>
