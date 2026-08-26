@@ -205,7 +205,9 @@ export function useInvoice(id: string, initialData?: Invoice) {
 }
 
 /**
- * Create a new invoice from an order
+ * Create a new invoice from an order.
+ * Creating the invoice is the billing checkpoint: a pending order is confirmed
+ * immediately afterwards so its reserved stock is fulfilled and the Kardex is updated.
  */
 export function useCreateInvoice() {
   const queryClient = useQueryClient();
@@ -214,7 +216,27 @@ export function useCreateInvoice() {
   return useMutation<Invoice, Error, CreateInvoiceInput>({
     mutationFn: async (newInvoiceData) => {
       const response = await apiClient.invoices.create(newInvoiceData);
-      return response.data;
+      const invoice = response.data;
+
+      // Billing a pending order must consume its reservation. Keep the order API
+      // as the source of truth for fulfillment so warehouse picks and stock
+      // allocation rules remain centralized in order-lifecycle.ts.
+      try {
+        await apiClient.orders.update(newInvoiceData.orderId, {
+          status: "confirmed",
+        });
+      } catch (orderError) {
+        // Compensate if the invoice was created but stock/order fulfillment failed.
+        // This prevents a visible invoice from being left attached to an unfulfilled order.
+        try {
+          await apiClient.invoices.delete(invoice.id);
+        } catch {
+          // Preserve the fulfillment error; reconciliation can recover an orphan invoice.
+        }
+        throw orderError;
+      }
+
+      return invoice;
     },
     onSuccess: (data: Invoice) => {
       // REQ-0211 — densify + prepend only invoice lists (never orders — wrong id)
@@ -239,7 +261,7 @@ export function useCreateInvoice() {
 
       toast({
         title: "Invoice Created!",
-        description: `Invoice #${data.invoiceNumber} has been successfully created.`,
+        description: `Invoice #${data.invoiceNumber} has been successfully created and the order was confirmed.`,
       });
     },
     onError: (error) => {
