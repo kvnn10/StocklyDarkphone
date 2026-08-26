@@ -1,0 +1,43 @@
+name: Fix Stockly Darkphone branding
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore Navbar and apply branding
+        shell: bash
+        run: |
+          git checkout 435133f0e3125f80c8558e9614706997559d7548 -- components/layouts/Navbar.tsx
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('components/layouts/Navbar.tsx')
+          s = p.read_text()
+          old = '''<h1 className="text-sm sm:text-lg font-medium tracking-tight bg-gradient-to-r from-rose-600 to-gray-900 dark:from-rose-400 dark:to-gray-100 bg-clip-text text-transparent transition-all duration-300 ease-in-out group-hover:from-rose-700 group-hover:to-gray-950 dark:group-hover:from-rose-300 dark:group-hover:to-gray-50">\n              Stockly\n            </h1>'''
+          new = '''<div className="flex min-w-[92px] flex-col items-center justify-center text-center leading-none">\n              <h1 className="text-sm sm:text-lg font-medium tracking-tight bg-gradient-to-r from-rose-600 to-gray-900 dark:from-rose-400 dark:to-gray-100 bg-clip-text text-transparent transition-all duration-300 ease-in-out group-hover:from-rose-700 group-hover:to-gray-950 dark:group-hover:from-rose-300 dark:group-hover:to-gray-50">\n                Stockly\n              </h1>\n              <span className="mt-0.5 text-[11px] sm:text-xs font-medium tracking-tight text-gray-700 dark:text-gray-200">\n                Darkphone\n              </span>\n            </div>'''
+          if old not in s:
+              raise SystemExit('Expected Stockly brand block was not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+      - name: Commit branding fix and remove helper workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -f .github/workflows/fix-branding.yml
+          git add components/layouts/Navbar.tsx .github/workflows/fix-branding.yml
+          git commit -m "fix: align Stockly Darkphone brand" || exit 0
+          git push
