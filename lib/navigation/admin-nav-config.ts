@@ -27,6 +27,9 @@ export const ADMIN_MY_STORE_ITEMS: AdminNavItemConfig[] = [
   { href: "/admin/sales", label: "Ventas" },
   { href: "/admin/orders", label: "Pedidos", countKey: "clientOrders" },
   { href: "/admin/invoices", label: "Facturas", countKey: "clientInvoices" },
+  { href: "/admin/client-portal", label: "Clientes", countKey: "clients" },
+  { href: "/admin/devices", label: "Equipos / IMEI" },
+  { href: "/admin/service-orders", label: "Servicio técnico" },
   { href: "/admin/support-tickets", label: "Tickets de soporte", countKey: "supportTickets" },
   { href: "/admin/product-reviews", label: "Reseñas de productos", countKey: "productReviews" },
 ];
@@ -35,10 +38,7 @@ export const ADMIN_MANAGEMENT_ITEMS: AdminNavItemConfig[] = [
   { href: "/admin/products", label: "Productos", countKey: "products" },
   { href: "/admin/warehouses", label: "Almacenes", countKey: "warehouses" },
   { href: "/admin/supplier-portal", label: "Portal de proveedores", countKey: "suppliers" },
-  { href: "/admin/client-portal", label: "Clientes", countKey: "clients" },
-  { href: "/admin/devices", label: "Equipos / IMEI" },
   { href: "/admin/cash", label: "Caja" },
-  { href: "/admin/service-orders", label: "Servicio técnico" },
   { href: "/user-management", label: "Gestión de usuarios", countKey: "users" },
   { href: "/admin/activity-history", label: "Historial de actividad" },
 ];
