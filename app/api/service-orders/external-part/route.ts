@@ -18,9 +18,7 @@ async function db() {
 
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
-  if (!session || !["admin", "user", "retailer"].includes(session.role ?? "")) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
+  if (!session || !["admin", "user", "retailer"].includes(session.role ?? "")) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
   const body = await request.json();
   const orderId = typeof body.orderId === "string" ? body.orderId : "";
@@ -52,78 +50,62 @@ export async function POST(request: NextRequest) {
     let productId = `external-${new ObjectId().toString()}`;
     let sku = `EXT-${existing.orderNumber}-${Date.now()}`;
     let inventoryProductId: string | null = null;
+    let inventoryWarehouseId = "";
+    let inventoryWarehouseName = "Compra puntual";
 
     if (addToInventory) {
-      const [category, supplier] = await Promise.all([
+      const [category, supplier, warehouse] = await Promise.all([
         prisma.category.findFirst({ where: { id: categoryId, userId: session.id, status: true } }),
         prisma.supplier.findFirst({ where: { id: supplierId, userId: session.id, status: true } }),
+        prisma.warehouse.findFirst({ where: { userId: session.id, status: true }, orderBy: { createdAt: "asc" } }),
       ]);
       if (!category) return NextResponse.json({ error: "La categoría seleccionada no existe o está inactiva" }, { status: 400 });
       if (!supplier) return NextResponse.json({ error: "El proveedor seleccionado no existe o está inactivo" }, { status: 400 });
+      if (!warehouse) return NextResponse.json({ error: "No tienes una bodega activa. Crea una bodega antes de agregar repuestos al inventario." }, { status: 400 });
 
       const product = await prisma.product.create({
         data: {
-          name,
-          sku,
-          purchasePrice: purchaseCost,
-          price: salePrice,
-          quantity: BigInt(quantity) as any,
-          status: quantity > 20 ? "Available" : "Stock Low",
-          categoryId,
-          supplierId,
-          userId: session.id,
-          createdBy: session.id,
-          createdAt: new Date(),
-          updatedAt: null,
+          name, sku, purchasePrice: purchaseCost, price: salePrice, quantity: BigInt(quantity) as any,
+          status: quantity > 20 ? "Available" : "Stock Low", categoryId, supplierId,
+          userId: session.id, createdBy: session.id, createdAt: new Date(), updatedAt: null,
         },
       });
       productId = product.id;
       sku = product.sku;
       inventoryProductId = product.id;
+      inventoryWarehouseId = warehouse.id;
+      inventoryWarehouseName = warehouse.name;
+
+      await prisma.stockAllocation.create({
+        data: { productId: product.id, warehouseId: warehouse.id, quantity: BigInt(quantity) as any, reservedQuantity: BigInt(0) as any, userId: session.id, createdAt: new Date(), updatedAt: null },
+      });
+      await prisma.inventoryMovement.create({
+        data: {
+          productId: product.id, warehouseId: warehouse.id, userId: session.id, type: "purchase",
+          quantity: BigInt(quantity) as any, previousStock: BigInt(0) as any, newStock: BigInt(quantity) as any,
+          reason: "Compra puntual para orden de servicio", referenceId: orderId,
+          notes: invoiceRef || supplierName || null, createdAt: new Date(),
+        },
+      });
       await invalidateOnProductChange();
     }
 
     const partId = new ObjectId().toString();
     const part = {
-      id: partId,
-      productId,
-      name,
-      sku,
-      quantity,
-      unitPrice: salePrice,
-      unitCost: purchaseCost,
-      subtotal: quantity * salePrice,
-      costSubtotal: quantity * purchaseCost,
-      consumed: !addToInventory,
-      warehouseId: "",
-      warehouseName: addToInventory ? "Pendiente de descontar de inventario" : "Compra puntual",
-      external: true,
-      purchaseType: "spot",
-      supplierName,
-      invoiceRef,
-      warrantyDays,
-      warrantyUntil: null,
-      addedAt: new Date(),
-      addedBy: session.id,
+      id: partId, productId, name, sku, quantity, unitPrice: salePrice, unitCost: purchaseCost,
+      subtotal: quantity * salePrice, costSubtotal: quantity * purchaseCost, consumed: !addToInventory,
+      warehouseId: inventoryWarehouseId, warehouseName: inventoryWarehouseName, external: true,
+      purchaseType: "spot", supplierName, invoiceRef, warrantyDays, warrantyUntil: null,
+      addedAt: new Date(), addedBy: session.id,
     };
 
     const parts = [...((existing.parts as any[]) || []), part];
     const subtotalParts = parts.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
     const total = Math.max(0, subtotalParts + Number(existing.labor || 0) - Number(existing.discount || 0));
-    await orders.updateOne(
-      { _id: existing._id },
-      { $set: { parts, total, balance: total - Number(existing.paid || 0), updatedAt: new Date(), updatedBy: session.id } },
-    );
+    await orders.updateOne({ _id: existing._id }, { $set: { parts, total, balance: total - Number(existing.paid || 0), updatedAt: new Date(), updatedBy: session.id } });
 
-    await writeAuditLog({
-      userId: session.id,
-      action: "SERVICE_EXTERNAL_PART_ADDED",
-      entityType: "ServiceOrder",
-      entityId: orderId,
-      details: { part, addToInventory, inventoryProductId },
-    });
-
-    return NextResponse.json({ part, inventoryProductId, order: await orders.findOne({ _id: existing._id }) }, { status: 201 });
+    await writeAuditLog({ userId: session.id, action: "SERVICE_EXTERNAL_PART_ADDED", entityType: "ServiceOrder", entityId: orderId, details: { part, addToInventory, inventoryProductId, inventoryWarehouseId } });
+    return NextResponse.json({ part, inventoryProductId, inventoryWarehouseId, order: await orders.findOne({ _id: existing._id }) }, { status: 201 });
   } catch (error) {
     console.error("POST /api/service-orders/external-part", error);
     return NextResponse.json({ error: "No se pudo agregar el repuesto de compra puntual" }, { status: 500 });
