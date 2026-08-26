@@ -53,7 +53,7 @@ export default function ProductsDropDown({ row, detailBase = "" }: ProductsDropD
         <DropdownMenuItem asChild><Link href={detailBase ? `${detailBase}/products/${row.original.id}` : `/products/${row.original.id}`} className="flex items-center gap-2"><Eye className="h-4 w-4" />Ver detalles</Link></DropdownMenuItem>
         {!readOnlyCatalog && <>
           <DropdownMenuItem onClick={handleCopyProduct} disabled={isCopying} className="flex items-center gap-2"><Copy className="h-4 w-4" />{isCopying ? "Duplicando..." : "Crear duplicado"}</DropdownMenuItem>
-          <DropdownMenuItem onClick={handleEditProduct} className="flex items-center gap-2"><Edit className="h-4 w-4" />Editar producto</DropdownMenuItem>
+          <DropdownMenuItem onClick={handleEditProduct} className="flex items-center gap-2"><Edit className="h-4 w-4" />Editar</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setDeleteDialogOpen(true)} disabled={isDeleting} className="flex items-center gap-2 text-red-600 dark:text-red-400"><Trash2 className="h-4 w-4" />{isDeleting ? "Eliminando..." : "Eliminar producto"}</DropdownMenuItem>
         </>}
         <DropdownMenuSeparator />
