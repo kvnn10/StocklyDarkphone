@@ -167,7 +167,17 @@ const PHRASES: Array<[string, string]> = [
 function translate(raw: string): string {
   let result = raw;
   for (const [source, target] of PHRASES) {
-    if (result.includes(source)) result = result.split(source).join(target);
+    if (result === source) {
+      result = target;
+      continue;
+    }
+
+    // Only replace a phrase inside a larger text node when it is long enough
+    // to avoid corrupting Spanish words that contain an English key as a prefix
+    // (e.g. "Cancelar" must never become "Cancelarar").
+    if (source.length >= 8 && result.includes(source)) {
+      result = result.split(source).join(target);
+    }
   }
   return result;
 }
