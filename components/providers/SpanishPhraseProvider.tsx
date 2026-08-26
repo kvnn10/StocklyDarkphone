@@ -162,6 +162,31 @@ const PHRASES: Array<[string, string]> = [
   ["To:", "Hasta:"],
   ["Export Analytics", "Exportar análisis"],
   ["Export", "Exportar"],
+
+  // Category management dialog/table.
+  ["+Add Category", "+Agregar categoría"],
+  ["Add Category", "Agregar categoría"],
+  ["Edit Category", "Editar categoría"],
+  ["Update the category name", "Actualiza el nombre de la categoría"],
+  ["Enter the name of the new category", "Ingresa el nombre de la nueva categoría"],
+  ["Category Name", "Nombre de categoría"],
+  ["New Category", "Nueva categoría"],
+  ["Description", "Descripción"],
+  ["Enter category description...", "Ingresa la descripción de la categoría..."],
+  ["Notes", "Notas"],
+  ["Enter category notes...", "Ingresa las notas de la categoría..."],
+  ["Active (Inactive categories will not appear while creating products)", "Activa (las categorías inactivas no aparecerán al crear productos)"],
+  ["Saving…", "Guardando…"],
+  ["Creating…", "Creando…"],
+  ["No categories found.", "No se encontraron categorías."],
+  ["Category", "Categoría"],
+  ["Status", "Estado"],
+  ["Products", "Productos"],
+  ["Created At", "Creado el"],
+  ["Updated At", "Actualizado el"],
+  ["Unknown Date", "Fecha desconocida"],
+  ["Asc", "Ascendente"],
+  ["Desc", "Descendente"],
 ];
 
 function translate(raw: string): string {
