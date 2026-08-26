@@ -7,6 +7,7 @@ import {
 } from "@/lib/server/product-reviews-detail-data";
 import { getCachedForecastingSummary } from "@/lib/server/forecasting-data";
 import ProductDetailPage from "@/components/Pages/ProductDetailPage";
+import ProductWarrantyCard from "@/components/admin/ProductWarrantyCard";
 import { enrichProductInsightsWithWarehouseStock } from "@/lib/insights/product-insights-enrich";
 import { getStockByProductForPage } from "@/lib/server/product-stock-data";
 import type { Product } from "@/types";
@@ -21,16 +22,22 @@ export default async function AdminProductDetailPage({ params }: Props) {
   if (!user) redirect("/login");
   const { id } = await params;
 
-  const [initialProduct, initialReviews, initialEligibility, initialStockByProduct, initialForecasting] =
-    await Promise.all([
-      getProductDetailForPage({ id: user.id, role: user.role }, id),
-      getReviewsForProductPage(id, "all"),
-      getReviewEligibilityForProduct(user.id, id),
-      getStockByProductForPage({ id: user.id, role: user.role }, id),
-      user.role === "admin"
-        ? getCachedForecastingSummary(user.id)
-        : Promise.resolve(null),
-    ]);
+  const [
+    initialProduct,
+    initialReviews,
+    initialEligibility,
+    initialStockByProduct,
+    initialForecasting,
+  ] = await Promise.all([
+    getProductDetailForPage({ id: user.id, role: user.role }, id),
+    getReviewsForProductPage(id, "all"),
+    getReviewEligibilityForProduct(user.id, id),
+    getStockByProductForPage({ id: user.id, role: user.role }, id),
+    user.role === "admin"
+      ? getCachedForecastingSummary(user.id)
+      : Promise.resolve(null),
+  ]);
+
   if (!initialProduct) notFound();
 
   const enrichedProduct = {
@@ -45,13 +52,16 @@ export default async function AdminProductDetailPage({ params }: Props) {
   };
 
   return (
-    <ProductDetailPage
-      embedInAdmin
-      initialProduct={enrichedProduct as unknown as Product}
-      initialReviews={initialReviews}
-      initialEligibility={initialEligibility}
-      initialStockByProduct={initialStockByProduct ?? undefined}
-      initialForecasting={initialForecasting}
-    />
+    <>
+      <ProductDetailPage
+        embedInAdmin
+        initialProduct={enrichedProduct as unknown as Product}
+        initialReviews={initialReviews}
+        initialEligibility={initialEligibility}
+        initialStockByProduct={initialStockByProduct ?? undefined}
+        initialForecasting={initialForecasting}
+      />
+      <ProductWarrantyCard productId={id} />
+    </>
   );
 }
