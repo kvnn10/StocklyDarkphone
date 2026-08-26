@@ -192,13 +192,51 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
           categoryId: selectedCategory, supplierId: selectedSupplier,
           imageUrl: data.imageUrl || undefined, imageFileId: data.imageFileId || undefined, expirationDate,
         };
+        const additionalUnits = Math.max(0, quantity - Number(selectedProduct.quantity));
+        if (additionalUnits > 0 && !selectedWarehouse) {
+          setWarehouseError(activeWarehouses.length === 0 ? "Debes crear al menos una bodega antes de aumentar el inventario." : "Selecciona la bodega donde quedarán las nuevas unidades.");
+          return;
+        }
         if (reconcilePlan.unitsRemoved > 0) {
           setPendingUpdatePayload(updatePayload);
           setPendingShrinkUnits(reconcilePlan.unitsRemoved);
           setShrinkConfirmOpen(true);
           return;
         }
-        await submitProductUpdate(updatePayload);
+
+        const previousQuantity = Number(selectedProduct.quantity);
+        await updateProductMutation.mutateAsync(updatePayload);
+
+        if (additionalUnits > 0 && selectedWarehouse) {
+          const targetAllocation = productAllocations.find((row) => row.warehouseId === selectedWarehouse);
+          const previousWarehouseQuantity = Number(targetAllocation?.quantity ?? 0);
+          const nextWarehouseQuantity = previousWarehouseQuantity + additionalUnits;
+          try {
+            await createStockAllocationMutation.mutateAsync({
+              productId: selectedProduct.id,
+              warehouseId: selectedWarehouse,
+              quantity: nextWarehouseQuantity,
+            });
+          } catch (allocationError) {
+            logger.error("Error asignando las nuevas unidades a la bodega:", allocationError);
+            try {
+              await updateProductMutation.mutateAsync({
+                ...updatePayload,
+                quantity: previousQuantity,
+                status: calculateProductStatus(previousQuantity),
+              });
+            } catch (rollbackError) {
+              logger.error("Error revirtiendo el aumento de inventario:", rollbackError);
+            }
+            setWarehouseError("No se pudo asignar el aumento a la bodega seleccionada. El inventario fue revertido; verifica la bodega e inténtalo de nuevo.");
+            return;
+          }
+        }
+
+        setOpenProductDialog(false);
+        setShrinkConfirmOpen(false);
+        setPendingUpdatePayload(null);
+        setPendingShrinkUnits(0);
       }
     } catch (error) {
       logger.error("Error en la operación del producto:", error);
@@ -215,7 +253,8 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
   const reconcilePreview = useCatalogQuantityReconcilePreview({ selectedProduct, allocations: allocationsForPreview, quantityRaw: formValues.quantity });
   const isFormValid = productFormSubmitSchema.safeParse({ ...formValues, categoryId: selectedCategory, supplierId: selectedSupplier }).success;
   const watchedQuantity = typeof formValues.quantity === "string" && formValues.quantity === "" ? 0 : Number(formValues.quantity || 0);
-  const canSubmitUpdate = isFormValid && (!selectedProduct || reconcilePreview.ok) && (selectedProduct || watchedQuantity === 0 || !!selectedWarehouse);
+  const additionalUnitsToAllocate = selectedProduct ? Math.max(0, watchedQuantity - Number(selectedProduct.quantity)) : 0;
+  const canSubmitUpdate = isFormValid && (!selectedProduct || reconcilePreview.ok) && (selectedProduct ? additionalUnitsToAllocate === 0 || !!selectedWarehouse : watchedQuantity === 0 || !!selectedWarehouse);
 
   const handleOpenChange = (open: boolean) => {
     setSelectedProduct(null);
@@ -306,6 +345,26 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
                       ) : <span className="text-sm text-white/55">Sin bodega asignada</span>}
                     </div>
                     <p className={DIALOG_FORM_HINT_TEXT}>Para mover existencias entre bodegas utiliza la sección Movimientos.</p>
+
+                    <div className="mt-2 flex flex-col gap-2">
+                      <DialogFormLabel icon={WarehouseIcon} required={additionalUnitsToAllocate > 0}>Bodega para nuevas existencias{additionalUnitsToAllocate > 0 ? " *" : ""}</DialogFormLabel>
+                      <DeferredSelectGate enabled={openProductDialog} placeholder={<div className={cn("flex h-11 w-full items-center rounded-md px-2 text-sm text-white/60", DIALOG_FORM_FIELD_ROSE)} aria-hidden>{activeWarehouses.find((w) => w.id === selectedWarehouse)?.name ?? warehouseInvite}</div>}>
+                        {({ selectRemountKey }) => (
+                          <Select key={selectRemountKey} value={selectedWarehouse} onValueChange={(value) => { setSelectedWarehouse(value); setWarehouseError(""); }}>
+                            <SelectTrigger className={cn("h-11 w-full", DIALOG_FORM_FIELD_ROSE)}><SelectValue placeholder={warehouseInvite} /></SelectTrigger>
+                            <SelectContent className={cn(DIALOG_SELECT_CONTENT_CLASS, "z-[100]")} position="popper" sideOffset={5} align="start">
+                              {activeWarehouses.length === 0 ? <SelectEmptyContent entity="warehouse" /> : activeWarehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id} className={DIALOG_SELECT_ITEM_CLASS}>{warehouse.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </DeferredSelectGate>
+                      <p className={DIALOG_FORM_HINT_TEXT}>
+                        {additionalUnitsToAllocate > 0
+                          ? `Las ${additionalUnitsToAllocate} nuevas unidad(es) se agregarán a la bodega seleccionada.`
+                          : "Si aumentas la cantidad del producto, aquí indicarás dónde quedarán las nuevas unidades."}
+                      </p>
+                      {warehouseError && <p className={DIALOG_FORM_ERROR_TEXT} role="alert">{warehouseError}</p>}
+                    </div>
                   </div>
                 )}
               </div>
