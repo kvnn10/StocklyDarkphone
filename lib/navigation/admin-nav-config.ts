@@ -1,7 +1,7 @@
 /**
  * Admin sidebar nav config.
  * Single source for AdminSidebar hrefs and RouteWarmPrefetch admin RSC warm.
- * CRM links are intentionally part of the primary store navigation.
+ * CRM and commercial links are intentionally part of the primary store navigation.
  */
 
 import type { AdminCounts } from "@/types";
@@ -9,23 +9,13 @@ import type { AdminCounts } from "@/types";
 export type AdminNavItemConfig = {
   href: string;
   label: string;
-  countKey?: keyof Pick<
-    AdminCounts,
-    | "clientOrders"
-    | "clientInvoices"
-    | "supportTickets"
-    | "productReviews"
-    | "products"
-    | "warehouses"
-    | "suppliers"
-    | "clients"
-    | "users"
-  >;
+  countKey?: keyof Pick<AdminCounts, "clientOrders" | "clientInvoices" | "supportTickets" | "productReviews" | "products" | "warehouses" | "suppliers" | "clients" | "users">;
 };
 
 export const ADMIN_MY_STORE_ITEMS: AdminNavItemConfig[] = [
   { href: "/admin/dashboard-overall-insights", label: "Resumen de la tienda" },
   { href: "/admin/sales", label: "Ventas" },
+  { href: "/admin/quotes", label: "Cotizaciones" },
   { href: "/admin/orders", label: "Pedidos", countKey: "clientOrders" },
   { href: "/admin/invoices", label: "Facturas", countKey: "clientInvoices" },
   { href: "/admin/client-portal", label: "Clientes", countKey: "clients" },
@@ -51,11 +41,6 @@ export const ADMIN_MY_ACTIVITY_ITEMS: AdminNavItemConfig[] = [
 export const ADMIN_SETTINGS_EMAIL_HREF = "/admin/settings/email-preferences";
 
 export function getAdminSidebarWarmPaths(): string[] {
-  const paths = [
-    ...ADMIN_MY_STORE_ITEMS.map((item) => item.href),
-    ...ADMIN_MANAGEMENT_ITEMS.map((item) => item.href),
-    ...ADMIN_MY_ACTIVITY_ITEMS.map((item) => item.href),
-    ADMIN_SETTINGS_EMAIL_HREF,
-  ];
+  const paths = [...ADMIN_MY_STORE_ITEMS.map((item) => item.href), ...ADMIN_MANAGEMENT_ITEMS.map((item) => item.href), ...ADMIN_MY_ACTIVITY_ITEMS.map((item) => item.href), ADMIN_SETTINGS_EMAIL_HREF];
   return [...new Set(paths)];
 }
