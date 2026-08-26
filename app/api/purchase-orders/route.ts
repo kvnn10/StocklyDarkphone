@@ -7,11 +7,7 @@ const n = (v: unknown) => Number(v ?? 0);
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  const orders = await prisma.purchaseOrder.findMany({
-    where: { userId: session.id },
-    orderBy: { createdAt: "desc" },
-    include: { items: true },
-  });
+  const orders = await prisma.purchaseOrder.findMany({ where: { userId: session.id }, orderBy: { createdAt: "desc" }, include: { items: true } });
   return NextResponse.json(orders);
 }
 
@@ -19,9 +15,7 @@ export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   const body = await request.json();
-  if (!body.supplierId || !Array.isArray(body.items) || body.items.length === 0) {
-    return NextResponse.json({ error: "Proveedor y al menos un producto son obligatorios" }, { status: 400 });
-  }
+  if (!body.supplierId || !Array.isArray(body.items) || body.items.length === 0) return NextResponse.json({ error: "Proveedor y al menos un producto son obligatorios" }, { status: 400 });
   const supplier = await prisma.supplier.findFirst({ where: { id: body.supplierId, userId: session.id } });
   if (!supplier) return NextResponse.json({ error: "Proveedor no encontrado" }, { status: 404 });
   const productIds = body.items.map((i: any) => i.productId).filter(Boolean);
@@ -55,12 +49,11 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(updated);
   }
   if (body.status !== "received") return NextResponse.json({ error: "Solo se puede marcar como recibida" }, { status: 400 });
-
   const received = Array.isArray(body.items) ? body.items : order.items.map((i) => ({ id: i.id, quantity: i.orderedQuantity }));
-  const receivedMap = new Map(received.map((i: any) => [i.id, Math.max(0, Math.floor(n(i.quantity)))]));
+  const receivedMap = new Map<string, number>(received.map((i: any) => [String(i.id), Math.max(0, Math.floor(n(i.quantity)))]));
   const result = await prisma.$transaction(async (tx) => {
     for (const item of order.items) {
-      const qty = Math.min(item.orderedQuantity, receivedMap.get(item.id) ?? 0);
+      const qty = Math.min(item.orderedQuantity, receivedMap.get(String(item.id)) ?? 0);
       if (qty <= 0) continue;
       const product = await tx.product.findFirst({ where: { id: item.productId, userId: session.id } });
       if (!product) throw new Error(`Producto no encontrado: ${item.productName}`);
