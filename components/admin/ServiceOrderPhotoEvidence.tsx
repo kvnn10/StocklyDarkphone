@@ -1,13 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, ImagePlus, Loader2, Trash2, X } from "lucide-react";
+import { Camera, ImagePlus, Loader2, Trash2, X, Wrench, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-type Photo = { id: string; url: string; filename?: string; category?: string; uploadedAt?: string };
-
+type Stage = "ingreso" | "reparacion" | "entrega";
+type Photo = { id: string; url: string; filename?: string; category?: Stage; stage?: Stage; uploadedAt?: string };
 type Order = { _id: string; status: string; photos?: Photo[] };
+
+const stages: { key: Stage; label: string; description: string; icon: typeof Camera }[] = [
+  { key: "ingreso", label: "Ingreso", description: "Cómo llegó el equipo antes de abrirlo.", icon: Camera },
+  { key: "reparacion", label: "Durante reparación", description: "Proceso, componentes y hallazgos.", icon: Wrench },
+  { key: "entrega", label: "Entrega", description: "Estado final antes de devolverlo.", icon: CheckCircle2 },
+];
 
 function compressImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -38,6 +44,7 @@ function compressImage(file: File): Promise<string> {
 export default function ServiceOrderPhotoEvidence({ orderId }: { orderId: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [order, setOrder] = useState<Order | null>(null);
+  const [stage, setStage] = useState<Stage>("ingreso");
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
   const [preview, setPreview] = useState<Photo | null>(null);
@@ -59,7 +66,7 @@ export default function ServiceOrderPhotoEvidence({ orderId }: { orderId: string
     try {
       if (!file.type.startsWith("image/")) throw new Error("Selecciona una imagen");
       const dataUrl = await compressImage(file);
-      const response = await fetch("/api/service-orders/photos", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ orderId, dataUrl, filename: file.name }) });
+      const response = await fetch("/api/service-orders/photos", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ orderId, dataUrl, filename: file.name, stage }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "No se pudo guardar la fotografía");
       setOrder(current => current ? { ...current, photos: [...(current.photos || []), data.photo] } : current);
@@ -80,34 +87,48 @@ export default function ServiceOrderPhotoEvidence({ orderId }: { orderId: string
   };
 
   const photos = order?.photos || [];
+  const stagePhotos = photos.filter(photo => (photo.stage || photo.category || "ingreso") === stage);
   const closed = order ? ["delivered", "cancelled"].includes(order.status) : false;
+  const currentStage = stages.find(item => item.key === stage)!;
+  const StageIcon = currentStage.icon;
 
   return <>
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-3">
-          <span className="flex items-center gap-2"><Camera className="h-5 w-5" />Evidencia fotográfica del ingreso</span>
+          <span className="flex items-center gap-2"><Camera className="h-5 w-5" />Evidencia fotográfica</span>
           <span className="text-xs font-normal text-muted-foreground">{photos.length}/12 fotos</span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-5">
+        <div className="grid gap-2 sm:grid-cols-3">
+          {stages.map(item => {
+            const Icon = item.icon;
+            const count = photos.filter(photo => (photo.stage || photo.category || "ingreso") === item.key).length;
+            return <button key={item.key} type="button" onClick={() => setStage(item.key)} className={`rounded-xl border p-3 text-left transition ${stage === item.key ? "border-foreground bg-muted" : "hover:bg-muted/50"}`}>
+              <div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 font-medium"><Icon className="h-4 w-4" />{item.label}</span><span className="text-xs text-muted-foreground">{count}</span></div>
+              <p className="mt-1 text-xs text-muted-foreground">{item.description}</p>
+            </button>;
+          })}
+        </div>
+
         <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div><p className="font-medium text-foreground">¿Cómo llegó el equipo?</p><p>Registra golpes, rayones, pantalla, cámara, carcasa, humedad y cualquier detalle visible antes de repararlo.</p></div>
+            <div><p className="flex items-center gap-2 font-medium text-foreground"><StageIcon className="h-4 w-4" />{currentStage.label}</p><p>{currentStage.description}</p></div>
             <Button type="button" disabled={uploading || closed || photos.length >= 12} onClick={() => inputRef.current?.click()}>
               {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ImagePlus className="mr-2 h-4 w-4" />}Cargar fotos
             </Button>
           </div>
-          <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={async event => { for (const file of Array.from(event.target.files || [])) { if ((order?.photos?.length || 0) >= 12) break; await upload(file); } }} />
+          <input ref={inputRef} type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={async event => { for (const file of Array.from(event.target.files || [])) { if ((order?.photos?.length || 0) >= 12) break; await upload(file); } }} />
         </div>
 
-        {photos.length > 0 ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {photos.map(photo => <div key={photo.id} className="group relative overflow-hidden rounded-xl border bg-muted/20">
-            <button type="button" className="block aspect-square w-full" onClick={() => setPreview(photo)} aria-label="Ver fotografía"><img src={photo.url} alt={photo.filename || "Evidencia del equipo"} className="h-full w-full object-cover transition group-hover:scale-[1.02]" /></button>
+        {stagePhotos.length > 0 ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {stagePhotos.map(photo => <div key={photo.id} className="group relative overflow-hidden rounded-xl border bg-muted/20">
+            <button type="button" className="block aspect-square w-full" onClick={() => setPreview(photo)} aria-label="Ver fotografía"><img src={photo.url} alt={photo.filename || `Evidencia de ${currentStage.label.toLowerCase()}`} className="h-full w-full object-cover transition group-hover:scale-[1.02]" /></button>
             {!closed && <Button type="button" size="icon" variant="destructive" className="absolute right-2 top-2 h-8 w-8 opacity-0 transition group-hover:opacity-100" onClick={() => void remove(photo.id)}><Trash2 className="h-4 w-4" /></Button>}
-            <div className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1 text-[11px] text-white">Ingreso · evidencia</div>
+            <div className="absolute inset-x-0 bottom-0 bg-black/60 px-2 py-1 text-[11px] text-white">{currentStage.label}</div>
           </div>)}
-        </div> : <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">Aún no hay fotografías. Lo ideal es tomar varias antes de abrir o desmontar el equipo.</div>}
+        </div> : <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">No hay fotografías en esta etapa todavía.</div>}
         {message && <p className="text-sm text-muted-foreground">{message}</p>}
       </CardContent>
     </Card>
