@@ -59,6 +59,8 @@ export async function POST(request: NextRequest) {
       return { amountPaid: newPaid, amountDue: newDue, paymentStatus, now };
     });
 
+    if (!result) throw new Error("No se pudo completar la transacción de pago");
+
     await writeAuditLog({ userId: session.id, action: "INVOICE_PAYMENT_RECORDED", entityType: "Invoice", entityId: invoiceId, details: { amount, paymentMethod, newPaid: result.amountPaid, amountDue: result.amountDue }, userAgent: request.headers.get("user-agent"), ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip") });
     return NextResponse.json({ ok: true, amountPaid: result.amountPaid, amountDue: result.amountDue, paymentStatus: result.paymentStatus });
   } catch (error) {
