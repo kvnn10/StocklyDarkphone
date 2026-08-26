@@ -9,22 +9,17 @@ import { MdError } from "react-icons/md";
 import { useFormContext } from "react-hook-form";
 
 export default function Quantity() {
-  const {
-    register,
-    formState: { errors },
-  } = useFormContext();
+  const { register, formState: { errors } } = useFormContext();
   return (
-    <div className=" flex flex-col gap-2 pt-[6px]">
+    <div className="flex flex-col gap-2 pt-[6px]">
       <DialogFormLabel htmlFor="quantity" icon={Layers} required>
-        Quantity
+        Cantidad
       </DialogFormLabel>
       <Input
         {...register("quantity", {
           valueAsNumber: true,
           setValueAs: (value: string) => {
-            if (value === "" || value === null || value === undefined) {
-              return "" as unknown as number;
-            }
+            if (value === "" || value === null || value === undefined) return "" as unknown as number;
             const num = Number(value);
             return isNaN(num) ? ("" as unknown as number) : num;
           },
@@ -37,9 +32,7 @@ export default function Quantity() {
       {errors.quantity && (
         <div className="text-red-500 flex gap-1 items-center text-[13px]">
           <MdError />
-          <p>
-            <>{errors.quantity.message}</>
-          </p>
+          <p>{String(errors.quantity.message)}</p>
         </div>
       )}
     </div>
