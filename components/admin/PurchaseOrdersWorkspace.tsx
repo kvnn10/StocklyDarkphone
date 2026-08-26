@@ -5,9 +5,11 @@ type Supplier = { id: string; name: string };
 type Product = { id: string; name: string; sku: string; purchasePrice: number; quantity: number | string };
 type Warehouse = { id: string; name: string; status: boolean };
 type Row = { productId: string; quantity: number; unitCost: number };
-type Purchase = { id: string; purchaseNumber: string; supplierId: string; status: string; total: number; createdAt: string; items: Array<{ productName: string; orderedQuantity: number; receivedQuantity: number; unitCost: number }> };
+type PurchaseItem = { id: string; productName: string; orderedQuantity: number; receivedQuantity: number; unitCost: number };
+type Purchase = { id: string; purchaseNumber: string; supplierId: string; status: string; total: number; createdAt: string; items: PurchaseItem[] };
 
 const money = (v: number) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(v || 0);
+const statusLabel: Record<string, string> = { draft: "Borrador", partial: "Parcial", received: "Recibida", cancelled: "Cancelada" };
 
 export default function PurchaseOrdersWorkspace() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -57,15 +59,30 @@ export default function PurchaseOrdersWorkspace() {
     } catch (e) { setMessage(e instanceof Error ? e.message : "Error creando la orden"); }
     finally { setLoading(false); }
   }
+
   async function receive(order: Purchase) {
     if (!receiveWarehouseId) return setMessage("Selecciona una bodega de recepción.");
     const warehouseName = warehouses.find((w) => w.id === receiveWarehouseId)?.name ?? "la bodega seleccionada";
-    if (!confirm(`¿Marcar ${order.purchaseNumber} como recibida en ${warehouseName}? Esto aumentará el inventario y actualizará el costo promedio.`)) return;
+    const remainingItems = order.items.filter((item) => item.orderedQuantity > item.receivedQuantity);
+    if (!remainingItems.length) return setMessage("Esta orden ya fue recibida completamente.");
+
+    const quantities: Record<string, number> = {};
+    for (const item of remainingItems) {
+      const remaining = item.orderedQuantity - item.receivedQuantity;
+      const answer = window.prompt(`Cantidad a recibir de ${item.productName}\nPendiente: ${remaining}`, String(remaining));
+      if (answer === null) return;
+      const qty = Math.floor(Number(answer));
+      if (!Number.isFinite(qty) || qty < 0 || qty > remaining) return setMessage(`Cantidad inválida para ${item.productName}. Debe estar entre 0 y ${remaining}.`);
+      quantities[item.id] = qty;
+    }
+    if (!Object.values(quantities).some((qty) => qty > 0)) return setMessage("Indica al menos una cantidad para recibir.");
+    if (!confirm(`¿Registrar la recepción de ${order.purchaseNumber} en ${warehouseName}? El stock, bodega, Kardex y costo promedio se actualizarán con las cantidades indicadas.`)) return;
+
     setLoading(true); setMessage("");
     try {
-      const res = await fetch("/api/purchase-orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: order.id, status: "received", warehouseId: receiveWarehouseId }) });
+      const res = await fetch("/api/purchase-orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: order.id, status: "received", warehouseId: receiveWarehouseId, items: Object.entries(quantities).map(([id, qty]) => ({ id, quantity: qty })) }) });
       const data = await res.json(); if (!res.ok) throw new Error(data.error || "No se pudo recibir");
-      setMessage(`${order.purchaseNumber} recibida en ${warehouseName}. Inventario, bodega, Kardex y costos actualizados.`); await load();
+      setMessage(`${order.purchaseNumber} actualizada en ${warehouseName}. Inventario, bodega, Kardex y costos actualizados.`); await load();
     } catch (e) { setMessage(e instanceof Error ? e.message : "Error recibiendo la orden"); }
     finally { setLoading(false); }
   }
@@ -85,6 +102,6 @@ export default function PurchaseOrdersWorkspace() {
       <button disabled={loading || !rows.length || !supplierId} onClick={createOrder} className="mt-5 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{loading ? "Procesando…" : "Crear orden de compra"}</button>
     </div>
 
-    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-5"><div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><h2 className="text-lg font-semibold">Historial de órdenes</h2><select className="rounded-lg border bg-background p-2 text-sm" value={receiveWarehouseId} onChange={(e) => setReceiveWarehouseId(e.target.value)} disabled={!warehouses.length}><option value="">Bodega de recepción</option>{warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div><div className="space-y-3">{orders.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no hay órdenes de compra.</p> : orders.map(o => <div key={o.id} className="flex flex-col gap-3 rounded-xl border border-white/10 p-4 md:flex-row md:items-center md:justify-between"><div><div className="font-medium">{o.purchaseNumber}</div><div className="text-xs text-muted-foreground">{new Date(o.createdAt).toLocaleString("es-CO")} · {o.items.length} productos · {money(o.total)}</div><div className="mt-1 text-xs">Estado: <b>{o.status}</b></div></div>{o.status !== "received" && o.status !== "cancelled" && <button disabled={loading || !receiveWarehouseId} onClick={() => receive(o)} className="rounded-lg border px-4 py-2 text-sm disabled:opacity-50">Recibir mercancía</button>}</div>)}</div></div>
+    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-5"><div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h2 className="text-lg font-semibold">Historial de órdenes</h2><p className="text-xs text-muted-foreground">Puedes recibir una orden completa o parcialmente.</p></div><select className="rounded-lg border bg-background p-2 text-sm" value={receiveWarehouseId} onChange={(e) => setReceiveWarehouseId(e.target.value)} disabled={!warehouses.length}><option value="">Bodega de recepción</option>{warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div><div className="space-y-3">{orders.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no hay órdenes de compra.</p> : orders.map(o => <div key={o.id} className="flex flex-col gap-3 rounded-xl border border-white/10 p-4 md:flex-row md:items-center md:justify-between"><div><div className="font-medium">{o.purchaseNumber}</div><div className="text-xs text-muted-foreground">{new Date(o.createdAt).toLocaleString("es-CO")} · {o.items.length} productos · {money(o.total)}</div><div className="mt-1 text-xs">Estado: <b>{statusLabel[o.status] ?? o.status}</b></div><div className="mt-1 space-y-1 text-xs text-muted-foreground">{o.items.map((item, index) => <div key={`${o.id}-${index}`}>{item.productName}: {item.receivedQuantity}/{item.orderedQuantity}</div>)}</div></div>{o.status !== "received" && o.status !== "cancelled" && <button disabled={loading || !receiveWarehouseId} onClick={() => receive(o)} className="rounded-lg border px-4 py-2 text-sm disabled:opacity-50">Recibir mercancía</button>}</div>)}</div></div>
   </div>;
 }
