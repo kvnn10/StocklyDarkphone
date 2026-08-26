@@ -6,6 +6,9 @@ import { writeAuditLog } from "@/lib/audit/log";
 const allowed = (session: any) => !!session && ["admin", "user", "retailer"].includes(session.role ?? "");
 async function db() { const client = new MongoClient(process.env.DATABASE_URL!); await client.connect(); return client; }
 
+type QuoteItem = { productId: string; name: string; quantity: number; unitPrice: number };
+type QuoteRecord = { userId: string; quoteNumber: string; customerId: string | null; customerName: string; customerPhone: string; customerEmail: string; notes: string; validUntil: Date | null; status: string; items: QuoteItem[]; subtotal: number; discount: number; total: number; createdAt: Date; updatedAt: Date; createdBy: string };
+
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request); if (!session || !allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   const client = await db();
@@ -16,10 +19,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request); if (!session || !allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   const body = await request.json(); const customerName = String(body.customerName ?? "").trim(); if (!customerName) return NextResponse.json({ error: "El cliente es obligatorio" }, { status: 400 });
-  const items = Array.isArray(body.items) ? body.items.map((i: any) => ({ productId: String(i.productId ?? ""), name: String(i.name ?? "").trim(), quantity: Math.max(1, Number(i.quantity ?? 1)), unitPrice: Math.max(0, Number(i.unitPrice ?? 0)) })).filter((i: any) => i.name) : [];
+  const items: QuoteItem[] = Array.isArray(body.items) ? body.items.map((i: any) => ({ productId: String(i.productId ?? ""), name: String(i.name ?? "").trim(), quantity: Math.max(1, Number(i.quantity ?? 1)), unitPrice: Math.max(0, Number(i.unitPrice ?? 0)) })).filter((i: QuoteItem) => i.name) : [];
   if (!items.length) return NextResponse.json({ error: "Agrega al menos un producto o servicio" }, { status: 400 });
-  const client = await db(); try { const quotes = client.db().collection("Quote"); const now = new Date(); const count = await quotes.countDocuments({ userId: session.id }); const quote = { userId: session.id, quoteNumber: `COT-${String(count + 1).padStart(6, "0")}`, customerId: typeof body.customerId === "string" && ObjectId.isValid(body.customerId) ? body.customerId : null, customerName, customerPhone: String(body.customerPhone ?? "").trim(), customerEmail: String(body.customerEmail ?? "").trim(), notes: String(body.notes ?? "").trim(), validUntil: body.validUntil ? new Date(body.validUntil) : null, status: "draft", items, subtotal: items.reduce((s: number, i: any) => s + i.quantity * i.unitPrice, 0), discount: Math.max(0, Number(body.discount ?? 0)), createdAt: now, updatedAt: now, createdBy: session.id };
-    quote.total = Math.max(0, quote.subtotal - quote.discount); const result = await quotes.insertOne(quote); await writeAuditLog({ userId: session.id, action: "QUOTE_CREATED", entityType: "Quote", entityId: String(result.insertedId), details: { quoteNumber: quote.quoteNumber, total: quote.total } }); return NextResponse.json({ ...quote, _id: result.insertedId }, { status: 201 });
+  const client = await db(); try { const quotes = client.db().collection<QuoteRecord>("Quote"); const now = new Date(); const count = await quotes.countDocuments({ userId: session.id }); const subtotal = items.reduce((s, i) => s + i.quantity * i.unitPrice, 0); const discount = Math.max(0, Number(body.discount ?? 0)); const total = Math.max(0, subtotal - discount); const quote: QuoteRecord = { userId: session.id, quoteNumber: `COT-${String(count + 1).padStart(6, "0")}`, customerId: typeof body.customerId === "string" && ObjectId.isValid(body.customerId) ? body.customerId : null, customerName, customerPhone: String(body.customerPhone ?? "").trim(), customerEmail: String(body.customerEmail ?? "").trim(), notes: String(body.notes ?? "").trim(), validUntil: body.validUntil ? new Date(body.validUntil) : null, status: "draft", items, subtotal, discount, total, createdAt: now, updatedAt: now, createdBy: session.id };
+    const result = await quotes.insertOne(quote); await writeAuditLog({ userId: session.id, action: "QUOTE_CREATED", entityType: "Quote", entityId: String(result.insertedId), details: { quoteNumber: quote.quoteNumber, total: quote.total } }); return NextResponse.json({ ...quote, _id: result.insertedId }, { status: 201 });
   } finally { await client.close(); }
 }
 
