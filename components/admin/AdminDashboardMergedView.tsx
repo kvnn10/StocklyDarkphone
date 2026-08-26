@@ -5,6 +5,7 @@ import { PageContentWrapper } from "@/components/shared";
 import AdminAnalyticsContent from "./AdminAnalyticsContent";
 import AdminBusinessQuickAccess from "./AdminBusinessQuickAccess";
 import AdminOperationalHealthCard from "./AdminOperationalHealthCard";
+import ServiceProfitabilityDashboardCard from "./ServiceProfitabilityDashboardCard";
 import type { DashboardStats } from "@/types";
 
 export type AdminDashboardMergedViewProps = {
@@ -17,8 +18,7 @@ export type AdminDashboardMergedViewProps = {
 
 /**
  * Merged dashboard: overview (KPIs + recent orders) + analytics (charts, AI)
- * + operational inventory health.
- * REQ-0025 — blocking SSR in page.tsx; no Suspense shell flash.
+ * + operational inventory health + service profitability.
  */
 export default function AdminDashboardMergedView({
   variant,
@@ -30,6 +30,7 @@ export default function AdminDashboardMergedView({
       <div className="space-y-6">
         <AdminBusinessQuickAccess stats={initialStats} />
         {variant === "store" && <AdminOperationalHealthCard />}
+        {variant === "store" && <ServiceProfitabilityDashboardCard />}
         <AdminAnalyticsContent
           initialStats={initialStats}
           initialForecasting={initialForecasting}
