@@ -4,6 +4,7 @@ import { getSessionFromRequest } from "@/utils/auth";
 import { writeAuditLog } from "@/lib/audit/log";
 
 const METHODS = ["cash", "card", "transfer", "other"] as const;
+type PaymentResult = { amountPaid: number; amountDue: number; paymentStatus: "paid" | "partial"; now: Date };
 
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
   const mongoSession = client.startSession();
   try {
     const db = client.db();
-    const result = await mongoSession.withTransaction(async () => {
+    const transactionResult = await mongoSession.withTransaction(async () => {
       const invoice = await db.collection("Invoice").findOne({ _id: new ObjectId(invoiceId), userId: session.id }, { session: mongoSession });
       if (!invoice) throw Object.assign(new Error("Factura no encontrada"), { status: 404 });
       if (invoice.status === "cancelled") throw Object.assign(new Error("La factura está cancelada"), { status: 409 });
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
       const now = new Date();
       const newPaid = Math.min(total, paid + amount);
       const newDue = Math.max(0, total - newPaid);
-      const paymentStatus = newDue <= 0.01 ? "paid" : "partial";
+      const paymentStatus: PaymentResult["paymentStatus"] = newDue <= 0.01 ? "paid" : "partial";
       const payment = { invoiceId, orderId: String(invoice.orderId), invoiceNumber: invoice.invoiceNumber, userId: session.id, recordedBy: session.id, amount, paymentMethod, status: "paid", createdAt: now };
 
       await db.collection("Payment").insertOne(payment, { session: mongoSession });
@@ -56,11 +57,11 @@ export async function POST(request: NextRequest) {
       }
 
       await db.collection("CashMovement").insertOne({ type: "income", source: "sale", amount, paymentMethod, orderId: String(invoice.orderId), orderNumber: invoice.invoiceNumber, userId: session.id, createdBy: session.id, description: `Pago factura ${invoice.invoiceNumber}`, status: "active", createdAt: now }, { session: mongoSession });
-      return { amountPaid: newPaid, amountDue: newDue, paymentStatus, now };
+      return { amountPaid: newPaid, amountDue: newDue, paymentStatus, now } satisfies PaymentResult;
     });
 
-    if (!result) throw new Error("No se pudo completar la transacción de pago");
-    const paymentResult = result;
+    if (transactionResult === undefined) throw new Error("No se pudo completar la transacción de pago");
+    const paymentResult = transactionResult as PaymentResult;
 
     await writeAuditLog({ userId: session.id, action: "INVOICE_PAYMENT_RECORDED", entityType: "Invoice", entityId: invoiceId, details: { amount, paymentMethod, newPaid: paymentResult.amountPaid, amountDue: paymentResult.amountDue }, userAgent: request.headers.get("user-agent"), ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip") });
     return NextResponse.json({ ok: true, amountPaid: paymentResult.amountPaid, amountDue: paymentResult.amountDue, paymentStatus: paymentResult.paymentStatus });
