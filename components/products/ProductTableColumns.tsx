@@ -9,19 +9,29 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { QRCodeHover } from "@/components/ui/qr-code-hover";
 import { ProductStockFromQuantityBadge, productStockAvailableTextClass } from "@/lib/ui/semantic-badges";
 import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";
+import { useStockByProduct } from "@/hooks/queries";
 import { cn } from "@/lib/utils";
-import { ArrowUpDown, Package } from "lucide-react";
+import { ArrowUpDown, MapPin, Package } from "lucide-react";
 import { IoMdArrowDown, IoMdArrowUp } from "react-icons/io";
 
 function detailHref(base: string, segment: string, id: string): string { const prefix = base ? `${base}/` : "/"; return `${prefix}${segment}/${id}`; }
 type SortableHeaderProps = { column: Column<Product, unknown>; label: string };
 const SortableHeader: React.FC<SortableHeaderProps> = ({ column, label }) => { const isSorted = column.getIsSorted(); const SortingIcon = isSorted === "asc" ? IoMdArrowUp : isSorted === "desc" ? IoMdArrowDown : ArrowUpDown; return <DropdownMenu><DropdownMenuTrigger asChild><div className={`flex items-center select-none cursor-pointer gap-1 py-2 text-sm font-normal text-gray-700 dark:text-white ${isSorted && "text-primary"}`}>{label}<SortingIcon className="h-4 w-4" /></div></DropdownMenuTrigger><DropdownMenuContent align="start"><DropdownMenuItem onClick={() => column.toggleSorting(false)}>Ascendente</DropdownMenuItem><DropdownMenuItem onClick={() => column.toggleSorting(true)}>Descendente</DropdownMenuItem></DropdownMenuContent></DropdownMenu>; };
+
+function ProductWarehouseCell({ productId }: { productId: string }) {
+ const { data: allocations = [], isLoading } = useStockByProduct(productId);
+ if (isLoading) return <span className="text-xs text-muted-foreground">Cargando…</span>;
+ if (allocations.length === 0) return <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><MapPin className="h-3.5 w-3.5 shrink-0"/>Sin bodega asignada</div>;
+ return <div className="flex min-w-[145px] flex-col gap-1">{allocations.map((allocation) => { const available = Math.max(0, Number(allocation.quantity ?? 0) - Number(allocation.reservedQuantity ?? 0)); return <div key={allocation.id} className="flex items-center gap-1.5 text-xs"><MapPin className="h-3.5 w-3.5 shrink-0 text-rose-400"/><span className="truncate" title={allocation.warehouse?.name ?? allocation.warehouseId}>{allocation.warehouse?.name ?? "Bodega"}</span><span className="ml-auto whitespace-nowrap font-semibold text-white/80">{available}</span></div>; })}</div>;
+}
+
 export type CreateProductColumnsOptions = { forSupplier?: boolean };
 export function createProductColumns(detailBase: string = "", options?: CreateProductColumnsOptions): ColumnDef<Product>[] {
  const forSupplier = options?.forSupplier === true;
  return [
   { id:"product", accessorKey:"name", header:({column})=><SortableHeader column={column} label="Producto y SKU"/>, cell:({row})=>{const p=row.original; return <div className="flex items-center gap-3 min-w-0 max-w-[220px]">{p.imageUrl?<SafeImage src={p.imageUrl} alt={p.name} width={48} height={48} className="h-12 w-12 shrink-0 object-cover rounded-lg border border-rose-400/30" unoptimized={p.imageUrl.includes("ik.imagekit.io")}/>:<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 border"><Package className="h-5 w-5 text-muted-foreground"/></div>}<div className="flex min-w-0 flex-col"><Link href={detailHref(detailBase,"products",p.id)} prefetch className={cn("truncate",TABLE_CATALOG_LINK_CLASS)} title={p.name}><CopyableText value={p.name}>{p.name}</CopyableText></Link><CopyableText value={p.sku} className="truncate text-muted-foreground">{p.sku}</CopyableText></div></div>; }},
   { accessorKey:"quantity", header:({column})=><SortableHeader column={column} label="Stock"/>, cell:({row})=>{const p=row.original; const total=Number(p.quantity)||0; const reserved=getDisplayCommittedQuantity(p); const available=Math.max(0,total-reserved); const sold=Math.max(0,Number(p.statistics?.totalQuantitySold)||0); return <div className="flex flex-col gap-1 min-w-[110px]"><div className="flex items-center gap-2"><QRCodeHover data={JSON.stringify({id:p.id,name:p.name,sku:p.sku,price:p.price,quantity:p.quantity,status:p.status,category:p.category,supplier:p.supplier})} qrCodeUrl={p.qrCodeUrl} title={p.name} size={200} iconOnly/><span className={`text-xs font-semibold ${productStockAvailableTextClass(available)}`}>{available} disponibles</span></div><div className="text-[11px] text-muted-foreground">Total: {total}</div><div className="text-[11px] text-amber-600 dark:text-amber-400">Reservado: {reserved}</div><div className="text-[11px] text-muted-foreground">Vendido: {sold}</div></div>; }},
+  { id:"warehouse", header:"Ubicación", cell:({row})=><ProductWarehouseCell productId={row.original.id}/> },
   { accessorKey:"status", header:({column})=><SortableHeader column={column} label="Estado"/>, cell:({row})=><ProductStockFromQuantityBadge available={Math.max(0,(Number(row.original.quantity)||0)-getDisplayCommittedQuantity(row.original))}/> },
   ...(!forSupplier ? [{ accessorKey:"purchasePrice", header:({column})=><SortableHeader column={column} label="Precio compra"/>, cell:({getValue})=>`$${Number(getValue<number>() ?? 0).toFixed(2)}` } as ColumnDef<Product>] : []),
   { accessorKey:"price", header:({column})=><SortableHeader column={column} label="Precio venta"/>, cell:({getValue})=>`$${getValue<number>().toFixed(2)}` },
