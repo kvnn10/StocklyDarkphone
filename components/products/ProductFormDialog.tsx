@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useForm, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useProductStore } from "@/stores";
-import { useCreateProduct, useUpdateProduct, useCategories, useSuppliers, useStockByProduct } from "@/hooks/queries";
+import { useCreateProduct, useUpdateProduct, useCategories, useSuppliers, useStockByProduct, useWarehouses, useCreateStockAllocation } from "@/hooks/queries";
 import { useSyncDialogOpenState } from "@/hooks/use-sync-dialog-open-state";
 import { planCatalogQuantityReconcile } from "@/lib/stock-allocation/catalog-quantity-reconcile";
 import { formatCatalogAllocationSummary } from "@/lib/stock-allocation/catalog-allocation-copy";
@@ -44,7 +44,7 @@ import {
 } from "@/components/shared";
 import { AvatarInlineLink } from "@/components/shared/AvatarInlineLink";
 import { cn } from "@/lib/utils";
-import { Package, PackagePlus, Tag, Truck, X } from "lucide-react";
+import { Package, PackagePlus, Tag, Truck, Warehouse as WarehouseIcon, X } from "lucide-react";
 
 interface AddProductDialogProps {
   allProducts: Product[];
@@ -61,24 +61,31 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
   const { reset, watch } = methods;
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedSupplier, setSelectedSupplier] = useState("");
+  const [selectedWarehouse, setSelectedWarehouse] = useState("");
   const [categoryError, setCategoryError] = useState("");
   const [supplierError, setSupplierError] = useState("");
+  const [warehouseError, setWarehouseError] = useState("");
   const [quantityReconcileError, setQuantityReconcileError] = useState("");
   const [shrinkConfirmOpen, setShrinkConfirmOpen] = useState(false);
   const [pendingUpdatePayload, setPendingUpdatePayload] = useState<UpdateProductInput | null>(null);
   const [pendingShrinkUnits, setPendingShrinkUnits] = useState(0);
+  const [pendingCreatedProductId, setPendingCreatedProductId] = useState("");
   const dialogCloseRef = useRef<HTMLButtonElement | null>(null);
 
   const { setOpenProductDialog, openProductDialog, setSelectedProduct, selectedProduct } = useProductStore();
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
   const { data: suppliers = [], isLoading: suppliersLoading } = useSuppliers();
+  const { data: warehouses = [], isLoading: warehousesLoading } = useWarehouses();
   const activeCategories = categories.filter((category) => category.status !== false || category.id === selectedCategory);
   const activeSuppliers = suppliers.filter((supplier) => supplier.status !== false || supplier.id === selectedSupplier);
+  const activeWarehouses = warehouses.filter((warehouse) => warehouse.status !== false || warehouse.id === selectedWarehouse);
   const categoryInvite = resolveSelectPlaceholder("category", { count: activeCategories.length, isLoading: categoriesLoading, invite: "Seleccionar categoría" });
   const supplierInvite = resolveSelectPlaceholder("supplier", { count: activeSuppliers.length, isLoading: suppliersLoading, invite: "Seleccionar proveedor" });
+  const warehouseInvite = warehousesLoading ? "Cargando bodegas…" : activeWarehouses.length === 0 ? "No hay bodegas disponibles" : "Seleccionar bodega";
 
   const createProductMutation = useCreateProduct();
   const updateProductMutation = useUpdateProduct();
+  const createStockAllocationMutation = useCreateStockAllocation();
   const { data: productAllocations = [] } = useStockByProduct(selectedProduct?.id ?? "", undefined, { enabled: !!selectedProduct?.id });
 
   useSyncDialogOpenState(openProductDialog, () => {
@@ -95,14 +102,18 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
       });
       setSelectedCategory(selectedProduct.categoryId || "");
       setSelectedSupplier(selectedProduct.supplierId || "");
+      setSelectedWarehouse("");
     } else {
       reset({ productName: "", sku: "", quantity: "" as unknown as number, purchasePrice: 0, price: "" as unknown as number, imageUrl: "", imageFileId: "", expirationDate: "" });
       setSelectedCategory("");
       setSelectedSupplier("");
+      setSelectedWarehouse("");
     }
     setCategoryError("");
     setSupplierError("");
+    setWarehouseError("");
     setQuantityReconcileError("");
+    setPendingCreatedProductId("");
   }, selectedProduct?.id ?? "create");
 
   const submitProductUpdate = async (payload: UpdateProductInput) => {
@@ -131,14 +142,37 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
     const status = calculateProductStatus(quantity);
     const expirationDate = data.expirationDate && data.expirationDate !== "" ? new Date(data.expirationDate).toISOString() : null;
 
+    if (!selectedProduct && quantity > 0 && !selectedWarehouse) {
+      setWarehouseError(activeWarehouses.length === 0 ? "Debes crear al menos una bodega antes de ingresar stock." : "Selecciona la bodega donde quedará el stock inicial.");
+      return;
+    }
+    setWarehouseError("");
+
     try {
       if (!selectedProduct) {
-        await createProductMutation.mutateAsync({
-          name: data.productName, sku: data.sku, purchasePrice, price, quantity, status,
-          categoryId: selectedCategory, supplierId: selectedSupplier, userId,
-          imageUrl: data.imageUrl || undefined, imageFileId: data.imageFileId || undefined,
-          expirationDate: expirationDate || undefined,
-        });
+        let createdProductId = pendingCreatedProductId;
+        if (!createdProductId) {
+          const createdProduct = await createProductMutation.mutateAsync({
+            name: data.productName, sku: data.sku, purchasePrice, price, quantity, status,
+            categoryId: selectedCategory, supplierId: selectedSupplier, userId,
+            imageUrl: data.imageUrl || undefined, imageFileId: data.imageFileId || undefined,
+            expirationDate: expirationDate || undefined,
+          });
+          createdProductId = createdProduct.id;
+          setPendingCreatedProductId(createdProductId);
+        }
+
+        if (quantity > 0 && selectedWarehouse) {
+          try {
+            await createStockAllocationMutation.mutateAsync({ productId: createdProductId, warehouseId: selectedWarehouse, quantity });
+          } catch (allocationError) {
+            logger.error("Error asignando el stock inicial a la bodega:", allocationError);
+            setWarehouseError("El producto se creó, pero no se pudo asignar el stock a la bodega. Verifica la bodega e inténtalo de nuevo.");
+            return;
+          }
+        }
+
+        setPendingCreatedProductId("");
         dialogCloseRef.current?.click();
         setOpenProductDialog(false);
       } else {
@@ -171,7 +205,7 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
     }
   };
 
-  const isSubmitting = createProductMutation.isPending || updateProductMutation.isPending;
+  const isSubmitting = createProductMutation.isPending || updateProductMutation.isPending || createStockAllocationMutation.isPending;
   const allocationsForPreview = useMemo(() => {
     if (productAllocations.length > 0) return productAllocations;
     if (!selectedProduct || selectedProduct.allocatedTotal == null) return [];
@@ -180,10 +214,12 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
   const formValues = watch();
   const reconcilePreview = useCatalogQuantityReconcilePreview({ selectedProduct, allocations: allocationsForPreview, quantityRaw: formValues.quantity });
   const isFormValid = productFormSubmitSchema.safeParse({ ...formValues, categoryId: selectedCategory, supplierId: selectedSupplier }).success;
-  const canSubmitUpdate = isFormValid && (!selectedProduct || reconcilePreview.ok);
+  const watchedQuantity = typeof formValues.quantity === "string" && formValues.quantity === "" ? 0 : Number(formValues.quantity || 0);
+  const canSubmitUpdate = isFormValid && (!selectedProduct || reconcilePreview.ok) && (selectedProduct || watchedQuantity === 0 || !!selectedWarehouse);
 
   const handleOpenChange = (open: boolean) => {
     setSelectedProduct(null);
+    if (!open) setPendingCreatedProductId("");
     setOpenProductDialog(open);
     onOpenChange?.(open);
   };
@@ -244,6 +280,34 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
                   </DeferredSelectGate>
                   {supplierError && <p className="text-xs text-red-400 mt-1">{supplierError}</p>}
                 </div>
+
+                {!selectedProduct ? (
+                  <div className="mt-5 flex flex-col gap-2 sm:col-span-2">
+                    <DialogFormLabel icon={WarehouseIcon} required={watchedQuantity > 0}>Bodega inicial{watchedQuantity <= 0 ? " (opcional sin stock)" : ""}</DialogFormLabel>
+                    <DeferredSelectGate enabled={openProductDialog} placeholder={<div className={cn("flex h-11 w-full items-center rounded-md px-2 text-sm text-white/60", DIALOG_FORM_FIELD_ROSE)} aria-hidden>{activeWarehouses.find((w) => w.id === selectedWarehouse)?.name ?? warehouseInvite}</div>}>
+                      {({ selectRemountKey }) => (
+                        <Select key={selectRemountKey} value={selectedWarehouse} onValueChange={(value) => { setSelectedWarehouse(value); setWarehouseError(""); }}>
+                          <SelectTrigger className={cn("h-11 w-full", DIALOG_FORM_FIELD_ROSE)}><SelectValue placeholder={warehouseInvite} /></SelectTrigger>
+                          <SelectContent className={cn(DIALOG_SELECT_CONTENT_CLASS, "z-[100]")} position="popper" sideOffset={5} align="start">
+                            {activeWarehouses.length === 0 ? <SelectEmptyContent entity="warehouse" /> : activeWarehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id} className={DIALOG_SELECT_ITEM_CLASS}>{warehouse.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </DeferredSelectGate>
+                    <p className={DIALOG_FORM_HINT_TEXT}>{watchedQuantity > 0 ? "Las unidades iniciales se registrarán automáticamente en esta bodega." : "Puedes crear el producto sin stock y asignar una bodega después."}</p>
+                    {warehouseError && <p className={DIALOG_FORM_ERROR_TEXT} role="alert">{warehouseError}</p>}
+                  </div>
+                ) : (
+                  <div className="mt-5 flex flex-col gap-2 sm:col-span-2">
+                    <DialogFormLabel icon={WarehouseIcon}>Ubicación actual</DialogFormLabel>
+                    <div className={cn("min-h-11 w-full rounded-md px-3 py-2", DIALOG_FORM_FIELD_ROSE)}>
+                      {productAllocations.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">{productAllocations.map((allocation) => <span key={allocation.id} className="inline-flex items-center gap-1.5 rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-sm text-white/90"><WarehouseIcon className="h-3.5 w-3.5 text-rose-300" />{allocation.warehouse?.name ?? "Bodega"}: {Number(allocation.quantity ?? 0)}</span>)}</div>
+                      ) : <span className="text-sm text-white/55">Sin bodega asignada</span>}
+                    </div>
+                    <p className={DIALOG_FORM_HINT_TEXT}>Para mover existencias entre bodegas utiliza la sección Movimientos.</p>
+                  </div>
+                )}
               </div>
               <DialogFooter className="mt-9 mb-4 flex flex-col sm:flex-row items-center gap-2">
                 <DialogClose asChild>
