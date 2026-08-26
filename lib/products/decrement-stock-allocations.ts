@@ -2,6 +2,9 @@
  * Decrement warehouse stock allocations when product-level stock is sold.
  * REQ-0068: when warehouseId is set on the line, fulfill that pick; otherwise
  * greedily deduct from the largest available allocation (legacy / no pick).
+ *
+ * Automatic sales are also written to InventoryMovement so the Kardex remains
+ * consistent with warehouse allocation changes.
  */
 
 import { prisma } from "@/prisma/client";
@@ -41,7 +44,7 @@ export async function decrementStockAllocations(
 
     const allocations = await prisma.stockAllocation.findMany({
       where: { productId: item.productId },
-      select: { id: true, quantity: true, reservedQuantity: true },
+      select: { id: true, quantity: true, reservedQuantity: true, warehouseId: true, userId: true },
     });
 
     const steps = planAllocationDecrements(
@@ -54,11 +57,30 @@ export async function decrementStockAllocations(
     );
 
     for (const step of steps) {
+      const allocation = allocations.find((a) => a.id === step.id);
+      if (!allocation) continue;
+      const previousStock = allocation.quantity;
+      const newStock = previousStock - BigInt(step.deduct);
       await prisma.stockAllocation.update({
         where: { id: step.id },
         data: {
           quantity: { decrement: step.deduct },
           updatedAt: new Date(),
+        },
+      });
+      await prisma.inventoryMovement.create({
+        data: {
+          productId: item.productId,
+          warehouseId: allocation.warehouseId,
+          userId: allocation.userId,
+          type: "exit",
+          quantity: -BigInt(step.deduct),
+          previousStock,
+          newStock,
+          reason: "Salida por pedido facturado",
+          referenceId: null,
+          notes: "Asignación automática de bodega",
+          createdAt: new Date(),
         },
       });
     }
