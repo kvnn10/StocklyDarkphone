@@ -5,7 +5,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { useCreateProduct, useDeleteProduct, useReviewEligibility, useReviewsByProduct, useDeleteProductReview } from "@/hooks/queries";
 import { useAuth } from "@/contexts";
 import { logger } from "@/lib/logger";
-import { MoreVertical, Eye, Edit, Trash2, Copy, Star, Pencil } from "lucide-react";
+import { MoreVertical, Eye, Edit, Trash2, Copy, Star, Pencil, ClipboardList } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { AlertDialogWrapper } from "@/components/dialogs";
@@ -51,6 +51,7 @@ export default function ProductsDropDown({ row, detailBase = "" }: ProductsDropD
       <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><span className="sr-only">Abrir menú</span><MoreVertical className="h-4 w-4 text-gray-600 dark:text-gray-300" /></Button></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="border border-white/10 bg-gradient-to-br from-white/5 via-white/5 to-white/5 backdrop-blur-md shadow-lg">
         <DropdownMenuItem asChild><Link href={detailBase ? `${detailBase}/products/${row.original.id}` : `/products/${row.original.id}`} className="flex items-center gap-2"><Eye className="h-4 w-4" />Ver detalles</Link></DropdownMenuItem>
+        <DropdownMenuItem asChild><Link href={`/admin/kardex?productId=${encodeURIComponent(productId)}`} className="flex items-center gap-2"><ClipboardList className="h-4 w-4" />Ver Kardex</Link></DropdownMenuItem>
         {!readOnlyCatalog && <>
           <DropdownMenuItem onClick={handleCopyProduct} disabled={isCopying} className="flex items-center gap-2"><Copy className="h-4 w-4" />{isCopying ? "Duplicando..." : "Crear duplicado"}</DropdownMenuItem>
           <DropdownMenuItem onClick={handleEditProduct} className="flex items-center gap-2"><Edit className="h-4 w-4" />Editar</DropdownMenuItem>
