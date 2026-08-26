@@ -23,34 +23,6 @@ export default function Footer() {
 
   return (
     <>
-      <style jsx global>{`
-        header.sticky > div:first-of-type { position: relative; }
-        header.sticky > div:first-of-type > div:first-of-type h1 {
-          position: absolute;
-          left: 50%;
-          top: 50%;
-          transform: translate(-50%, -50%);
-          width: max-content;
-          max-width: min(42vw, 360px);
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          font-size: 0;
-        }
-        header.sticky > div:first-of-type > div:first-of-type h1::after {
-          content: "Stockly Darkphone";
-          font-size: 1.05rem;
-          font-weight: 600;
-          letter-spacing: -0.025em;
-        }
-        @media (min-width: 640px) {
-          header.sticky > div:first-of-type > div:first-of-type h1::after { font-size: 1.2rem; }
-        }
-        @media (max-width: 480px) {
-          header.sticky > div:first-of-type > div:first-of-type h1::after { font-size: 0.98rem; }
-        }
-      `}</style>
-
       <footer className="w-full border-t border-gray-200/50 dark:border-white/10 bg-gradient-to-br from-white/90 via-white/85 to-white/80 dark:from-white/10 dark:via-white/10 dark:to-white/5 backdrop-blur-2xl shadow-[0_-10px_30px_rgba(2,132,199,0.15)] dark:shadow-[0_-10px_30px_rgba(15,23,42,0.25)]">
         <div className={`${APP_SHELL_WIDTH_CLASS} px-2 sm:px-4 lg:px-6 py-4 sm:py-6`}>
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
@@ -75,7 +47,6 @@ export default function Footer() {
             </nav>
           </div>
         </div>
-      </footer>
-    </>
+    </footer>
   );
 }
