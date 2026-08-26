@@ -7,7 +7,7 @@ const n = (v: unknown) => Number(v ?? 0);
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  const orders = await prisma.purchaseOrder.findMany({ where: { userId: session.id }, orderBy: { createdAt: "desc" }, include: { items: true } });
+  const orders = await prisma.purchaseOrder.findMany({ where: { userId: session.id }, orderBy: { createdAt: "desc" }, include: { items: true, supplier: true } });
   return NextResponse.json(orders);
 }
 
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   const tax = Math.max(0, n(body.tax));
   const total = Math.max(0, subtotal + shipping + tax);
   const purchaseNumber = `OC-${new Date().getFullYear()}-${Date.now().toString().slice(-7)}`;
-  const order = await prisma.purchaseOrder.create({ data: { purchaseNumber, supplierId: supplier.id, userId: session.id, status: "draft", subtotal, shipping, tax, total, notes: body.notes || null, createdBy: session.id, items: { create: items } }, include: { items: true } });
+  const order = await prisma.purchaseOrder.create({ data: { purchaseNumber, supplierId: supplier.id, userId: session.id, status: "draft", subtotal, shipping, tax, total, notes: body.notes || null, createdBy: session.id, items: { create: items } }, include: { items: true, supplier: true } });
   return NextResponse.json(order, { status: 201 });
 }
 
@@ -41,20 +41,26 @@ export async function PATCH(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   const body = await request.json();
-  const order = await prisma.purchaseOrder.findFirst({ where: { id: body.id, userId: session.id }, include: { items: true } });
+  const order = await prisma.purchaseOrder.findFirst({ where: { id: body.id, userId: session.id }, include: { items: true, supplier: true } });
   if (!order) return NextResponse.json({ error: "Orden no encontrada" }, { status: 404 });
   if (["received", "cancelled"].includes(order.status)) return NextResponse.json({ error: "La orden ya está cerrada" }, { status: 409 });
   if (body.status === "cancelled") {
-    const updated = await prisma.purchaseOrder.update({ where: { id: order.id }, data: { status: "cancelled", updatedAt: new Date(), updatedBy: session.id } });
+    const updated = await prisma.purchaseOrder.update({ where: { id: order.id }, data: { status: "cancelled", updatedAt: new Date(), updatedBy: session.id }, include: { items: true, supplier: true } });
     return NextResponse.json(updated);
   }
   if (body.status !== "received") return NextResponse.json({ error: "Solo se puede marcar como recibida" }, { status: 400 });
-  const received = Array.isArray(body.items) ? body.items : order.items.map((i) => ({ id: i.id, quantity: i.orderedQuantity }));
-  const receivedMap = new Map<string, number>(received.map((i: any) => [String(i.id), Math.max(0, Math.floor(n(i.quantity)))]));
+
+  const requested = Array.isArray(body.items) ? body.items : order.items.map((i) => ({ id: i.id, quantity: i.orderedQuantity - i.receivedQuantity }));
+  const receivedMap = new Map<string, number>(requested.map((i: any) => [String(i.id), Math.max(0, Math.floor(n(i.quantity)))]));
   const result = await prisma.$transaction(async (tx) => {
+    let allReceived = true;
     for (const item of order.items) {
-      const qty = Math.min(item.orderedQuantity, receivedMap.get(String(item.id)) ?? 0);
-      if (qty <= 0) continue;
+      const remaining = Math.max(0, item.orderedQuantity - item.receivedQuantity);
+      const qty = Math.min(remaining, receivedMap.get(String(item.id)) ?? 0);
+      if (qty <= 0) {
+        if (remaining > 0) allReceived = false;
+        continue;
+      }
       const product = await tx.product.findFirst({ where: { id: item.productId, userId: session.id } });
       if (!product) throw new Error(`Producto no encontrado: ${item.productName}`);
       const oldQty = n(product.quantity);
@@ -62,9 +68,11 @@ export async function PATCH(request: NextRequest) {
       const newQty = oldQty + qty;
       const weightedCost = newQty > 0 ? ((oldQty * oldCost) + (qty * item.unitCost)) / newQty : item.unitCost;
       await tx.product.update({ where: { id: product.id }, data: { quantity: BigInt(newQty), purchasePrice: weightedCost, updatedAt: new Date(), updatedBy: session.id } });
-      await tx.purchaseOrderItem.update({ where: { id: item.id }, data: { receivedQuantity: qty } });
+      const nextReceived = item.receivedQuantity + qty;
+      await tx.purchaseOrderItem.update({ where: { id: item.id }, data: { receivedQuantity: nextReceived } });
+      if (nextReceived < item.orderedQuantity) allReceived = false;
     }
-    return tx.purchaseOrder.update({ where: { id: order.id }, data: { status: "received", receivedAt: new Date(), updatedAt: new Date(), updatedBy: session.id }, include: { items: true } });
+    return tx.purchaseOrder.update({ where: { id: order.id }, data: { status: allReceived ? "received" : "partial", receivedAt: allReceived ? new Date() : order.receivedAt, updatedAt: new Date(), updatedBy: session.id }, include: { items: true, supplier: true } });
   });
   return NextResponse.json(result);
 }
