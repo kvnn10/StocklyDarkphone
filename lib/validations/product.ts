@@ -31,6 +31,8 @@ const optionalExpirationDateSchema = z
   .or(z.literal(""))
   .or(z.null());
 
+const nonNegativeMoneySchema = z.number().nonnegative("Price cannot be negative");
+
 /**
  * Product form validation schema
  * Used for creating and updating products
@@ -49,13 +51,21 @@ export const productSchema = z.object({
       .int("Quantity must be an integer")
       .nonnegative("Quantity cannot be negative"),
   ),
+  purchasePrice: z.preprocess(
+    (val) => {
+      if (val === "" || val === null || val === undefined) return 0;
+      const num = typeof val === "string" ? Number(val) : val;
+      return isNaN(num as number) ? 0 : num;
+    },
+    nonNegativeMoneySchema,
+  ),
   price: z.preprocess(
     (val) => {
       if (val === "" || val === null || val === undefined) return 0;
       const num = typeof val === "string" ? Number(val) : val;
       return isNaN(num as number) ? 0 : num;
     },
-    z.number().nonnegative("Price cannot be negative"),
+    nonNegativeMoneySchema,
   ),
   imageUrl: optionalImageUrlSchema,
   imageFileId: z.string().optional(),
@@ -81,11 +91,13 @@ export const productFormSubmitSchema = productSchema.extend({
 
 /**
  * API request body for POST /api/products (userId from session only)
+ * purchasePrice defaults to 0 for backward-compatible imports/API clients.
  */
 export const createProductBodySchema = z.object({
   name: productApiNameSchema,
   sku: productSkuSchema,
-  price: z.number().nonnegative("Price cannot be negative"),
+  purchasePrice: nonNegativeMoneySchema.default(0),
+  price: nonNegativeMoneySchema,
   quantity: z.number().int().nonnegative("Quantity cannot be negative"),
   status: productStatusSchema,
   categoryId: z.string().min(1, "Category is required"),
@@ -109,7 +121,8 @@ export const updateProductBodySchema = z.object({
   id: z.string().min(1, "Product ID is required"),
   name: productApiNameSchema.optional(),
   sku: productSkuSchema.optional(),
-  price: z.number().nonnegative("Price cannot be negative").optional(),
+  purchasePrice: nonNegativeMoneySchema.optional(),
+  price: nonNegativeMoneySchema.optional(),
   quantity: z.number().int().nonnegative("Quantity cannot be negative").optional(),
   status: productStatusSchema.optional(),
   categoryId: z.string().min(1, "Category is required").optional(),
