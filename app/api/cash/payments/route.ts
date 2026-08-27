@@ -4,7 +4,7 @@ import { getSessionFromRequest } from "@/utils/auth";
 import { writeAuditLog } from "@/lib/audit/log";
 
 const METHODS = ["cash", "card", "transfer", "other"] as const;
-type PaymentResult = { amountPaid: number; amountDue: number; paymentStatus: "paid" | "partial"; now: Date };
+type PaymentResult = { amountPaid: number; amountDue: number; paymentStatus: "paid" | "partial"; invoiceStatus: "paid" | "sent"; now: Date };
 
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -37,12 +37,13 @@ export async function POST(request: NextRequest) {
       const newPaid = Math.min(total, paid + amount);
       const newDue = Math.max(0, total - newPaid);
       const paymentStatus: PaymentResult["paymentStatus"] = newDue <= 0.01 ? "paid" : "partial";
+      const invoiceStatus: PaymentResult["invoiceStatus"] = paymentStatus === "paid" ? "paid" : "sent";
       const payment = { invoiceId, orderId: String(invoice.orderId), invoiceNumber: invoice.invoiceNumber, userId: session.id, recordedBy: session.id, amount, paymentMethod, status: "paid", createdAt: now };
 
       await db.collection("Payment").insertOne(payment, { session: mongoSession });
       const updated = await db.collection("Invoice").updateOne(
         { _id: invoice._id, userId: session.id, amountPaid: paid },
-        { $set: { amountPaid: newPaid, amountDue: newDue, paidAt: paymentStatus === "paid" ? now : null, updatedAt: now } },
+        { $set: { amountPaid: newPaid, amountDue: newDue, status: invoiceStatus, sentAt: invoice.sentAt ?? now, paidAt: paymentStatus === "paid" ? now : null, updatedAt: now } },
         { session: mongoSession },
       );
       if (updated.matchedCount !== 1) throw Object.assign(new Error("La factura cambió mientras se registraba el pago; vuelve a intentarlo"), { status: 409 });
@@ -57,14 +58,14 @@ export async function POST(request: NextRequest) {
       }
 
       await db.collection("CashMovement").insertOne({ type: "income", source: "sale", amount, paymentMethod, orderId: String(invoice.orderId), orderNumber: invoice.invoiceNumber, userId: session.id, createdBy: session.id, description: `Pago factura ${invoice.invoiceNumber}`, status: "active", createdAt: now }, { session: mongoSession });
-      return { amountPaid: newPaid, amountDue: newDue, paymentStatus, now } satisfies PaymentResult;
+      return { amountPaid: newPaid, amountDue: newDue, paymentStatus, invoiceStatus, now } satisfies PaymentResult;
     });
 
     if (transactionResult === undefined) throw new Error("No se pudo completar la transacción de pago");
     const paymentResult = transactionResult as PaymentResult;
 
-    await writeAuditLog({ userId: session.id, action: "INVOICE_PAYMENT_RECORDED", entityType: "Invoice", entityId: invoiceId, details: { amount, paymentMethod, newPaid: paymentResult.amountPaid, amountDue: paymentResult.amountDue }, userAgent: request.headers.get("user-agent"), ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip") });
-    return NextResponse.json({ ok: true, amountPaid: paymentResult.amountPaid, amountDue: paymentResult.amountDue, paymentStatus: paymentResult.paymentStatus });
+    await writeAuditLog({ userId: session.id, action: "INVOICE_PAYMENT_RECORDED", entityType: "Invoice", entityId: invoiceId, details: { amount, paymentMethod, newPaid: paymentResult.amountPaid, amountDue: paymentResult.amountDue, invoiceStatus: paymentResult.invoiceStatus }, userAgent: request.headers.get("user-agent"), ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip") });
+    return NextResponse.json({ ok: true, amountPaid: paymentResult.amountPaid, amountDue: paymentResult.amountDue, paymentStatus: paymentResult.paymentStatus, invoiceStatus: paymentResult.invoiceStatus });
   } catch (error) {
     console.error("POST /api/cash/payments", error);
     const status = typeof error === "object" && error !== null && "status" in error && typeof (error as { status?: unknown }).status === "number" ? Number((error as { status: number }).status) : 500;
