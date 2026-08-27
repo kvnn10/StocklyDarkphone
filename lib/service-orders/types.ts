@@ -2,14 +2,39 @@ export const SERVICE_ORDER_STATUSES = [
   "received",
   "diagnosis",
   "awaiting_approval",
-  "approved",
-  "in_repair",
+  "repairing",
   "ready",
   "delivered",
   "cancelled",
 ] as const;
 
 export type ServiceOrderStatus = (typeof SERVICE_ORDER_STATUSES)[number];
+
+export type ServiceOrderDeviceType =
+  | "phone"
+  | "tablet"
+  | "computer"
+  | "watch"
+  | "console"
+  | "tv"
+  | "other";
+
+export interface ServiceOrderDraft {
+  customerId?: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail?: string;
+  deviceType: ServiceOrderDeviceType;
+  brand: string;
+  model: string;
+  imei?: string;
+  serialNumber?: string;
+  reportedIssue: string;
+  initialCondition?: string;
+  accessories?: string[];
+  estimatedLabor?: number;
+  notes?: string;
+}
 
 export type ServiceOrderSummary = {
   id: string;
