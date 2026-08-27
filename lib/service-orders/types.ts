@@ -36,24 +36,38 @@ export interface ServiceOrderDraft {
   notes?: string;
 }
 
-export type ServiceOrderSummary = {
-  id: string;
-  customerId: string;
-  deviceType: string;
-  brand?: string;
-  model?: string;
-  serialOrImei?: string;
-  problem: string;
-  diagnosis?: string;
-  status: ServiceOrderStatus;
-  laborAmount: number;
-  partsAmount: number;
+export interface ServiceOrderTotals {
+  labor: number;
+  parts: number;
   discount: number;
   total: number;
-  amountPaid: number;
-  amountDue: number;
+  paid: number;
+  balance: number;
+}
+
+export interface ServiceOrderPart {
+  productId: string;
+  productName: string;
+  sku?: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+}
+
+export interface ServiceOrderSummary extends ServiceOrderDraft {
+  id: string;
+  orderNumber: string;
+  status: ServiceOrderStatus;
+  technicianId?: string;
+  technicianName?: string;
+  diagnosis?: string;
+  workPerformed?: string;
+  parts: ServiceOrderPart[];
+  totals: ServiceOrderTotals;
   createdAt: string;
-};
+  updatedAt: string;
+  deliveredAt?: string;
+}
 
 export function calculateServiceTotal(input: {
   laborAmount?: number;
