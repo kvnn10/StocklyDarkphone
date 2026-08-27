@@ -431,3 +431,77 @@ model PurchaseOrderItem {
   @@index([purchaseOrderId])
   @@index([productId])
 }
+
+model ServiceOrder {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  orderNumber String @unique
+  userId String @db.ObjectId
+  clientId String? @db.ObjectId
+  technicianId String? @db.ObjectId
+  deviceType String
+  brand String
+  model String
+  imei String?
+  serialNumber String?
+  reportedIssue String
+  initialCondition String?
+  accessories Json?
+  diagnosis String?
+  workPerformed String?
+  status String @default("received")
+  laborAmount Float @default(0)
+  partsAmount Float @default(0)
+  discount Float @default(0)
+  total Float @default(0)
+  amountPaid Float @default(0)
+  amountDue Float @default(0)
+  estimatedDelivery DateTime?
+  deliveredAt DateTime?
+  warrantyDays Int @default(0)
+  warrantyExpiresAt DateTime?
+  notes String?
+  createdAt DateTime @default(now()) @db.Date
+  updatedAt DateTime? @db.Date
+  createdBy String @db.ObjectId
+  updatedBy String? @db.ObjectId
+  items ServiceOrderItem[]
+  payments ServiceOrderPayment[]
+  @@index([userId, status, createdAt])
+  @@index([clientId, createdAt])
+  @@index([imei])
+  @@index([serialNumber])
+  @@index([technicianId, status])
+}
+
+model ServiceOrderItem {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  serviceOrderId String @db.ObjectId
+  productId String? @db.ObjectId
+  warehouseId String? @db.ObjectId
+  productName String
+  sku String?
+  quantity Int
+  unitCost Float @default(0)
+  unitPrice Float @default(0)
+  subtotal Float @default(0)
+  inventoryApplied Boolean @default(false)
+  createdAt DateTime @default(now()) @db.Date
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  @@index([serviceOrderId])
+  @@index([productId])
+  @@index([warehouseId])
+}
+
+model ServiceOrderPayment {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  serviceOrderId String @db.ObjectId
+  userId String @db.ObjectId
+  recordedBy String @db.ObjectId
+  amount Float
+  paymentMethod String
+  status String @default("paid")
+  createdAt DateTime @default(now()) @db.Date
+  serviceOrder ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  @@index([serviceOrderId, createdAt])
+  @@index([userId, createdAt])
+}
