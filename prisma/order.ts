@@ -85,7 +85,7 @@ export async function getOrdersByUser(userId: string) {
 }
 
 export async function getOrderById(orderId: string, userId: string) {
-  return prisma.order.findFirst({ where: { id: orderId, userId }, include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } });
+  return prisma.order.findFirst({ where: { id: orderId, userId }, include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } } });
 }
 
 export async function getOrdersByClientId(clientId: string) {
