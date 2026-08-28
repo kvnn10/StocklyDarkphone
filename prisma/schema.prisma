@@ -96,6 +96,7 @@ model OrderItem {
   sku String?
   quantity Int
   price Float
+  purchasePrice Float @default(0)
   subtotal Float
   warehouseId String? @db.ObjectId
   warehouseName String?
