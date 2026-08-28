@@ -50,7 +50,7 @@ export async function createOrder(data: CreateOrderInput, party: CreateOrderPart
   for (const item of data.items) {
     const product = await prisma.product.findUnique({ where: { id: item.productId } });
     if (!product || product.deletedAt != null) throw new Error(`Product not found: ${item.productId}`);
-    const price = Number(product.price); const lineSubtotal = price * item.quantity; subtotal += lineSubtotal;
+    const price = Number(product.price); const purchasePrice = Math.max(0, Number(product.purchasePrice ?? 0)); const lineSubtotal = price * item.quantity; subtotal += lineSubtotal;
     const ownerUserId = product.userId; const needsPick = await productRequiresWarehousePick(item.productId, ownerUserId);
     const productReserved = Number(product.reservedQuantity ?? 0); const productQty = Number(product.quantity);
     let availableStock: number;
@@ -65,7 +65,7 @@ export async function createOrder(data: CreateOrderInput, party: CreateOrderPart
       warehouseName = await resolveWarehouseName(warehouseId, ownerUserId);
       if (!warehouseName) throw new Error(`Warehouse not found or unauthorized: ${warehouseId}`);
     } else warehouseId = null;
-    orderItemsData.push({ productId: item.productId, productName: product.name, sku: product.sku, quantity: item.quantity, price, subtotal: lineSubtotal, warehouseId, warehouseName });
+    orderItemsData.push({ productId: item.productId, productName: product.name, sku: product.sku, quantity: item.quantity, price, purchasePrice, subtotal: lineSubtotal, warehouseId, warehouseName });
     productsToReserve.push({ id: item.productId, qty: item.quantity, warehouseId });
   }
   const tax = data.tax || 0; const shipping = data.shipping || 0; const discount = data.discount || 0; const total = subtotal + tax + shipping - discount;
@@ -85,7 +85,7 @@ export async function getOrdersByUser(userId: string) {
 }
 
 export async function getOrderById(orderId: string, userId: string) {
-  return prisma.order.findFirst({ where: { id: orderId, userId }, include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } } });
+  return prisma.order.findFirst({ where: { id: orderId, userId }, include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } });
 }
 
 export async function getOrdersByClientId(clientId: string) {
@@ -93,19 +93,11 @@ export async function getOrdersByClientId(clientId: string) {
 }
 
 export async function getOrdersContainingSupplierProducts(supplierId: string) {
-  return prisma.order.findMany({
-    where: { items: { some: { product: { supplierId } } } },
-    include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } },
-    orderBy: { createdAt: "desc" },
-  });
+  return prisma.order.findMany({ where: { items: { some: { product: { supplierId } } } }, include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } }, orderBy: { createdAt: "desc" } });
 }
 
 export async function getOrdersContainingProductOwnerProducts(productOwnerUserId: string) {
-  return prisma.order.findMany({
-    where: { items: { some: { product: { userId: productOwnerUserId } } } },
-    include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } },
-    orderBy: { createdAt: "desc" },
-  });
+  return prisma.order.findMany({ where: { items: { some: { product: { userId: productOwnerUserId } } } }, include: { items: { include: { product: { select: { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } } } } }, orderBy: { createdAt: "desc" } });
 }
 
 export { getOrderByIdForAdmin, getOrderByIdForProductOwner, getOrderByIdForSupplier, getOrderByIdForClient, updateOrder, cancelOrder } from "@/prisma/order-lifecycle";
