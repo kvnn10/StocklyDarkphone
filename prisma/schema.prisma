@@ -373,7 +373,7 @@ model SalePayment {
   paymentMethod String
   status String @default("paid")
   createdAt DateTime @default(now()) @db.Date
-  @@unique([orderId])
+  @@index([orderId, createdAt])
   @@index([userId, createdAt])
 }
 
