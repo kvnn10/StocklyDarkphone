@@ -27,9 +27,6 @@ export async function POST(request: NextRequest) {
       .map((item) => item.sku)
       .filter((sku): sku is string => Boolean(sku));
 
-    // The POS catalog is scoped to the authenticated store owner in /api/products.
-    // Use the same ownership scope here so checkout resolves exactly the products
-    // the POS is allowed to display, while retaining SKU as a cache-safe fallback.
     const products = await prisma.product.findMany({
       where: {
         userId: session.id,
@@ -53,7 +50,6 @@ export async function POST(request: NextRequest) {
     for (let index = 0; index < data.items.length; index += 1) {
       const item = data.items[index];
       const resolvedItem = resolvedItems[index];
-      if (!item) continue;
 
       const product = resolvedItem
         ? productMap.get(resolvedItem.productId)
@@ -82,8 +78,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // A paid POS sale must explicitly provide a payment method. Existing callers
-    // without payment data continue to create unpaid orders as before.
     if (data.paymentStatus === "paid" && !data.paymentMethod) {
       return NextResponse.json(
         { error: "El método de pago es obligatorio para una venta pagada" },
@@ -94,9 +88,7 @@ export async function POST(request: NextRequest) {
     const normalizedData = {
       ...data,
       items: resolvedItems.map((item) => {
-        if (!item) {
-          throw new Error("Producto no encontrado");
-        }
+        if (!item) throw new Error("Producto no encontrado");
         return {
           productId: item.productId,
           quantity: item.quantity,
@@ -112,11 +104,11 @@ export async function POST(request: NextRequest) {
     });
 
     if (data.paymentStatus === "paid" && data.paymentMethod) {
-      // The unique SalePayment(orderId) plus the order-linked cash movement make
-      // payment registration idempotent if the request is retried.
-      const payment = await prisma.salePayment.upsert({
-        where: { orderId: order.id },
-        create: {
+      // SalePayment is now a payment history table, so multiple rows per order are allowed.
+      // A new sale creates its first payment record; retries of the same HTTP request should
+      // be prevented at the caller/request layer rather than relying on orderId uniqueness.
+      const payment = await prisma.salePayment.create({
+        data: {
           orderId: order.id,
           orderNumber: order.orderNumber,
           userId: storeOwnerUserId,
@@ -124,29 +116,13 @@ export async function POST(request: NextRequest) {
           amount: Number(order.total),
           paymentMethod: data.paymentMethod,
           status: "paid",
-        },
-        update: {
-          amount: Number(order.total),
-          paymentMethod: data.paymentMethod,
-          status: "paid",
-          recordedBy: session.id,
         },
       });
 
-      await prisma.cashMovement.upsert({
-        where: { id: payment.id },
-        create: {
+      await prisma.cashMovement.create({
+        data: {
           type: "income",
           source: "sale",
-          amount: Number(order.total),
-          paymentMethod: data.paymentMethod,
-          orderId: order.id,
-          orderNumber: order.orderNumber,
-          userId: storeOwnerUserId,
-          createdBy: session.id,
-          description: `Venta ${order.orderNumber}`,
-        },
-        update: {
           amount: Number(order.total),
           paymentMethod: data.paymentMethod,
           orderId: order.id,
