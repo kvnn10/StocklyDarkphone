@@ -24,16 +24,17 @@ export async function GET(request: NextRequest) {
       where: { userId: session.id, status: { not: "cancelled" }, createdAt: { gte: since } },
       select: {
         total: true,
-        items: { select: { quantity: true, product: { select: { purchasePrice: true } } } },
+        items: { select: { quantity: true, price: true, purchasePrice: true } },
       },
     });
 
     let salesRevenue = 0;
     let salesCogs = 0;
     for (const order of orders) {
-      salesRevenue += n(order.total);
       for (const item of order.items) {
-        salesCogs += Math.max(0, n(item.quantity)) * Math.max(0, n(item.product?.purchasePrice));
+        const quantity = Math.max(0, n(item.quantity));
+        salesRevenue += Math.max(0, n(item.price)) * quantity;
+        salesCogs += Math.max(0, n(item.purchasePrice)) * quantity;
       }
     }
 
@@ -56,7 +57,11 @@ export async function GET(request: NextRequest) {
 
       for (const row of serviceRows) {
         const parts = Array.isArray(row.parts) ? row.parts : [];
-        const partsCost = parts.reduce((sum: number, part: any) => sum + Math.max(0, n(purchaseMap.get(String(part?.productId)) ?? part?.purchasePrice)) * Math.max(0, n(part?.quantity)), 0);
+        const partsCost = parts.reduce(
+          (sum: number, part: any) =>
+            sum + Math.max(0, n(purchaseMap.get(String(part?.productId)) ?? part?.purchasePrice)) * Math.max(0, n(part?.quantity)),
+          0,
+        );
         servicePartsCost += partsCost;
         serviceLabor += Math.max(0, n(row.labor));
         serviceRevenue += Math.max(0, n(row.total ?? parts.reduce((s: number, p: any) => s + n(p?.subtotal), 0) + n(row.labor) - n(row.discount)));
@@ -65,7 +70,10 @@ export async function GET(request: NextRequest) {
       await mongo.close();
     }
 
-    const cash = await prisma.cashMovement.findMany({ where: { userId: session.id, createdAt: { gte: since } }, select: { type: true, amount: true } });
+    const cash = await prisma.cashMovement.findMany({
+      where: { userId: session.id, createdAt: { gte: since } },
+      select: { type: true, amount: true },
+    });
     const expenses = cash.reduce((sum, movement) => {
       const type = String(movement.type ?? "").toLowerCase();
       return /expense|egreso|outflow|salida/.test(type) ? sum + Math.max(0, n(movement.amount)) : sum;
@@ -78,7 +86,25 @@ export async function GET(request: NextRequest) {
     const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
     const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
 
-    return NextResponse.json({ periodMonths: requestedMonths, summary: { revenue, salesRevenue, serviceRevenue, directCosts, salesCogs, servicePartsCost, serviceLabor, expenses, grossProfit, netProfit, grossMargin, netMargin, orders: orders.length, serviceOrders } });
+    return NextResponse.json({
+      periodMonths: requestedMonths,
+      summary: {
+        revenue,
+        salesRevenue,
+        serviceRevenue,
+        directCosts,
+        salesCogs,
+        servicePartsCost,
+        serviceLabor,
+        expenses,
+        grossProfit,
+        netProfit,
+        grossMargin,
+        netMargin,
+        orders: orders.length,
+        serviceOrders,
+      },
+    });
   } catch (error) {
     console.error("GET /api/dashboard/profitability", error);
     return NextResponse.json({ error: "No se pudo calcular la rentabilidad" }, { status: 500 });
