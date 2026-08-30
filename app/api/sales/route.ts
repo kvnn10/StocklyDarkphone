@@ -49,8 +49,11 @@ export async function POST(request: NextRequest) {
 
     for (let index = 0; index < data.items.length; index += 1) {
       const item = data.items[index];
-      const resolvedItem = resolvedItems[index];
+      if (!item) {
+        return NextResponse.json({ error: "Ítem de venta inválido" }, { status: 400 });
+      }
 
+      const resolvedItem = resolvedItems[index];
       const product = resolvedItem
         ? productMap.get(resolvedItem.productId)
         : undefined;
@@ -104,9 +107,6 @@ export async function POST(request: NextRequest) {
     });
 
     if (data.paymentStatus === "paid" && data.paymentMethod) {
-      // SalePayment is now a payment history table, so multiple rows per order are allowed.
-      // A new sale creates its first payment record; retries of the same HTTP request should
-      // be prevented at the caller/request layer rather than relying on orderId uniqueness.
       const payment = await prisma.salePayment.create({
         data: {
           orderId: order.id,
