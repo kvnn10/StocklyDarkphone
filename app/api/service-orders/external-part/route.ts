@@ -1,115 +1,75 @@
 import { NextRequest, NextResponse } from "next/server";
-import { MongoClient, ObjectId } from "mongodb";
 import { getSessionFromRequest } from "@/utils/auth";
 import { prisma } from "@/prisma/client";
 import { writeAuditLog } from "@/lib/audit/log";
 import { invalidateOnProductChange } from "@/lib/cache";
 
-const money = (value: unknown) => {
-  const n = Number(value);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-};
-
-async function db() {
-  const client = new MongoClient(process.env.DATABASE_URL!);
-  await client.connect();
-  return client;
-}
+const money = (value: unknown) => { const n = Number(value); return Number.isFinite(n) && n >= 0 ? n : null; };
+const validId = (value: unknown) => typeof value === "string" && /^[a-f\d]{24}$/i.test(value);
 
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session || !["admin", "user", "retailer"].includes(session.role ?? "")) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-
-  const body = await request.json();
-  const orderId = typeof body.orderId === "string" ? body.orderId : "";
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  const quantity = Number(body.quantity);
-  const purchaseCost = money(body.purchaseCost);
-  const salePrice = money(body.salePrice);
-  const warrantyDays = Number(body.warrantyDays ?? 0);
-  const addToInventory = Boolean(body.addToInventory);
-  const categoryId = typeof body.categoryId === "string" ? body.categoryId : "";
-  const supplierId = typeof body.supplierId === "string" ? body.supplierId : "";
-  const supplierName = typeof body.supplierName === "string" ? body.supplierName.trim() : "";
-  const invoiceRef = typeof body.invoiceRef === "string" ? body.invoiceRef.trim() : "";
-
-  if (!ObjectId.isValid(orderId)) return NextResponse.json({ error: "Orden inválida" }, { status: 400 });
-  if (!name) return NextResponse.json({ error: "El nombre del repuesto es obligatorio" }, { status: 400 });
-  if (!Number.isInteger(quantity) || quantity <= 0) return NextResponse.json({ error: "La cantidad debe ser un entero mayor que cero" }, { status: 400 });
-  if (purchaseCost === null || salePrice === null) return NextResponse.json({ error: "Costo y precio deben ser valores válidos" }, { status: 400 });
-  if (!Number.isInteger(warrantyDays) || warrantyDays < 0 || warrantyDays > 3650) return NextResponse.json({ error: "Garantía inválida" }, { status: 400 });
-  if (addToInventory && (!categoryId || !supplierId)) return NextResponse.json({ error: "Para agregar al inventario selecciona categoría y proveedor" }, { status: 400 });
-
-  const client = await db();
   try {
-    const orders = client.db().collection("ServiceOrder");
-    const existing = await orders.findOne({ _id: new ObjectId(orderId), userId: session.id });
+    const body = await request.json();
+    const orderId = typeof body.orderId === "string" ? body.orderId : "";
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const quantity = Number(body.quantity);
+    const purchaseCost = money(body.purchaseCost);
+    const salePrice = money(body.salePrice);
+    const warrantyDays = Number(body.warrantyDays ?? 0);
+    const addToInventory = Boolean(body.addToInventory);
+    const categoryId = typeof body.categoryId === "string" ? body.categoryId : "";
+    const supplierId = typeof body.supplierId === "string" ? body.supplierId : "";
+    const supplierName = typeof body.supplierName === "string" ? body.supplierName.trim() : "";
+    const invoiceRef = typeof body.invoiceRef === "string" ? body.invoiceRef.trim() : "";
+    if (!validId(orderId)) return NextResponse.json({ error: "Orden inválida" }, { status: 400 });
+    if (!name) return NextResponse.json({ error: "El nombre del repuesto es obligatorio" }, { status: 400 });
+    if (!Number.isInteger(quantity) || quantity <= 0) return NextResponse.json({ error: "La cantidad debe ser un entero mayor que cero" }, { status: 400 });
+    if (purchaseCost === null || salePrice === null) return NextResponse.json({ error: "Costo y precio deben ser valores válidos" }, { status: 400 });
+    if (!Number.isInteger(warrantyDays) || warrantyDays < 0 || warrantyDays > 3650) return NextResponse.json({ error: "Garantía inválida" }, { status: 400 });
+    if (addToInventory && (!validId(categoryId) || !validId(supplierId))) return NextResponse.json({ error: "Para agregar al inventario selecciona categoría y proveedor" }, { status: 400 });
+
+    const existing = await prisma.serviceOrder.findFirst({ where: { id: orderId, userId: session.id }, include: { items: true, payments: true } });
     if (!existing) return NextResponse.json({ error: "Orden no encontrada" }, { status: 404 });
-    if (existing.status === "delivered" || existing.status === "cancelled") return NextResponse.json({ error: "La orden está cerrada y no admite repuestos" }, { status: 409 });
+    if (["delivered", "cancelled"].includes(existing.status)) return NextResponse.json({ error: "La orden está cerrada y no admite repuestos" }, { status: 409 });
 
-    let productId = `external-${new ObjectId().toString()}`;
-    let sku = `EXT-${existing.orderNumber}-${Date.now()}`;
-    let inventoryProductId: string | null = null;
-    let inventoryWarehouseId = "";
-    let inventoryWarehouseName = "Compra puntual";
+    const result = await prisma.$transaction(async tx => {
+      let productId: string | null = null;
+      let sku = `EXT-${existing.orderNumber}-${Date.now()}`;
+      let warehouseId: string | null = null;
+      let warehouseName = "Compra puntual";
 
-    if (addToInventory) {
-      const [category, supplier, warehouse] = await Promise.all([
-        prisma.category.findFirst({ where: { id: categoryId, userId: session.id, status: true } }),
-        prisma.supplier.findFirst({ where: { id: supplierId, userId: session.id, status: true } }),
-        prisma.warehouse.findFirst({ where: { userId: session.id, status: true }, orderBy: { createdAt: "asc" } }),
-      ]);
-      if (!category) return NextResponse.json({ error: "La categoría seleccionada no existe o está inactiva" }, { status: 400 });
-      if (!supplier) return NextResponse.json({ error: "El proveedor seleccionado no existe o está inactivo" }, { status: 400 });
-      if (!warehouse) return NextResponse.json({ error: "No tienes una bodega activa. Crea una bodega antes de agregar repuestos al inventario." }, { status: 400 });
+      if (addToInventory) {
+        const category = await tx.category.findFirst({ where: { id: categoryId, userId: session.id, status: true } });
+        const supplier = await tx.supplier.findFirst({ where: { id: supplierId, userId: session.id, status: true } });
+        const warehouse = await tx.warehouse.findFirst({ where: { userId: session.id, status: true }, orderBy: { createdAt: "asc" } });
+        if (!category) throw new Error("La categoría seleccionada no existe o está inactiva");
+        if (!supplier) throw new Error("El proveedor seleccionado no existe o está inactivo");
+        if (!warehouse) throw new Error("No tienes una bodega activa. Crea una bodega antes de agregar repuestos al inventario.");
+        const product = await tx.product.create({ data: { name, sku, purchasePrice: purchaseCost, price: salePrice, quantity: BigInt(quantity), status: quantity > 20 ? "Available" : "Stock Low", categoryId, supplierId, userId: session.id, createdBy: session.id } });
+        productId = product.id;
+        sku = product.sku;
+        warehouseId = warehouse.id;
+        warehouseName = warehouse.name;
+        await tx.stockAllocation.create({ data: { productId: product.id, warehouseId: warehouse.id, quantity: BigInt(quantity), reservedQuantity: BigInt(0), userId: session.id } });
+        await tx.inventoryMovement.create({ data: { productId: product.id, warehouseId: warehouse.id, userId: session.id, type: "purchase", quantity: BigInt(quantity), previousStock: BigInt(0), newStock: BigInt(quantity), reason: "Compra puntual para orden de servicio", referenceId: orderId, notes: invoiceRef || supplierName || null } });
+      }
 
-      const product = await prisma.product.create({
-        data: {
-          name, sku, purchasePrice: purchaseCost, price: salePrice, quantity: BigInt(quantity) as any,
-          status: quantity > 20 ? "Available" : "Stock Low", categoryId, supplierId,
-          userId: session.id, createdBy: session.id, createdAt: new Date(), updatedAt: null,
-        },
-      });
-      productId = product.id;
-      sku = product.sku;
-      inventoryProductId = product.id;
-      inventoryWarehouseId = warehouse.id;
-      inventoryWarehouseName = warehouse.name;
+      const item = await tx.serviceOrderItem.create({ data: { serviceOrderId: orderId, productId, warehouseId, productName: name, sku, quantity, unitPrice: salePrice, unitCost: purchaseCost, subtotal: quantity * salePrice } });
+      const partsAmount = existing.items.reduce((sum, i) => sum + Number(i.subtotal), 0) + item.subtotal;
+      const total = Math.max(0, partsAmount + existing.laborAmount - existing.discount);
+      if (existing.amountPaid > total) throw new Error("El nuevo total no puede ser menor a lo ya pagado");
+      const updated = await tx.serviceOrder.update({ where: { id: orderId }, data: { partsAmount, total, amountDue: total - existing.amountPaid, updatedAt: new Date(), updatedBy: session.id }, include: { items: true, payments: true } });
+      return { item, updated, productId, warehouseId, warehouseName };
+    });
 
-      await prisma.stockAllocation.create({
-        data: { productId: product.id, warehouseId: warehouse.id, quantity: BigInt(quantity) as any, reservedQuantity: BigInt(0) as any, userId: session.id, createdAt: new Date(), updatedAt: null },
-      });
-      await prisma.inventoryMovement.create({
-        data: {
-          productId: product.id, warehouseId: warehouse.id, userId: session.id, type: "purchase",
-          quantity: BigInt(quantity) as any, previousStock: BigInt(0) as any, newStock: BigInt(quantity) as any,
-          reason: "Compra puntual para orden de servicio", referenceId: orderId,
-          notes: invoiceRef || supplierName || null, createdAt: new Date(),
-        },
-      });
-      await invalidateOnProductChange();
-    }
-
-    const partId = new ObjectId().toString();
-    const part = {
-      id: partId, productId, name, sku, quantity, unitPrice: salePrice, unitCost: purchaseCost,
-      subtotal: quantity * salePrice, costSubtotal: quantity * purchaseCost, consumed: !addToInventory,
-      warehouseId: inventoryWarehouseId, warehouseName: inventoryWarehouseName, external: true,
-      purchaseType: "spot", supplierName, invoiceRef, warrantyDays, warrantyUntil: null,
-      addedAt: new Date(), addedBy: session.id,
-    };
-
-    const parts = [...((existing.parts as any[]) || []), part];
-    const subtotalParts = parts.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
-    const total = Math.max(0, subtotalParts + Number(existing.labor || 0) - Number(existing.discount || 0));
-    await orders.updateOne({ _id: existing._id }, { $set: { parts, total, balance: total - Number(existing.paid || 0), updatedAt: new Date(), updatedBy: session.id } });
-
-    await writeAuditLog({ userId: session.id, action: "SERVICE_EXTERNAL_PART_ADDED", entityType: "ServiceOrder", entityId: orderId, details: { part, addToInventory, inventoryProductId, inventoryWarehouseId } });
-    return NextResponse.json({ part, inventoryProductId, inventoryWarehouseId, order: await orders.findOne({ _id: existing._id }) }, { status: 201 });
-  } catch (error) {
+    if (addToInventory) await invalidateOnProductChange();
+    await writeAuditLog({ userId: session.id, action: "SERVICE_EXTERNAL_PART_ADDED", entityType: "ServiceOrder", entityId: orderId, details: { itemId: result.item.id, productId: result.productId, warehouseId: result.warehouseId, warrantyDays, supplierName, invoiceRef } });
+    return NextResponse.json({ part: { id: result.item.id, productId: result.item.productId ?? `external-${result.item.id}`, name: result.item.productName, sku: result.item.sku ?? "", quantity: result.item.quantity, unitPrice: result.item.unitPrice, unitCost: result.item.unitCost, subtotal: result.item.subtotal, costSubtotal: result.item.quantity * result.item.unitCost, consumed: !addToInventory, warehouseId: result.warehouseId ?? "", warehouseName: result.warehouseName, external: true, purchaseType: "spot", supplierName, invoiceRef, warrantyDays }, inventoryProductId: result.productId, inventoryWarehouseId: result.warehouseId, order: result.updated }, { status: 201 });
+  } catch (error: any) {
+    if (["La categoría seleccionada no existe o está inactiva", "El proveedor seleccionado no existe o está inactivo", "No tienes una bodega activa. Crea una bodega antes de agregar repuestos al inventario.", "El nuevo total no puede ser menor a lo ya pagado"].includes(error?.message)) return NextResponse.json({ error: error.message }, { status: 400 });
     console.error("POST /api/service-orders/external-part", error);
     return NextResponse.json({ error: "No se pudo agregar el repuesto de compra puntual" }, { status: 500 });
-  } finally {
-    await client.close();
   }
 }
