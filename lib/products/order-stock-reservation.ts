@@ -10,6 +10,7 @@
  */
 
 import { prisma } from "@/prisma/client";
+import type { Prisma } from "@prisma/client";
 import { getReservedCommitment } from "@/lib/stock-allocation/catalog-quantity-reconcile";
 import type { CatalogReconcileAllocationRow } from "@/lib/stock-allocation/catalog-quantity-reconcile";
 import { planAllocationDecrements } from "@/lib/products/plan-allocation-decrements";
@@ -72,112 +73,114 @@ export async function releasePendingOrderLine(line: OrderStockLine): Promise<voi
   throw new Error("Stock changed while releasing the reservation; please retry.");
 }
 
-export async function fulfillPendingOrderLine(line: OrderStockLine): Promise<void> {
+async function fulfillPendingOrderLineWithClient(tx: Prisma.TransactionClient, line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
 
-  await prisma.$transaction(async (tx) => {
-    if (line.warehouseId) {
-      const product = await tx.product.findUnique({
-        where: { id: line.productId },
-        select: { id: true, quantity: true },
-      });
-      if (!product || Number(product.quantity) < line.quantity) {
-        throw new Error(`Insufficient product stock for ${line.productId}`);
-      }
-
-      const allocation = await tx.stockAllocation.findUnique({
-        where: { productId_warehouseId: { productId: line.productId, warehouseId: line.warehouseId } },
-        select: { id: true, quantity: true, reservedQuantity: true, userId: true },
-      });
-      if (!allocation || Number(allocation.quantity) < line.quantity || Number(allocation.reservedQuantity ?? 0) < line.quantity) {
-        throw new Error(`Insufficient warehouse stock or reservation for ${line.productId}`);
-      }
-
-      const productResult = await tx.product.updateMany({
-        where: { id: product.id, quantity: product.quantity },
-        data: { quantity: { decrement: line.quantity }, updatedAt: new Date() },
-      });
-      if (productResult.count !== 1) throw new Error(`Stock changed while fulfilling product ${line.productId}; please retry.`);
-
-      const previousStock = allocation.quantity;
-      const newStock = previousStock - BigInt(line.quantity);
-      const allocationResult = await tx.stockAllocation.updateMany({
-        where: { id: allocation.id, quantity: allocation.quantity, reservedQuantity: allocation.reservedQuantity },
-        data: { quantity: { decrement: line.quantity }, reservedQuantity: { decrement: line.quantity }, updatedAt: new Date() },
-      });
-      if (allocationResult.count !== 1) throw new Error(`Warehouse stock changed while fulfilling product ${line.productId}; please retry.`);
-
-      await tx.inventoryMovement.create({
-        data: {
-          productId: line.productId,
-          warehouseId: line.warehouseId,
-          userId: allocation.userId,
-          type: "exit",
-          quantity: -BigInt(line.quantity),
-          previousStock,
-          newStock,
-          reason: "Salida por pedido facturado",
-          referenceId: null,
-          notes: null,
-          createdAt: new Date(),
-        },
-      });
-      return;
-    }
-
+  if (line.warehouseId) {
     const product = await tx.product.findUnique({
       where: { id: line.productId },
-      select: { id: true, quantity: true, reservedQuantity: true },
+      select: { id: true, quantity: true },
     });
-    if (!product || Number(product.quantity) < line.quantity || Number(product.reservedQuantity ?? 0) < line.quantity) {
-      throw new Error(`Insufficient stock or reservation for product ${line.productId}`);
+    if (!product || Number(product.quantity) < line.quantity) {
+      throw new Error(`Insufficient product stock for ${line.productId}`);
     }
 
-    const allocations = await tx.stockAllocation.findMany({
-      where: { productId: line.productId },
-      select: { id: true, quantity: true, reservedQuantity: true, warehouseId: true, userId: true },
+    const allocation = await tx.stockAllocation.findUnique({
+      where: { productId_warehouseId: { productId: line.productId, warehouseId: line.warehouseId } },
+      select: { id: true, quantity: true, reservedQuantity: true, userId: true },
     });
-    const steps = planAllocationDecrements(
-      allocations.map((a) => ({ id: a.id, quantity: Number(a.quantity), reservedQuantity: Number(a.reservedQuantity) })),
-      line.quantity,
-    );
-    if (steps.reduce((sum, step) => sum + step.deduct, 0) !== line.quantity) {
-      throw new Error(`Insufficient allocated warehouse stock for product ${line.productId}`);
+    if (!allocation || Number(allocation.quantity) < line.quantity || Number(allocation.reservedQuantity ?? 0) < line.quantity) {
+      throw new Error(`Insufficient warehouse stock or reservation for ${line.productId}`);
     }
 
     const productResult = await tx.product.updateMany({
-      where: { id: product.id, quantity: product.quantity, reservedQuantity: product.reservedQuantity },
-      data: { quantity: { decrement: line.quantity }, reservedQuantity: { decrement: line.quantity }, updatedAt: new Date() },
+      where: { id: product.id, quantity: product.quantity },
+      data: { quantity: { decrement: line.quantity }, updatedAt: new Date() },
     });
     if (productResult.count !== 1) throw new Error(`Stock changed while fulfilling product ${line.productId}; please retry.`);
 
-    for (const step of steps) {
-      const allocation = allocations.find((a) => a.id === step.id);
-      if (!allocation) throw new Error(`Allocation not found for product ${line.productId}`);
-      const previousStock = allocation.quantity;
-      const newStock = previousStock - BigInt(step.deduct);
-      const allocationResult = await tx.stockAllocation.updateMany({
-        where: { id: allocation.id, quantity: allocation.quantity, reservedQuantity: allocation.reservedQuantity },
-        data: { quantity: { decrement: step.deduct }, updatedAt: new Date() },
-      });
-      if (allocationResult.count !== 1) throw new Error(`Warehouse stock changed while fulfilling product ${line.productId}; please retry.`);
-      await tx.inventoryMovement.create({
-        data: {
-          productId: line.productId,
-          warehouseId: allocation.warehouseId,
-          userId: allocation.userId,
-          type: "exit",
-          quantity: -BigInt(step.deduct),
-          previousStock,
-          newStock,
-          reason: "Salida por pedido facturado",
-          referenceId: null,
-          notes: "Asignación automática de bodega",
-          createdAt: new Date(),
-        },
-      });
-    }
+    const previousStock = allocation.quantity;
+    const newStock = previousStock - BigInt(line.quantity);
+    const allocationResult = await tx.stockAllocation.updateMany({
+      where: { id: allocation.id, quantity: allocation.quantity, reservedQuantity: allocation.reservedQuantity },
+      data: { quantity: { decrement: line.quantity }, reservedQuantity: { decrement: line.quantity }, updatedAt: new Date() },
+    });
+    if (allocationResult.count !== 1) throw new Error(`Warehouse stock changed while fulfilling product ${line.productId}; please retry.`);
+
+    await tx.inventoryMovement.create({
+      data: {
+        productId: line.productId,
+        warehouseId: line.warehouseId,
+        userId: allocation.userId,
+        type: "exit",
+        quantity: -BigInt(line.quantity),
+        previousStock,
+        newStock,
+        reason: "Salida por pedido facturado",
+        referenceId: null,
+        notes: null,
+        createdAt: new Date(),
+      },
+    });
+    return;
+  }
+
+  const product = await tx.product.findUnique({
+    where: { id: line.productId },
+    select: { id: true, quantity: true, reservedQuantity: true },
   });
+  if (!product || Number(product.quantity) < line.quantity || Number(product.reservedQuantity ?? 0) < line.quantity) {
+    throw new Error(`Insufficient stock or reservation for product ${line.productId}`);
+  }
+
+  const allocations = await tx.stockAllocation.findMany({
+    where: { productId: line.productId },
+    select: { id: true, quantity: true, reservedQuantity: true, warehouseId: true, userId: true },
+  });
+  const steps = planAllocationDecrements(
+    allocations.map((a) => ({ id: a.id, quantity: Number(a.quantity), reservedQuantity: Number(a.reservedQuantity) })),
+    line.quantity,
+  );
+  if (steps.reduce((sum, step) => sum + step.deduct, 0) !== line.quantity) {
+    throw new Error(`Insufficient allocated warehouse stock for product ${line.productId}`);
+  }
+
+  const productResult = await tx.product.updateMany({
+    where: { id: product.id, quantity: product.quantity, reservedQuantity: product.reservedQuantity },
+    data: { quantity: { decrement: line.quantity }, reservedQuantity: { decrement: line.quantity }, updatedAt: new Date() },
+  });
+  if (productResult.count !== 1) throw new Error(`Stock changed while fulfilling product ${line.productId}; please retry.`);
+
+  for (const step of steps) {
+    const allocation = allocations.find((a) => a.id === step.id);
+    if (!allocation) throw new Error(`Allocation not found for product ${line.productId}`);
+    const previousStock = allocation.quantity;
+    const newStock = previousStock - BigInt(step.deduct);
+    const allocationResult = await tx.stockAllocation.updateMany({
+      where: { id: allocation.id, quantity: allocation.quantity, reservedQuantity: allocation.reservedQuantity },
+      data: { quantity: { decrement: step.deduct }, updatedAt: new Date() },
+    });
+    if (allocationResult.count !== 1) throw new Error(`Warehouse stock changed while fulfilling product ${line.productId}; please retry.`);
+    await tx.inventoryMovement.create({
+      data: {
+        productId: line.productId,
+        warehouseId: allocation.warehouseId,
+        userId: allocation.userId,
+        type: "exit",
+        quantity: -BigInt(step.deduct),
+        previousStock,
+        newStock,
+        reason: "Salida por pedido facturado",
+        referenceId: null,
+        notes: "Asignación automática de bodega",
+        createdAt: new Date(),
+      },
+    });
+  }
+}
+
+export async function fulfillPendingOrderLine(line: OrderStockLine): Promise<void> {
+  await prisma.$transaction((tx) => fulfillPendingOrderLineWithClient(tx, line));
 }
 
 export async function reservePendingOrderLines(lines: OrderStockLine[]): Promise<void> {
@@ -200,6 +203,11 @@ export async function reservePendingOrderLines(lines: OrderStockLine[]): Promise
 export async function releasePendingOrderLines(lines: OrderStockLine[]): Promise<void> {
   for (const line of lines) await releasePendingOrderLine(line);
 }
-export async function fulfillPendingOrderLines(lines: OrderStockLine[]): Promise<void> {
+
+export async function fulfillPendingOrderLines(lines: OrderStockLine[], tx?: Prisma.TransactionClient): Promise<void> {
+  if (tx) {
+    for (const line of lines) await fulfillPendingOrderLineWithClient(tx, line);
+    return;
+  }
   for (const line of lines) await fulfillPendingOrderLine(line);
 }
