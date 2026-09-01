@@ -8,7 +8,6 @@ import { fulfillPendingOrderLines, releasePendingOrderLines } from "@/lib/produc
 import { planAllocationDecrements } from "@/lib/products/plan-allocation-decrements";
 import { logger } from "@/lib/logger";
 import { writeAuditLog } from "@/lib/audit/log";
-import { MongoClient } from "mongodb";
 
 const detailProductSelect = { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } as const;
 const CASH_SALE_SOURCE = "sale";
@@ -38,32 +37,55 @@ export async function getOrderByIdForClient(orderId: string, clientId: string) {
 
 async function recordCashSale(orderId: string, userId: string, amount: number) {
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid sale amount");
-  const client = new MongoClient(process.env.DATABASE_URL!);
-  await client.connect();
-  try {
-    const collection = client.db().collection("CashMovement");
-    const existing = await collection.findOne({ userId, orderId, source: CASH_SALE_SOURCE, status: { $ne: "voided" } });
-    if (existing) return existing;
-    const movement = { type: "income", source: CASH_SALE_SOURCE, orderId, amount, paymentMethod: "other", userId, createdBy: userId, description: "Venta", status: "active", createdAt: new Date() };
-    const result = await collection.insertOne(movement);
-    return { ...movement, _id: result.insertedId };
-  } finally { await client.close(); }
+  const existing = await prisma.cashMovement.findFirst({
+    where: { userId, orderId, source: CASH_SALE_SOURCE, status: { not: "voided" } },
+  });
+  if (existing) return existing;
+
+  return prisma.cashMovement.create({
+    data: {
+      type: "income",
+      source: CASH_SALE_SOURCE,
+      orderId,
+      amount,
+      paymentMethod: "other",
+      userId,
+      createdBy: userId,
+      description: "Venta",
+      status: "active",
+    },
+  });
 }
 
 async function recordCashRefund(orderId: string, userId: string, amount: number) {
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid refund amount");
-  const client = new MongoClient(process.env.DATABASE_URL!);
-  await client.connect();
-  try {
-    const collection = client.db().collection("CashMovement");
-    const existing = await collection.findOne({ userId, orderId, source: CASH_REFUND_SOURCE, status: { $ne: "voided" } });
-    if (existing) return existing;
-    const sale = await collection.findOne({ userId, orderId, source: CASH_SALE_SOURCE, status: { $ne: "voided" } });
-    const paymentMethod = typeof sale?.paymentMethod === "string" && CASH_METHODS.has(sale.paymentMethod) ? sale.paymentMethod : "other";
-    const movement = { type: "expense", source: CASH_REFUND_SOURCE, orderId, amount, paymentMethod, userId, createdBy: userId, description: "Reembolso de venta", status: "active", createdAt: new Date() };
-    const result = await collection.insertOne(movement);
-    return { ...movement, _id: result.insertedId };
-  } finally { await client.close(); }
+  const existing = await prisma.cashMovement.findFirst({
+    where: { userId, orderId, source: CASH_REFUND_SOURCE, status: { not: "voided" } },
+  });
+  if (existing) return existing;
+
+  const sale = await prisma.cashMovement.findFirst({
+    where: { userId, orderId, source: CASH_SALE_SOURCE, status: { not: "voided" } },
+    orderBy: { createdAt: "desc" },
+  });
+  const paymentMethod =
+    typeof sale?.paymentMethod === "string" && CASH_METHODS.has(sale.paymentMethod)
+      ? sale.paymentMethod
+      : "other";
+
+  return prisma.cashMovement.create({
+    data: {
+      type: "expense",
+      source: CASH_REFUND_SOURCE,
+      orderId,
+      amount,
+      paymentMethod,
+      userId,
+      createdBy: userId,
+      description: "Reembolso de venta",
+      status: "active",
+    },
+  });
 }
 
 type OrderItemStock = { productId: string; quantity: number; warehouseId?: string | null };
@@ -97,7 +119,7 @@ async function releasePendingStock(tx: Prisma.TransactionClient, items: OrderIte
       const product = await tx.product.findUnique({ where: { id: item.productId }, select: { id: true, reservedQuantity: true } });
       if (!product || Number(product.reservedQuantity ?? 0) < item.quantity) throw new Error(`Cannot release ${item.quantity} reserved units for product ${item.productId}`);
       const result = await tx.product.updateMany({ where: { id: product.id, reservedQuantity: product.reservedQuantity }, data: { reservedQuantity: { decrement: item.quantity }, updatedAt: new Date() } });
-      if (result.count !== 1) throw new Error(`Product reservation changed for ${item.productId}; please retry.`);
+      if (result.count !== 1) throw new Error(`Product reservation changed for product ${item.productId}; please retry.`);
     }
   }
 }
@@ -172,7 +194,7 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
       return tx.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
     });
   } else {
-    updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
+    updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } });
   }
 
   if (paymentCaptured) {
