@@ -21,7 +21,9 @@ model Category {
   updatedBy String? @db.ObjectId
 }
 
-model Department { id String @id @default(auto()) @map("_id") @db.ObjectId }
+model Department {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+}
 
 model Invoice {
   id String @id @default(auto()) @map("_id") @db.ObjectId
@@ -103,7 +105,12 @@ model OrderItem {
   product Product @relation(fields: [productId], references: [id])
 }
 
-model Permission { id String @id @default(auto()) @map("_id") @db.ObjectId resource Json? userId Json? @@unique([userId, resource]) }
+model Permission {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  resource Json?
+  userId Json?
+  @@unique([userId, resource])
+}
 
 model Product {
   id String @id @default(auto()) @map("_id") @db.ObjectId
@@ -132,8 +139,14 @@ model Product {
   @@index([deletedAt])
 }
 
-model Session { id String @id @default(auto()) @map("_id") @db.ObjectId sessionToken Json? @unique }
-model StockAlert { id String @id @default(auto()) @map("_id") @db.ObjectId }
+model Session {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  sessionToken Json? @unique
+}
+
+model StockAlert {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+}
 
 model StockAllocation {
   id String @id @default(auto()) @map("_id") @db.ObjectId
@@ -180,7 +193,18 @@ model Warehouse {
   @@index([userId])
 }
 
-model Supplier { id String @id @default(auto()) @map("_id") @db.ObjectId name String userId String @db.ObjectId status Boolean @default(true) description String? notes String? }
+model Supplier {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  name String
+  userId String @db.ObjectId
+  status Boolean @default(true)
+  description String?
+  notes String?
+  createdAt DateTime @default(now()) @db.Date
+  updatedAt DateTime? @db.Date
+  createdBy String @db.ObjectId
+  updatedBy String? @db.ObjectId
+}
 
 model User {
   id String @id @default(auto()) @map("_id") @db.ObjectId
@@ -197,33 +221,224 @@ model User {
   notifications Notification[]
 }
 
-model UserAction { id String @id @default(auto()) @map("_id") @db.ObjectId }
-model VerificationToken { id String @id @default(auto()) @map("_id") @db.ObjectId token Json? @unique }
+model UserAction {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+}
 
-model ImportHistory { id String @id @default(auto()) @map("_id") @db.ObjectId userId String @db.ObjectId importType String fileName String fileSize Int totalRows Int successRows Int failedRows Int errors Json? status String @default("completed") createdAt DateTime @default(now()) @db.Date completedAt DateTime? }
+model VerificationToken {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  token Json? @unique
+}
 
-model Notification { id String @id @default(auto()) @map("_id") @db.ObjectId userId String @db.ObjectId type String title String message String link String? read Boolean @default(false) createdAt DateTime @default(now()) @db.Date readAt DateTime? metadata Json? user User @relation(fields: [userId], references: [id], onDelete: Cascade) @@index([userId, read, createdAt]) }
+model ImportHistory {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  importType String
+  fileName String
+  fileSize Int
+  totalRows Int
+  successRows Int
+  failedRows Int
+  errors Json?
+  status String @default("completed")
+  createdAt DateTime @default(now()) @db.Date
+  completedAt DateTime?
+}
 
-model SupportTicket { id String @id @default(auto()) @map("_id") @db.ObjectId subject String description String status String @default("open") priority String @default("medium") userId String @db.ObjectId assignedToId String? @db.ObjectId productId String? @db.ObjectId orderId String? @db.ObjectId supplierId String? @db.ObjectId notes String? createdAt DateTime @default(now()) @db.Date updatedAt DateTime? @db.Date replies SupportTicketReply[] @@index([userId]) @@index([status]) @@index([assignedToId]) @@index([createdAt]) }
-model SupportTicketReply { id String @id @default(auto()) @map("_id") @db.ObjectId ticketId String @db.ObjectId userId String @db.ObjectId body String createdAt DateTime @default(now()) @db.Date supportTicket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade) @@index([ticketId]) @@index([userId]) @@index([createdAt]) }
-model ProductReview { id String @id @default(auto()) @map("_id") @db.ObjectId productId String @db.ObjectId userId String @db.ObjectId orderId String? @db.ObjectId orderItemId String? @db.ObjectId productName String productSku String? rating Int comment String status String @default("pending") createdAt DateTime @default(now()) @db.Date updatedAt DateTime? @db.Date @@index([productId]) @@index([orderId, productId, userId]) @@index([userId]) @@index([orderId]) @@index([status]) @@index([rating]) @@index([createdAt]) }
-model SystemConfig { id String @id @default(auto()) @map("_id") @db.ObjectId key String @unique value String type String @default("string") label String description String? category String @default("general") isPublic Boolean @default(false) createdAt DateTime @default(now()) @db.Date updatedAt DateTime? @db.Date updatedBy String? @db.ObjectId @@index([category]) @@index([isPublic]) }
-model AuditLog { id String @id @default(auto()) @map("_id") @db.ObjectId userId String @db.ObjectId action String entityType String entityId String? @db.ObjectId details Json? ipAddress String? userAgent String? createdAt DateTime @default(now()) @db.Date @@index([userId]) @@index([action]) @@index([entityType]) @@index([createdAt]) }
-model CashMovement { id String @id @default(auto()) @map("_id") @db.ObjectId type String source String amount Float paymentMethod String orderId String? @db.ObjectId orderNumber String? userId String @db.ObjectId createdBy String @db.ObjectId description String? createdAt DateTime @default(now()) @db.Date @@index([userId, createdAt]) @@index([orderId]) }
-model SalePayment { id String @id @default(auto()) @map("_id") @db.ObjectId orderId String @db.ObjectId orderNumber String userId String @db.ObjectId recordedBy String @db.ObjectId amount Float paymentMethod String status String @default("paid") createdAt DateTime @default(now()) @db.Date @@index([orderId, createdAt]) @@index([userId, createdAt]) }
-model InventoryMovement { id String @id @default(auto()) @map("_id") productId String @db.ObjectId warehouseId String @db.ObjectId userId String @db.ObjectId type String quantity BigInt previousStock BigInt newStock BigInt reason String? referenceId String? notes String? createdAt DateTime @default(now()) @db.Date @@index([userId, createdAt]) @@index([productId, createdAt]) @@index([warehouseId, createdAt]) @@index([type, createdAt]) }
+model Notification {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  type String
+  title String
+  message String
+  link String?
+  read Boolean @default(false)
+  createdAt DateTime @default(now()) @db.Date
+  readAt DateTime?
+  metadata Json?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, read, createdAt])
+}
 
-model PurchaseOrder { id String @id @default(auto()) @map("_id") @db.ObjectId purchaseNumber String @unique supplierId String @db.ObjectId userId String @db.ObjectId status String @default("draft") subtotal Float @default(0) tax Float @default(0) shipping Float @default(0) total Float @default(0) notes String? orderedAt DateTime? @db.Date receivedAt DateTime? @db.Date createdAt DateTime @default(now()) @db.Date updatedAt DateTime? @db.Date createdBy String @db.ObjectId updatedBy String? @db.ObjectId items PurchaseOrderItem[] @@index([userId, status, createdAt]) @@index([supplierId, createdAt]) }
-model PurchaseOrderItem { id String @id @default(auto()) @map("_id") @db.ObjectId purchaseOrderId String @db.ObjectId productId String @db.ObjectId productName String sku String? orderedQuantity Int receivedQuantity Int @default(0) unitCost Float subtotal Float purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade) @@index([purchaseOrderId]) @@index([productId]) }
+model SupportTicket {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  subject String
+  description String
+  status String @default("open")
+  priority String @default("medium")
+  userId String @db.ObjectId
+  assignedToId String? @db.ObjectId
+  productId String? @db.ObjectId
+  orderId String? @db.ObjectId
+  supplierId String? @db.ObjectId
+  notes String?
+  createdAt DateTime @default(now()) @db.Date
+  updatedAt DateTime? @db.Date
+  replies SupportTicketReply[]
+  @@index([userId])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([createdAt])
+}
+
+model SupportTicketReply {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  ticketId String @db.ObjectId
+  userId String @db.ObjectId
+  body String
+  createdAt DateTime @default(now()) @db.Date
+  supportTicket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  @@index([ticketId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ProductReview {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  productId String @db.ObjectId
+  userId String @db.ObjectId
+  orderId String? @db.ObjectId
+  orderItemId String? @db.ObjectId
+  productName String
+  productSku String?
+  rating Int
+  comment String
+  status String @default("pending")
+  createdAt DateTime @default(now()) @db.Date
+  updatedAt DateTime? @db.Date
+  @@index([productId])
+  @@index([orderId, productId, userId])
+  @@index([userId])
+  @@index([orderId])
+  @@index([status])
+  @@index([rating])
+  @@index([createdAt])
+}
+
+model SystemConfig {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  key String @unique
+  value String
+  type String @default("string")
+  label String
+  description String?
+  category String @default("general")
+  isPublic Boolean @default(false)
+  createdAt DateTime @default(now()) @db.Date
+  updatedAt DateTime? @db.Date
+  updatedBy String? @db.ObjectId
+  @@index([category])
+  @@index([isPublic])
+}
+
+model AuditLog {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  action String
+  entityType String
+  entityId String? @db.ObjectId
+  details Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now()) @db.Date
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+model CashMovement {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  type String
+  source String
+  amount Float
+  paymentMethod String
+  orderId String? @db.ObjectId
+  orderNumber String?
+  userId String @db.ObjectId
+  createdBy String @db.ObjectId
+  description String?
+  createdAt DateTime @default(now()) @db.Date
+  @@index([userId, createdAt])
+  @@index([orderId])
+}
+
+model SalePayment {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  orderId String @db.ObjectId
+  orderNumber String
+  userId String @db.ObjectId
+  recordedBy String @db.ObjectId
+  amount Float
+  paymentMethod String
+  status String @default("paid")
+  createdAt DateTime @default(now()) @db.Date
+  @@index([orderId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model InventoryMovement {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  productId String @db.ObjectId
+  warehouseId String @db.ObjectId
+  userId String @db.ObjectId
+  type String
+  quantity BigInt
+  previousStock BigInt
+  newStock BigInt
+  reason String?
+  referenceId String?
+  notes String?
+  createdAt DateTime @default(now()) @db.Date
+  @@index([userId, createdAt])
+  @@index([productId, createdAt])
+  @@index([warehouseId, createdAt])
+  @@index([type, createdAt])
+}
+
+model PurchaseOrder {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  purchaseNumber String @unique
+  supplierId String @db.ObjectId
+  userId String @db.ObjectId
+  status String @default("draft")
+  subtotal Float @default(0)
+  tax Float @default(0)
+  shipping Float @default(0)
+  total Float @default(0)
+  notes String?
+  orderedAt DateTime? @db.Date
+  receivedAt DateTime? @db.Date
+  createdAt DateTime @default(now()) @db.Date
+  updatedAt DateTime? @db.Date
+  createdBy String @db.ObjectId
+  updatedBy String? @db.ObjectId
+  items PurchaseOrderItem[]
+  @@index([userId, status, createdAt])
+  @@index([supplierId, createdAt])
+}
+
+model PurchaseOrderItem {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  purchaseOrderId String @db.ObjectId
+  productId String @db.ObjectId
+  productName String
+  sku String?
+  orderedQuantity Int
+  receivedQuantity Int @default(0)
+  unitCost Float
+  subtotal Float
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  @@index([purchaseOrderId])
+  @@index([productId])
+}
 
 model ServiceOrder {
-  id String @id @default(auto()) @map("_id")
+  id String @id @default(auto()) @map("_id") @db.ObjectId
   orderNumber String @unique
   userId String @db.ObjectId
   clientId String? @db.ObjectId
   technicianId String? @db.ObjectId
-  customerName String?
-  customerPhone String?
   deviceType String
   brand String
   model String
@@ -241,7 +456,6 @@ model ServiceOrder {
   total Float @default(0)
   amountPaid Float @default(0)
   amountDue Float @default(0)
-  statusHistory Json?
   estimatedDelivery DateTime?
   deliveredAt DateTime?
   warrantyDays Int @default(0)
@@ -258,11 +472,10 @@ model ServiceOrder {
   @@index([imei])
   @@index([serialNumber])
   @@index([technicianId, status])
-  @@index([customerPhone])
 }
 
 model ServiceOrderItem {
-  id String @id @default(auto()) @map("_id")
+  id String @id @default(auto()) @map("_id") @db.ObjectId
   serviceOrderId String @db.ObjectId
   productId String? @db.ObjectId
   warehouseId String? @db.ObjectId
@@ -281,7 +494,7 @@ model ServiceOrderItem {
 }
 
 model ServiceOrderPayment {
-  id String @id @default(auto()) @map("_id")
+  id String @id @default(auto()) @map("_id") @db.ObjectId
   serviceOrderId String @db.ObjectId
   userId String @db.ObjectId
   recordedBy String @db.ObjectId
