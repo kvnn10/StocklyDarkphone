@@ -3,7 +3,7 @@
  *
  * Inventory invariants:
  * - quantities may never become negative
- * - a transfer is atomic: source and destination change together
+ * - a transfer is atomic: source, destination and ledger entries change together
  * - Product.quantity mirrors the sum of warehouse allocations
  */
 
@@ -11,11 +11,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/prisma/client";
 import { mergeProductListWhere } from "@/lib/products/product-query";
 import { writeAuditLog } from "@/lib/audit/log";
-import type {
-  CreateStockAllocationInput,
-  UpdateStockAllocationInput,
-  CreateStockTransferInput,
-} from "@/types";
+import type { CreateStockAllocationInput, UpdateStockAllocationInput, CreateStockTransferInput } from "@/types";
 
 const asQuantity = (value: bigint | number) => {
   const quantity = Number(value);
@@ -49,7 +45,7 @@ export async function upsertStockAllocation(data: CreateStockAllocationInput, us
     const previousQuantity = existing ? Number(existing.quantity) : 0;
     const allocation = existing
       ? await tx.stockAllocation.update({ where: { id: existing.id }, data: { quantity: BigInt(quantity), updatedAt: new Date() } })
-      : await tx.stockAllocation.create({ data: { productId: data.productId, warehouseId: data.warehouseId, quantity: BigInt(quantity), userId, createdAt: new Date() } });
+      : await tx.stockAllocation.create({ data: { productId: data.productId, warehouseId: data.warehouseId, quantity: BigInt(quantity), reservedQuantity: 0n, userId, createdAt: new Date() } });
     await syncProductQuantity(data.productId, tx);
     return { allocation, product, warehouse, previousQuantity };
   });
@@ -117,12 +113,21 @@ export async function completeStockTransfer(id: string, userId: string) {
     if (!source) throw new Error("Source allocation no longer exists");
     const available = Number(source.quantity) - Number(source.reservedQuantity);
     if (available < quantity) throw new Error(`Insufficient stock. Available: ${available}, Requested: ${quantity}`);
+    const sourcePrevious = source.quantity;
     await tx.stockAllocation.update({ where: { id: source.id }, data: { quantity: { decrement: BigInt(quantity) }, updatedAt: new Date() } });
     const destination = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: current.productId, warehouseId: current.toWarehouseId } } });
+    const destinationPrevious = destination?.quantity ?? 0n;
     if (destination) await tx.stockAllocation.update({ where: { id: destination.id }, data: { quantity: { increment: BigInt(quantity) }, updatedAt: new Date() } });
-    else await tx.stockAllocation.create({ data: { productId: current.productId, warehouseId: current.toWarehouseId, quantity: BigInt(quantity), userId, createdAt: new Date() } });
+    else await tx.stockAllocation.create({ data: { productId: current.productId, warehouseId: current.toWarehouseId, quantity: BigInt(quantity), reservedQuantity: 0n, userId, createdAt: new Date() } });
     await syncProductQuantity(current.productId, tx);
-    return tx.stockTransfer.update({ where: { id }, data: { status: "completed", completedAt: new Date() } });
+    const now = new Date();
+    await tx.inventoryMovement.createMany({
+      data: [
+        { productId: current.productId, warehouseId: current.fromWarehouseId, userId, type: "transfer_out", quantity: -BigInt(quantity), previousStock: sourcePrevious, newStock: sourcePrevious - BigInt(quantity), reason: "Transferencia entre bodegas", referenceId: current.id, notes: current.notes ?? null, createdAt: now },
+        { productId: current.productId, warehouseId: current.toWarehouseId, userId, type: "transfer_in", quantity: BigInt(quantity), previousStock: destinationPrevious, newStock: destinationPrevious + BigInt(quantity), reason: "Transferencia entre bodegas", referenceId: current.id, notes: current.notes ?? null, createdAt: now },
+      ],
+    });
+    return tx.stockTransfer.update({ where: { id }, data: { status: "completed", completedAt: now } });
   });
   await writeAuditLog({ userId, action: "STOCK_TRANSFER_COMPLETED", entityType: "StockTransfer", entityId: id, details: { productId: transfer.productId, fromWarehouseId: transfer.fromWarehouseId, toWarehouseId: transfer.toWarehouseId, quantity: Number(transfer.quantity) } });
   return transfer;
