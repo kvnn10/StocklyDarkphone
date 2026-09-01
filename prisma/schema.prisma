@@ -358,9 +358,14 @@ model CashMovement {
   userId String @db.ObjectId
   createdBy String @db.ObjectId
   description String?
+  status String @default("active")
+  voidedAt DateTime? @db.Date
+  voidedBy String? @db.ObjectId
+  voidReason String?
   createdAt DateTime @default(now()) @db.Date
   @@index([userId, createdAt])
   @@index([orderId])
+  @@index([status, createdAt])
 }
 
 model SalePayment {
