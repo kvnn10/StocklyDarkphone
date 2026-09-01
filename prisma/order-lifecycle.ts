@@ -35,14 +35,15 @@ export async function getOrderByIdForClient(orderId: string, clientId: string) {
   return prisma.order.findFirst({ where: { id: orderId, OR: [{ clientId }, { clientId: null, userId: clientId }] }, include: clientInclude });
 }
 
-async function recordCashSale(orderId: string, userId: string, amount: number) {
+async function recordCashSale(orderId: string, userId: string, amount: number, tx?: Prisma.TransactionClient) {
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid sale amount");
-  const existing = await prisma.cashMovement.findFirst({
+  const db = tx ?? prisma;
+  const existing = await db.cashMovement.findFirst({
     where: { userId, orderId, source: CASH_SALE_SOURCE, status: { not: "voided" } },
   });
   if (existing) return existing;
 
-  return prisma.cashMovement.create({
+  return db.cashMovement.create({
     data: {
       type: "income",
       source: CASH_SALE_SOURCE,
@@ -182,23 +183,24 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
   const confirming = isFulfilled && !wasFulfilled && previousStatus === "pending";
   const reactivating = previousStatus === "cancelled" && isFulfilled;
   const paymentCaptured = nextPaid && !previousPaid;
-
-  if (confirming) await fulfillPendingOrderLines(items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null })));
+  const stockLines = items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null }));
 
   let updated;
-  if (cancelling || reactivating) {
+  if (confirming || cancelling || reactivating || paymentCaptured) {
     updated = await prisma.$transaction(async (tx) => {
+      if (confirming) await fulfillPendingOrderLines(stockLines, tx);
       if (cancelling && !wasFulfilled) await releasePendingStock(tx, items);
       if (cancelling && wasFulfilled) await restoreFulfilledStock(tx, items);
       if (reactivating) await consumeReactivatedStock(tx, items);
-      return tx.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
+      const result = await tx.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
+      if (paymentCaptured) await recordCashSale(orderId, userId, Number(result.total), tx);
+      return result;
     });
   } else {
     updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
   }
 
   if (paymentCaptured) {
-    await recordCashSale(orderId, userId, Number(updated.total));
     await writeAuditLog({ userId, action: "PAYMENT_CAPTURED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber, amount: Number(updated.total) } });
   }
   if (confirming) await writeAuditLog({ userId, action: "ORDER_CONFIRMED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber } });
