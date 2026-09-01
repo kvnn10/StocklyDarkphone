@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { getSessionFromRequest } from "@/utils/auth";
-import { getSessionFromRequest as sessionFromRequest } from "@/utils/auth";
 import { writeAuditLog } from "@/lib/audit/log";
 import { prisma } from "@/prisma/client";
 
@@ -54,7 +53,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await sessionFromRequest(request);
+  const session = await getSessionFromRequest(request);
   if (!session || !allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   try {
     const body = await request.json();
@@ -131,15 +130,24 @@ export async function PUT(request: NextRequest) {
       if (!warehouseId) return NextResponse.json({ error: "Selecciona la bodega antes de descontar inventario" }, { status: 400 });
       const warehouse = await prisma.warehouse.findFirst({ where: { id: warehouseId, userId: session.id, status: true } });
       if (!warehouse) return NextResponse.json({ error: "La bodega seleccionada no existe, está inactiva o no pertenece a tu cuenta" }, { status: 400 });
-      await prisma.$transaction(async tx => {
-        const product = await tx.product.findFirst({ where: { id: item.productId!, userId: session.id, deletedAt: null } });
-        if (!product) throw new Error("Producto no encontrado");
-        const qty = BigInt(item.quantity);
-        const updated = await tx.product.updateMany({ where: { id: product.id, userId: session.id, quantity: { gte: qty } }, data: { quantity: { decrement: qty }, updatedAt: new Date(), updatedBy: session.id } });
-        if (updated.count !== 1) throw new Error(`Stock insuficiente. Disponible: ${product.quantity.toString()}`);
-        await tx.serviceOrderItem.update({ where: { id: item.id }, data: { inventoryApplied: true, warehouseId } });
-        await tx.inventoryMovement.create({ data: { productId: product.id, warehouseId, userId: session.id, type: "exit", quantity: qty, previousStock: product.quantity, newStock: product.quantity - qty, reason: "service_order", referenceId: id, notes: existing.orderNumber } });
-      });
+      try {
+        await prisma.$transaction(async tx => {
+          const product = await tx.product.findFirst({ where: { id: item.productId!, userId: session.id, deletedAt: null } });
+          if (!product) throw new Error("Producto no encontrado");
+          const qty = BigInt(item.quantity);
+          const allocation = await tx.stockAllocation.findFirst({ where: { productId: product.id, warehouseId, userId: session.id } });
+          if (!allocation) throw new Error("No existe stock asignado de este producto en la bodega seleccionada");
+          const allocated = await tx.stockAllocation.updateMany({ where: { id: allocation.id, productId: product.id, warehouseId, userId: session.id, quantity: { gte: qty } }, data: { quantity: { decrement: qty }, updatedAt: new Date() } });
+          if (allocated.count !== 1) throw new Error(`Stock insuficiente en la bodega seleccionada. Disponible: ${allocation.quantity.toString()}`);
+          const updated = await tx.product.updateMany({ where: { id: product.id, userId: session.id, deletedAt: null, quantity: { gte: qty } }, data: { quantity: { decrement: qty }, updatedAt: new Date(), updatedBy: session.id } });
+          if (updated.count !== 1) throw new Error(`Stock global insuficiente. Disponible: ${product.quantity.toString()}`);
+          await tx.serviceOrderItem.update({ where: { id: item.id }, data: { inventoryApplied: true, warehouseId } });
+          await tx.inventoryMovement.create({ data: { productId: product.id, warehouseId, userId: session.id, type: "exit", quantity: qty, previousStock: product.quantity, newStock: product.quantity - qty, reason: "service_order", referenceId: id, notes: existing.orderNumber } });
+        });
+      } catch (error: any) {
+        if (error?.message === "Producto no encontrado" || error?.message === "No existe stock asignado de este producto en la bodega seleccionada" || error?.message?.startsWith("Stock insuficiente") || error?.message?.startsWith("Stock global insuficiente")) return NextResponse.json({ error: error.message }, { status: 400 });
+        throw error;
+      }
       const m = meta(existing.accessories);
       await prisma.serviceOrder.update({ where: { id }, data: { accessories: { ...m, partWarehouses: { ...(m.partWarehouses ?? {}), [partId]: warehouse.name } }, updatedAt: new Date(), updatedBy: session.id } });
       await writeAuditLog({ userId: session.id, action: "SERVICE_PART_CONSUMED", entityType: "ServiceOrder", entityId: id, details: { partId, productId: item.productId, quantity: item.quantity, warehouseId } });
@@ -149,15 +157,23 @@ export async function PUT(request: NextRequest) {
     if (action === "payment") {
       const amount = money(body.amount), method = typeof body.paymentMethod === "string" ? body.paymentMethod.trim() : "";
       if (amount === null || amount <= 0 || !method) return NextResponse.json({ error: "Pago inválido" }, { status: 400 });
-      if (amount > existing.amountDue) return NextResponse.json({ error: "El pago supera el saldo pendiente" }, { status: 400 });
-      const saved = await prisma.$transaction(async tx => {
-        const nextPaid = existing.amountPaid + amount;
-        await tx.serviceOrderPayment.create({ data: { serviceOrderId: id, userId: session.id, recordedBy: session.id, amount, paymentMethod: method } });
-        await tx.cashMovement.create({ data: { type: "income", source: "service_order", amount, paymentMethod: method, orderId: id, orderNumber: existing.orderNumber, userId: session.id, createdBy: session.id, description: `Abono ${existing.orderNumber}` } });
-        return tx.serviceOrder.update({ where: { id }, data: { amountPaid: nextPaid, amountDue: existing.total - nextPaid, updatedAt: new Date(), updatedBy: session.id }, include: { items: true, payments: true } });
-      });
-      await writeAuditLog({ userId: session.id, action: "SERVICE_PAYMENT_RECORDED", entityType: "ServiceOrder", entityId: id, details: { amount, paymentMethod: method } });
-      return NextResponse.json(legacyOrder(saved));
+      try {
+        const saved = await prisma.$transaction(async tx => {
+          const current = await tx.serviceOrder.findFirst({ where: { id, userId: session.id } });
+          if (!current) throw new Error("Orden no encontrada");
+          if (amount > current.amountDue) throw new Error("El pago supera el saldo pendiente");
+          const updated = await tx.serviceOrder.updateMany({ where: { id, userId: session.id, amountDue: { gte: amount } }, data: { amountPaid: { increment: amount }, amountDue: { decrement: amount }, updatedAt: new Date(), updatedBy: session.id } });
+          if (updated.count !== 1) throw new Error("El saldo cambió mientras se registraba el pago. Intenta nuevamente");
+          await tx.serviceOrderPayment.create({ data: { serviceOrderId: id, userId: session.id, recordedBy: session.id, amount, paymentMethod: method } });
+          await tx.cashMovement.create({ data: { type: "income", source: "service_order", amount, paymentMethod: method, orderId: id, orderNumber: current.orderNumber, userId: session.id, createdBy: session.id, description: `Abono ${current.orderNumber}` } });
+          return tx.serviceOrder.findUnique({ where: { id }, include: { items: true, payments: true } });
+        });
+        await writeAuditLog({ userId: session.id, action: "SERVICE_PAYMENT_RECORDED", entityType: "ServiceOrder", entityId: id, details: { amount, paymentMethod: method } });
+        return NextResponse.json(legacyOrder(saved));
+      } catch (error: any) {
+        if (error?.message === "Orden no encontrada" || error?.message === "El pago supera el saldo pendiente" || error?.message === "El saldo cambió mientras se registraba el pago. Intenta nuevamente") return NextResponse.json({ error: error.message }, { status: error?.message === "Orden no encontrada" ? 404 : 400 });
+        throw error;
+      }
     }
 
     const currentMeta = meta(existing.accessories);
