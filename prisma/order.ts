@@ -45,8 +45,9 @@ export type CreateOrderParty = { storeOwnerUserId: string; createdByUserId: stri
 
 export async function createOrder(data: CreateOrderInput, party: CreateOrderParty) {
   const orderNumber = await generateOrderNumber(); let subtotal = 0;
-  const orderItemsData = [];
+  const orderItemsData: Array<{ productId: string; productName: string; sku: string | null; quantity: number; price: number; purchasePrice: number; subtotal: number; warehouseId: string | null; warehouseName: string | null }> = [];
   const productsToReserve: { id: string; qty: number; warehouseId: string | null }[] = [];
+
   for (const item of data.items) {
     const product = await prisma.product.findUnique({ where: { id: item.productId } });
     if (!product || product.deletedAt != null) throw new Error(`Product not found: ${item.productId}`);
@@ -68,14 +69,60 @@ export async function createOrder(data: CreateOrderInput, party: CreateOrderPart
     orderItemsData.push({ productId: item.productId, productName: product.name, sku: product.sku, quantity: item.quantity, price, purchasePrice, subtotal: lineSubtotal, warehouseId, warehouseName });
     productsToReserve.push({ id: item.productId, qty: item.quantity, warehouseId });
   }
+
   const tax = data.tax || 0; const shipping = data.shipping || 0; const discount = data.discount || 0; const total = subtotal + tax + shipping - discount;
-  const order = await prisma.order.create({ data: { orderNumber, userId: party.storeOwnerUserId, clientId: party.clientId, status: "pending", paymentStatus: "unpaid", subtotal, tax: tax > 0 ? tax : null, shipping: shipping > 0 ? shipping : null, discount: discount > 0 ? discount : null, total, shippingAddress: data.shippingAddress ? (JSON.parse(JSON.stringify(data.shippingAddress)) as Prisma.InputJsonValue) : null, billingAddress: data.billingAddress ? (JSON.parse(JSON.stringify(data.billingAddress)) as Prisma.InputJsonValue) : null, notes: data.notes || null, createdBy: party.createdByUserId, items: { create: orderItemsData } }, include: { items: true } });
-  try {
-    await reservePendingOrderLines(productsToReserve.map((p) => ({ productId: p.id, quantity: p.qty, warehouseId: p.warehouseId })));
-  } catch (reservationError) {
-    try { await prisma.order.delete({ where: { id: order.id } }); } catch (cleanupError) { logger.error("Failed to remove order after reservation failure", { orderId: order.id, orderNumber: order.orderNumber, error: cleanupError }); }
-    throw reservationError;
-  }
+
+  const order = await prisma.$transaction(async (tx) => {
+    const createdOrder = await tx.order.create({
+      data: {
+        orderNumber,
+        userId: party.storeOwnerUserId,
+        clientId: party.clientId,
+        status: "pending",
+        paymentStatus: "unpaid",
+        subtotal,
+        tax: tax > 0 ? tax : null,
+        shipping: shipping > 0 ? shipping : null,
+        discount: discount > 0 ? discount : null,
+        total,
+        shippingAddress: data.shippingAddress ? (JSON.parse(JSON.stringify(data.shippingAddress)) as Prisma.InputJsonValue) : null,
+        billingAddress: data.billingAddress ? (JSON.parse(JSON.stringify(data.billingAddress)) as Prisma.InputJsonValue) : null,
+        notes: data.notes || null,
+        createdBy: party.createdByUserId,
+        items: { create: orderItemsData },
+      },
+      include: { items: true },
+    });
+
+    for (const line of productsToReserve) {
+      if (line.warehouseId) {
+        const allocation = await tx.stockAllocation.findUnique({
+          where: { productId_warehouseId: { productId: line.id, warehouseId: line.warehouseId } },
+          select: { id: true, quantity: true, reservedQuantity: true },
+        });
+        if (!allocation) throw new Error(`No stock allocation for product ${line.id} at warehouse ${line.warehouseId}`);
+        const available = Number(allocation.quantity) - Number(allocation.reservedQuantity ?? 0);
+        if (available < line.qty) throw new Error(`Insufficient available stock at warehouse ${line.warehouseId}`);
+        const result = await tx.stockAllocation.updateMany({
+          where: { id: allocation.id, quantity: allocation.quantity, reservedQuantity: allocation.reservedQuantity },
+          data: { reservedQuantity: { increment: line.qty }, updatedAt: new Date() },
+        });
+        if (result.count !== 1) throw new Error(`Stock changed while reserving product ${line.id}; please retry the order.`);
+      } else {
+        const product = await tx.product.findUnique({ where: { id: line.id }, select: { id: true, quantity: true, reservedQuantity: true } });
+        if (!product) throw new Error(`Product ${line.id} not found`);
+        if (Number(product.quantity) - Number(product.reservedQuantity ?? 0) < line.qty) throw new Error(`Insufficient available stock for product ${line.id}`);
+        const result = await tx.product.updateMany({
+          where: { id: product.id, quantity: product.quantity, reservedQuantity: product.reservedQuantity },
+          data: { reservedQuantity: { increment: line.qty }, updatedAt: new Date() },
+        });
+        if (result.count !== 1) throw new Error(`Stock changed while reserving product ${line.id}; please retry the order.`);
+      }
+    }
+
+    return createdOrder;
+  });
+
   await Promise.all([invalidateCache(cacheKeys.products.pattern), invalidateCache(cacheKeys.stockAllocation.pattern)]).catch((error) => console.error("Failed to invalidate product cache after order creation:", error));
   return order;
 }
