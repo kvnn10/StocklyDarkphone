@@ -3,6 +3,10 @@ import { getSessionFromRequest } from "@/utils/auth";
 import { prisma } from "@/prisma/client";
 
 const n = (v: unknown) => Number(v ?? 0);
+const finiteNonNegative = (v: unknown) => {
+  const value = n(v);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+};
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -21,17 +25,21 @@ export async function POST(request: NextRequest) {
   const productIds = body.items.map((i: any) => i.productId).filter(Boolean);
   const products = await prisma.product.findMany({ where: { id: { in: productIds }, userId: session.id, deletedAt: null } });
   const byId = new Map(products.map((p) => [p.id, p]));
-  const items = body.items.map((i: any) => {
-    const p = byId.get(i.productId);
-    if (!p) throw new Error(`Producto no encontrado: ${i.productId}`);
-    const qty = Math.max(1, Math.floor(n(i.quantity)));
-    const unitCost = Math.max(0, n(i.unitCost));
-    return { productId: p.id, productName: p.name, sku: p.sku, orderedQuantity: qty, receivedQuantity: 0, unitCost, subtotal: qty * unitCost };
-  });
-  const subtotal = items.reduce((s: number, i: any) => s + i.subtotal, 0);
-  const shipping = Math.max(0, n(body.shipping));
-  const tax = Math.max(0, n(body.tax));
-  const total = Math.max(0, subtotal + shipping + tax);
+  const items: Array<{ productId: string; productName: string; sku: string | null; orderedQuantity: number; receivedQuantity: number; unitCost: number; subtotal: number }> = [];
+  for (const item of body.items) {
+    const p = byId.get(item.productId);
+    if (!p) return NextResponse.json({ error: `Producto no encontrado: ${item.productId}` }, { status: 400 });
+    const quantity = finiteNonNegative(item.quantity);
+    const unitCost = finiteNonNegative(item.unitCost);
+    if (quantity === null || !Number.isInteger(quantity) || quantity < 1) return NextResponse.json({ error: `Cantidad inválida para el producto: ${p.name}` }, { status: 400 });
+    if (unitCost === null) return NextResponse.json({ error: `Costo unitario inválido para el producto: ${p.name}` }, { status: 400 });
+    items.push({ productId: p.id, productName: p.name, sku: p.sku, orderedQuantity: quantity, receivedQuantity: 0, unitCost, subtotal: quantity * unitCost });
+  }
+  const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
+  const shipping = finiteNonNegative(body.shipping);
+  const tax = finiteNonNegative(body.tax);
+  if (shipping === null || tax === null) return NextResponse.json({ error: "Envío e impuestos deben ser valores numéricos válidos" }, { status: 400 });
+  const total = subtotal + shipping + tax;
   const purchaseNumber = `OC-${new Date().getFullYear()}-${Date.now().toString().slice(-7)}`;
   const order = await prisma.purchaseOrder.create({ data: { purchaseNumber, supplierId: supplier.id, userId: session.id, status: "draft", subtotal, shipping, tax, total, notes: body.notes || null, createdBy: session.id, items: { create: items } }, include: { items: true } });
   return NextResponse.json(order, { status: 201 });
@@ -68,25 +76,18 @@ export async function PATCH(request: NextRequest) {
       }
       const product = await tx.product.findFirst({ where: { id: item.productId, userId: session.id, deletedAt: null } });
       if (!product) throw new Error(`Producto no encontrado: ${item.productName}`);
-
       const oldGlobalQty = n(product.quantity);
       const oldCost = n(product.purchasePrice);
       const newGlobalQty = oldGlobalQty + qty;
       const weightedCost = newGlobalQty > 0 ? ((oldGlobalQty * oldCost) + (qty * item.unitCost)) / newGlobalQty : item.unitCost;
-
       const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: product.id, warehouseId: warehouse.id } } });
       const previousWarehouseStock = allocation?.quantity ?? 0n;
       const newWarehouseStock = previousWarehouseStock + BigInt(qty);
-      if (allocation) {
-        await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: newWarehouseStock, updatedAt: new Date() } });
-      } else {
-        await tx.stockAllocation.create({ data: { productId: product.id, warehouseId: warehouse.id, userId: session.id, quantity: newWarehouseStock, reservedQuantity: 0n, createdAt: new Date() } });
-      }
-
+      if (allocation) await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: newWarehouseStock, updatedAt: new Date() } });
+      else await tx.stockAllocation.create({ data: { productId: product.id, warehouseId: warehouse.id, userId: session.id, quantity: newWarehouseStock, reservedQuantity: 0n, createdAt: new Date() } });
       const allocations = await tx.stockAllocation.findMany({ where: { productId: product.id }, select: { quantity: true } });
       const totalStock = allocations.reduce((sum, row) => sum + row.quantity, 0n);
       await tx.product.update({ where: { id: product.id }, data: { quantity: totalStock, purchasePrice: weightedCost, updatedAt: new Date(), updatedBy: session.id } });
-
       const nextReceived = item.receivedQuantity + qty;
       await tx.purchaseOrderItem.update({ where: { id: item.id }, data: { receivedQuantity: nextReceived } });
       await tx.inventoryMovement.create({ data: { productId: product.id, warehouseId: warehouse.id, userId: session.id, type: "entry", quantity: BigInt(qty), previousStock: previousWarehouseStock, newStock: newWarehouseStock, reason: "Recepción de compra", referenceId: order.id, notes: `${order.purchaseNumber} · ${item.productName}` } });
