@@ -13,7 +13,7 @@ import { prisma } from "@/prisma/client";
 import { getReservedCommitment } from "@/lib/stock-allocation/catalog-quantity-reconcile";
 import type { CatalogReconcileAllocationRow } from "@/lib/stock-allocation/catalog-quantity-reconcile";
 import { planAllocationDecrements } from "@/lib/products/plan-allocation-decrements";
-import { fulfillAllocationFromPick, releaseAllocationReservation, reserveAllocationForOrderItem } from "@/lib/products/stock-allocation-order-sync";
+import { releaseAllocationReservation, reserveAllocationForOrderItem } from "@/lib/products/stock-allocation-order-sync";
 
 export type OrderStockLine = { productId: string; quantity: number; warehouseId?: string | null };
 
@@ -30,7 +30,6 @@ export function getAvailableCatalogForOrder(
   return Math.max(0, productQty - committed);
 }
 
-/** Pending create — reserve on exactly one path per line. */
 export async function reservePendingOrderLine(line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
   if (line.warehouseId) {
@@ -53,7 +52,6 @@ export async function reservePendingOrderLine(line: OrderStockLine): Promise<voi
   throw new Error("Stock changed while reserving the product; please retry the order.");
 }
 
-/** Pending cancel — release only a reservation that is actually present. */
 export async function releasePendingOrderLine(line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
   if (line.warehouseId) {
@@ -74,10 +72,6 @@ export async function releasePendingOrderLine(line: OrderStockLine): Promise<voi
   throw new Error("Stock changed while releasing the reservation; please retry.");
 }
 
-/**
- * Pending → confirmed/paid — deduct catalog and clear reservation atomically.
- * Product stock, warehouse allocation and Kardex movement are committed together.
- */
 export async function fulfillPendingOrderLine(line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
 
@@ -85,7 +79,7 @@ export async function fulfillPendingOrderLine(line: OrderStockLine): Promise<voi
     if (line.warehouseId) {
       const product = await tx.product.findUnique({
         where: { id: line.productId },
-        select: { quantity: true },
+        select: { id: true, quantity: true },
       });
       if (!product || Number(product.quantity) < line.quantity) {
         throw new Error(`Insufficient product stock for ${line.productId}`);
@@ -186,11 +180,6 @@ export async function fulfillPendingOrderLine(line: OrderStockLine): Promise<voi
   });
 }
 
-/**
- * Reserve every line as one logical operation. If a later line fails, release
- * every reservation already created by this call so we never leave partial
- * stock reservations behind.
- */
 export async function reservePendingOrderLines(lines: OrderStockLine[]): Promise<void> {
   const reserved: OrderStockLine[] = [];
   try {
@@ -202,12 +191,7 @@ export async function reservePendingOrderLines(lines: OrderStockLine[]): Promise
     for (let index = reserved.length - 1; index >= 0; index -= 1) {
       const reservedLine = reserved[index];
       if (!reservedLine) continue;
-      try {
-        await releasePendingOrderLine(reservedLine);
-      } catch {
-        // Preserve the original reservation failure; reconciliation can repair
-        // an exceptional release failure without masking the cause.
-      }
+      try { await releasePendingOrderLine(reservedLine); } catch { /* reconciliation can repair exceptional release failures */ }
     }
     throw error;
   }
