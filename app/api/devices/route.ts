@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
   const name = typeof body.name === "string" ? body.name.trim() : `${brand} ${model}`.trim();
   const imei = typeof body.imei === "string" ? body.imei.trim() : "";
   const serial = typeof body.serial === "string" ? body.serial.trim() : "";
+  const phonePasscode = typeof body.phonePasscode === "string" ? body.phonePasscode.trim() : "";
   if (!clientId || !name || (!imei && !serial)) return NextResponse.json({ error: "Cliente, equipo y al menos IMEI o serial son obligatorios" }, { status: 400 });
   const client = await db();
   try {
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     if (serial) duplicateQuery.$or.push({ serial });
     if (duplicateQuery.$or.length && await devices.findOne(duplicateQuery)) return NextResponse.json({ error: "Ya existe un equipo con ese IMEI o serial" }, { status: 409 });
     const now = new Date();
-    const device = { userId: session.id, clientId, clientName: user.name, clientEmail: user.email ?? "", name, brand, model, imei, serial, color: typeof body.color === "string" ? body.color.trim() : "", storage: typeof body.storage === "string" ? body.storage.trim() : "", notes: typeof body.notes === "string" ? body.notes.trim() : "", status: "active", createdAt: now, updatedAt: now, createdBy: session.id, updatedBy: session.id };
+    const device = { userId: session.id, clientId, clientName: user.name, clientEmail: user.email ?? "", name, brand, model, imei, serial, phonePasscode, color: typeof body.color === "string" ? body.color.trim() : "", storage: typeof body.storage === "string" ? body.storage.trim() : "", notes: typeof body.notes === "string" ? body.notes.trim() : "", status: "active", createdAt: now, updatedAt: now, createdBy: session.id, updatedBy: session.id };
     const result = await devices.insertOne(device);
     await writeAuditLog({ userId: session.id, action: "CUSTOMER_DEVICE_CREATED", entityType: "CustomerDevice", entityId: String(result.insertedId), details: { clientId, name, imei, serial } });
     return NextResponse.json({ ...device, _id: result.insertedId }, { status: 201 });
@@ -77,9 +78,11 @@ export async function PUT(request: NextRequest) {
     const devices = client.db().collection("CustomerDevice"), existing = await devices.findOne({ _id: new ObjectId(id), userId: session.id, archivedAt: { $exists: false } });
     if (!existing) return NextResponse.json({ error: "Equipo no encontrado" }, { status: 404 });
     const update: any = { updatedAt: new Date(), updatedBy: session.id };
-    for (const key of ["name", "brand", "model", "imei", "serial", "color", "storage", "notes", "status"]) if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
+    for (const key of ["name", "brand", "model", "imei", "serial", "phonePasscode", "color", "storage", "notes", "status"]) if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
     await devices.updateOne({ _id: existing._id }, { $set: update });
-    await writeAuditLog({ userId: session.id, action: "CUSTOMER_DEVICE_UPDATED", entityType: "CustomerDevice", entityId: id, details: update });
+    const auditUpdate = { ...update };
+    delete auditUpdate.phonePasscode;
+    await writeAuditLog({ userId: session.id, action: "CUSTOMER_DEVICE_UPDATED", entityType: "CustomerDevice", entityId: id, details: auditUpdate });
     return NextResponse.json(await devices.findOne({ _id: existing._id }));
   } finally { await client.close(); }
 }
