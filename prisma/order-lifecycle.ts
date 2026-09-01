@@ -194,7 +194,7 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
       return tx.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
     });
   } else {
-    updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } });
+    updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
   }
 
   if (paymentCaptured) {
