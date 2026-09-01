@@ -53,6 +53,7 @@ export async function PATCH(request: NextRequest) {
   if (!order) return NextResponse.json({ error: "Orden no encontrada" }, { status: 404 });
   if (["received", "cancelled"].includes(order.status)) return NextResponse.json({ error: "La orden ya está cerrada" }, { status: 409 });
   if (body.status === "cancelled") {
+    if (order.status !== "draft") return NextResponse.json({ error: "No se puede cancelar una orden que ya tiene mercancía recibida. Gestiona una devolución del inventario recibido." }, { status: 409 });
     const updated = await prisma.purchaseOrder.update({ where: { id: order.id }, data: { status: "cancelled", updatedAt: new Date(), updatedBy: session.id }, include: { items: true } });
     return NextResponse.json(updated);
   }
