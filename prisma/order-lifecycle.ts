@@ -34,9 +34,18 @@ export async function getOrderByIdForSupplier(orderId: string, supplierId: strin
 
 const clientInclude = { items: { include: { product: { select: detailProductSelect } } } } as const;
 export async function getOrderByIdForClient(orderId: string, clientId: string) {
-  const own = await prisma.order.findFirst({ where: { id: orderId, clientId }, include: clientInclude });
-  if (own) return own;
-  return prisma.order.findFirst({ where: { id: orderId, items: { some: {} } }, include: clientInclude });
+  // Clients may only access orders explicitly linked to them. For legacy orders
+  // created before clientId was populated, userId is the buyer/store account.
+  return prisma.order.findFirst({
+    where: {
+      id: orderId,
+      OR: [
+        { clientId },
+        { clientId: null, userId: clientId },
+      ],
+    },
+    include: clientInclude,
+  });
 }
 
 async function recordCashSale(orderId: string, userId: string, amount: number) {
@@ -47,18 +56,7 @@ async function recordCashSale(orderId: string, userId: string, amount: number) {
     const collection = client.db().collection("CashMovement");
     const existing = await collection.findOne({ userId, orderId, source: CASH_SALE_SOURCE, status: { $ne: "voided" } });
     if (existing) return existing;
-    const movement = {
-      type: "income",
-      source: CASH_SALE_SOURCE,
-      orderId,
-      amount,
-      paymentMethod: "other",
-      userId,
-      createdBy: userId,
-      description: "Venta",
-      status: "active",
-      createdAt: new Date(),
-    };
+    const movement = { type: "income", source: CASH_SALE_SOURCE, orderId, amount, paymentMethod: "other", userId, createdBy: userId, description: "Venta", status: "active", createdAt: new Date() };
     const result = await collection.insertOne(movement);
     return { ...movement, _id: result.insertedId };
   } finally { await client.close(); }
@@ -74,18 +72,7 @@ async function recordCashRefund(orderId: string, userId: string, amount: number)
     if (existing) return existing;
     const sale = await collection.findOne({ userId, orderId, source: CASH_SALE_SOURCE, status: { $ne: "voided" } });
     const paymentMethod = typeof sale?.paymentMethod === "string" && CASH_METHODS.has(sale.paymentMethod) ? sale.paymentMethod : "other";
-    const movement = {
-      type: "expense",
-      source: CASH_REFUND_SOURCE,
-      orderId,
-      amount,
-      paymentMethod,
-      userId,
-      createdBy: userId,
-      description: "Reembolso de venta",
-      status: "active",
-      createdAt: new Date(),
-    };
+    const movement = { type: "expense", source: CASH_REFUND_SOURCE, orderId, amount, paymentMethod, userId, createdBy: userId, description: "Reembolso de venta", status: "active", createdAt: new Date() };
     const result = await collection.insertOne(movement);
     return { ...movement, _id: result.insertedId };
   } finally { await client.close(); }
