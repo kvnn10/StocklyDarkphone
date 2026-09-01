@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Smartphone, Search, Plus, UserRound, ShieldCheck } from "lucide-react";
+import { Smartphone, Search, Plus, ShieldCheck } from "lucide-react";
 
 type Client = { _id: string; name: string; email?: string };
-type Device = { _id: string; clientId: string; clientName: string; name: string; brand?: string; model?: string; imei?: string; serial?: string; color?: string; storage?: string; notes?: string; status?: string };
+type Device = { _id: string; clientId: string; clientName: string; name: string; brand?: string; model?: string; imei?: string; serial?: string; phonePasscode?: string; color?: string; storage?: string; notes?: string; status?: string };
 
 export default function AdminDevicesPage() {
   const [devices, setDevices] = useState<Device[]>([]);
@@ -13,7 +13,7 @@ export default function AdminDevicesPage() {
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
-  const [form, setForm] = useState({ clientId: "", brand: "", model: "", imei: "", serial: "", color: "", storage: "", notes: "" });
+  const [form, setForm] = useState({ clientId: "", brand: "", model: "", imei: "", serial: "", phonePasscode: "", color: "", storage: "", notes: "" });
 
   async function load() {
     const res = await fetch(`/api/devices?search=${encodeURIComponent(search)}`, { cache: "no-store" });
@@ -33,7 +33,7 @@ export default function AdminDevicesPage() {
     try {
       const res = await fetch("/api/devices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
       const data = await res.json(); if (!res.ok) throw new Error(data.error || "No se pudo registrar el equipo");
-      setMessage("Equipo registrado correctamente."); setForm({ clientId: "", brand: "", model: "", imei: "", serial: "", color: "", storage: "", notes: "" }); setShowForm(false); await load();
+      setMessage("Equipo registrado correctamente."); setForm({ clientId: "", brand: "", model: "", imei: "", serial: "", phonePasscode: "", color: "", storage: "", notes: "" }); setShowForm(false); await load();
     } catch (e) { setMessage(e instanceof Error ? e.message : "Error registrando equipo"); }
     finally { setLoading(false); }
   }
@@ -52,6 +52,7 @@ export default function AdminDevicesPage() {
         <input className="rounded-lg border bg-background p-2" placeholder="Modelo" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
         <input className="rounded-lg border bg-background p-2" placeholder="IMEI" value={form.imei} onChange={e => setForm({ ...form, imei: e.target.value })} />
         <input className="rounded-lg border bg-background p-2" placeholder="Serial" value={form.serial} onChange={e => setForm({ ...form, serial: e.target.value })} />
+        <input className="rounded-lg border bg-background p-2" type="number" inputMode="numeric" min="0" step="1" placeholder="Clave del teléfono (opcional)" value={form.phonePasscode} onChange={e => setForm({ ...form, phonePasscode: e.target.value })} />
         <input className="rounded-lg border bg-background p-2" placeholder="Color" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} />
         <input className="rounded-lg border bg-background p-2" placeholder="Capacidad" value={form.storage} onChange={e => setForm({ ...form, storage: e.target.value })} />
         <input className="rounded-lg border bg-background p-2" placeholder="Notas" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
