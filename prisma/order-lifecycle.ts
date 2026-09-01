@@ -4,9 +4,8 @@ import type { UpdateOrderInput } from "@/types/order";
 import { createStripeRefund } from "@/lib/stripe";
 import { orderCancelShouldRefundPayment } from "@/lib/orders/cancel-payment";
 import { invalidateCache, cacheKeys } from "@/lib/cache";
-import { decrementStockAllocations } from "@/lib/products/decrement-stock-allocations";
 import { fulfillPendingOrderLines, releasePendingOrderLines } from "@/lib/products/order-stock-reservation";
-import { syncRestoreConfirmedOrderAllocations, syncFulfillReactivatedOrderAllocations } from "@/lib/products/stock-allocation-order-sync";
+import { planAllocationDecrements } from "@/lib/products/plan-allocation-decrements";
 import { logger } from "@/lib/logger";
 import { writeAuditLog } from "@/lib/audit/log";
 import { MongoClient } from "mongodb";
@@ -34,18 +33,7 @@ export async function getOrderByIdForSupplier(orderId: string, supplierId: strin
 
 const clientInclude = { items: { include: { product: { select: detailProductSelect } } } } as const;
 export async function getOrderByIdForClient(orderId: string, clientId: string) {
-  // Clients may only access orders explicitly linked to them. For legacy orders
-  // created before clientId was populated, userId is the buyer/store account.
-  return prisma.order.findFirst({
-    where: {
-      id: orderId,
-      OR: [
-        { clientId },
-        { clientId: null, userId: clientId },
-      ],
-    },
-    include: clientInclude,
-  });
+  return prisma.order.findFirst({ where: { id: orderId, OR: [{ clientId }, { clientId: null, userId: clientId }] }, include: clientInclude });
 }
 
 async function recordCashSale(orderId: string, userId: string, amount: number) {
@@ -78,6 +66,72 @@ async function recordCashRefund(orderId: string, userId: string, amount: number)
   } finally { await client.close(); }
 }
 
+type OrderItemStock = { productId: string; quantity: number; warehouseId?: string | null };
+
+async function restoreFulfilledStock(tx: Prisma.TransactionClient, items: OrderItemStock[]) {
+  for (const item of items) {
+    const product = await tx.product.findUnique({ where: { id: item.productId }, select: { id: true, quantity: true } });
+    if (!product) throw new Error(`Product ${item.productId} not found`);
+    const productResult = await tx.product.updateMany({ where: { id: product.id, quantity: product.quantity }, data: { quantity: { increment: item.quantity }, updatedAt: new Date() } });
+    if (productResult.count !== 1) throw new Error(`Stock changed while restoring product ${item.productId}; please retry.`);
+
+    if (item.warehouseId) {
+      const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: item.warehouseId } }, select: { id: true, quantity: true, reservedQuantity: true, userId: true } });
+      if (!allocation) throw new Error(`No stock allocation for product ${item.productId} at warehouse ${item.warehouseId}`);
+      const previousStock = allocation.quantity;
+      const result = await tx.stockAllocation.updateMany({ where: { id: allocation.id, quantity: allocation.quantity }, data: { quantity: { increment: item.quantity }, updatedAt: new Date() } });
+      if (result.count !== 1) throw new Error(`Warehouse stock changed while restoring product ${item.productId}; please retry.`);
+      await tx.inventoryMovement.create({ data: { productId: item.productId, warehouseId: item.warehouseId, userId: allocation.userId, type: "entry", quantity: BigInt(item.quantity), previousStock, newStock: previousStock + BigInt(item.quantity), reason: "Reintegro por cancelación de pedido", referenceId: null, notes: null, createdAt: new Date() } });
+    }
+  }
+}
+
+async function releasePendingStock(tx: Prisma.TransactionClient, items: OrderItemStock[]) {
+  for (const item of items) {
+    if (item.warehouseId) {
+      const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: item.warehouseId } }, select: { id: true, reservedQuantity: true } });
+      if (!allocation || Number(allocation.reservedQuantity ?? 0) < item.quantity) throw new Error(`Cannot release ${item.quantity} reserved units for product ${item.productId}`);
+      const result = await tx.stockAllocation.updateMany({ where: { id: allocation.id, reservedQuantity: allocation.reservedQuantity }, data: { reservedQuantity: { decrement: item.quantity }, updatedAt: new Date() } });
+      if (result.count !== 1) throw new Error(`Warehouse reservation changed for product ${item.productId}; please retry.`);
+    } else {
+      const product = await tx.product.findUnique({ where: { id: item.productId }, select: { id: true, reservedQuantity: true } });
+      if (!product || Number(product.reservedQuantity ?? 0) < item.quantity) throw new Error(`Cannot release ${item.quantity} reserved units for product ${item.productId}`);
+      const result = await tx.product.updateMany({ where: { id: product.id, reservedQuantity: product.reservedQuantity }, data: { reservedQuantity: { decrement: item.quantity }, updatedAt: new Date() } });
+      if (result.count !== 1) throw new Error(`Product reservation changed for ${item.productId}; please retry.`);
+    }
+  }
+}
+
+async function consumeReactivatedStock(tx: Prisma.TransactionClient, items: OrderItemStock[]) {
+  for (const item of items) {
+    const product = await tx.product.findUnique({ where: { id: item.productId }, select: { id: true, quantity: true } });
+    if (!product || Number(product.quantity) < item.quantity) throw new Error(`Insufficient stock to reactivate product ${item.productId}`);
+    const productResult = await tx.product.updateMany({ where: { id: product.id, quantity: product.quantity }, data: { quantity: { decrement: item.quantity }, updatedAt: new Date() } });
+    if (productResult.count !== 1) throw new Error(`Stock changed while reactivating product ${item.productId}; please retry.`);
+
+    if (item.warehouseId) {
+      const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: item.warehouseId } }, select: { id: true, quantity: true, reservedQuantity: true, userId: true } });
+      if (!allocation || Number(allocation.quantity) < item.quantity) throw new Error(`Insufficient warehouse stock for product ${item.productId}`);
+      const previousStock = allocation.quantity;
+      const result = await tx.stockAllocation.updateMany({ where: { id: allocation.id, quantity: allocation.quantity }, data: { quantity: { decrement: item.quantity }, updatedAt: new Date() } });
+      if (result.count !== 1) throw new Error(`Warehouse stock changed while reactivating product ${item.productId}; please retry.`);
+      await tx.inventoryMovement.create({ data: { productId: item.productId, warehouseId: item.warehouseId, userId: allocation.userId, type: "exit", quantity: -BigInt(item.quantity), previousStock, newStock: previousStock - BigInt(item.quantity), reason: "Salida por pedido reactivado", referenceId: null, notes: null, createdAt: new Date() } });
+    } else {
+      const allocations = await tx.stockAllocation.findMany({ where: { productId: item.productId }, select: { id: true, quantity: true, reservedQuantity: true, warehouseId: true, userId: true } });
+      const steps = planAllocationDecrements(allocations.map((a) => ({ id: a.id, quantity: Number(a.quantity), reservedQuantity: Number(a.reservedQuantity), warehouseId: a.warehouseId })), item.quantity);
+      if (steps.reduce((sum, step) => sum + step.deduct, 0) !== item.quantity) throw new Error(`Insufficient allocated warehouse stock for product ${item.productId}`);
+      for (const step of steps) {
+        const allocation = allocations.find((a) => a.id === step.id);
+        if (!allocation) throw new Error(`Allocation not found for product ${item.productId}`);
+        const previousStock = allocation.quantity;
+        const result = await tx.stockAllocation.updateMany({ where: { id: allocation.id, quantity: allocation.quantity, reservedQuantity: allocation.reservedQuantity }, data: { quantity: { decrement: step.deduct }, updatedAt: new Date() } });
+        if (result.count !== 1) throw new Error(`Warehouse stock changed while reactivating product ${item.productId}; please retry.`);
+        await tx.inventoryMovement.create({ data: { productId: item.productId, warehouseId: allocation.warehouseId, userId: allocation.userId, type: "exit", quantity: -BigInt(step.deduct), previousStock, newStock: previousStock - BigInt(step.deduct), reason: "Salida por pedido reactivado", referenceId: null, notes: "Asignación automática de bodega", createdAt: new Date() } });
+      }
+    }
+  }
+}
+
 export async function updateOrder(orderId: string, data: UpdateOrderInput, userId: string) {
   const existing = await prisma.order.findFirst({ where: { id: orderId, userId } });
   if (!existing) throw new Error("Order not found or unauthorized");
@@ -108,18 +162,19 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
   const paymentCaptured = nextPaid && !previousPaid;
 
   if (confirming) await fulfillPendingOrderLines(items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null })));
-  if (cancelling && !wasFulfilled) await releasePendingOrderLines(items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null })));
-  if (cancelling && wasFulfilled) {
-    for (const item of items) await prisma.product.update({ where: { id: item.productId }, data: { quantity: { increment: item.quantity } } });
-    await syncRestoreConfirmedOrderAllocations(items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null })));
-  }
-  if (reactivating) {
-    for (const item of items) await prisma.product.update({ where: { id: item.productId }, data: { quantity: { decrement: item.quantity } } });
-    await syncFulfillReactivatedOrderAllocations(items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null })));
-    await decrementStockAllocations(items.filter((i) => !i.warehouseId).map((i) => ({ productId: i.productId, quantity: i.quantity })));
+
+  let updated;
+  if (cancelling || reactivating) {
+    updated = await prisma.$transaction(async (tx) => {
+      if (cancelling && !wasFulfilled) await releasePendingStock(tx, items);
+      if (cancelling && wasFulfilled) await restoreFulfilledStock(tx, items);
+      if (reactivating) await consumeReactivatedStock(tx, items);
+      return tx.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
+    });
+  } else {
+    updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
   }
 
-  const updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
   if (paymentCaptured) {
     await recordCashSale(orderId, userId, Number(updated.total));
     await writeAuditLog({ userId, action: "PAYMENT_CAPTURED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber, amount: Number(updated.total) } });
@@ -148,14 +203,13 @@ export async function cancelOrder(orderId: string, userId: string) {
 
   const wasFulfilled = ["confirmed", "processing", "shipped", "delivered"].includes(order.status) || order.paymentStatus === "paid";
   const allocationItems = order.items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null }));
-  if (wasFulfilled) {
-    for (const item of order.items) await prisma.product.update({ where: { id: item.productId }, data: { quantity: { increment: item.quantity } } });
-    await syncRestoreConfirmedOrderAllocations(allocationItems);
-  } else {
-    await releasePendingOrderLines(allocationItems);
-  }
 
-  const cancelled = await prisma.order.update({ where: { id: orderId }, data: { status: "cancelled", paymentStatus: refundConfirmed ? "refunded" : order.paymentStatus, cancelledAt: new Date(), updatedAt: new Date(), updatedBy: userId }, include: { items: true } });
+  const cancelled = await prisma.$transaction(async (tx) => {
+    if (wasFulfilled) await restoreFulfilledStock(tx, allocationItems);
+    else await releasePendingStock(tx, allocationItems);
+    return tx.order.update({ where: { id: orderId }, data: { status: "cancelled", paymentStatus: refundConfirmed ? "refunded" : order.paymentStatus, cancelledAt: new Date(), updatedAt: new Date(), updatedBy: userId }, include: { items: true } });
+  });
+
   if (refundConfirmed) {
     await recordCashRefund(orderId, userId, Number(invoice?.amountPaid ?? order.total));
     await writeAuditLog({ userId, action: "ORDER_REFUNDED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, amount: Number(invoice?.amountPaid ?? order.total) } });
