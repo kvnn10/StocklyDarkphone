@@ -1,9 +1,9 @@
 /**
  * Stock Transfers API — POST create + complete transfer atomically (REQ-0066).
- * Completed transfers are also recorded in the inventory movement ledger.
+ * Completed transfers are recorded in the inventory movement ledger as part of
+ * the same Prisma transaction that moves the stock.
  */
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/utils/auth";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/prisma/client";
 import { findAccessibleProduct } from "@/lib/products/stock-product-access";
@@ -12,6 +12,7 @@ import { createStockTransferSchema } from "@/lib/validations/stock-allocation";
 import { scheduleInvalidateStockAllocationCaches } from "@/lib/cache";
 import { withRateLimit, defaultRateLimits } from "@/lib/api/rate-limit";
 import { isExpectedClientError } from "@/lib/api";
+import { getSessionFromRequest } from "@/utils/auth";
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,25 +35,13 @@ export async function POST(request: NextRequest) {
     if (!product) return NextResponse.json({ error: "Product not found" }, { status: 404 });
     if (!fromWarehouse || !toWarehouse) return NextResponse.json({ error: "Warehouse not found or unauthorized" }, { status: 404 });
 
-    const [sourceBefore, destinationBefore] = await Promise.all([
-      prisma.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: data.productId, warehouseId: data.fromWarehouseId } }, select: { quantity: true } }),
-      prisma.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: data.productId, warehouseId: data.toWarehouseId } }, select: { quantity: true } }),
-    ]);
-
     const transfer = await createStockTransfer(data, session.id);
-    try { await completeStockTransfer(transfer.id, session.id); }
-    catch (completeError) {
+    try {
+      await completeStockTransfer(transfer.id, session.id);
+    } catch (completeError) {
       await cancelStockTransfer(transfer.id, session.id).catch((cancelErr) => logger.warn("Failed to cancel pending stock transfer after complete error", { transferId: transfer.id, cancelErr }));
       throw completeError;
     }
-
-    const quantity = BigInt(Number(transfer.quantity));
-    const sourcePrevious = sourceBefore?.quantity ?? 0n;
-    const destinationPrevious = destinationBefore?.quantity ?? 0n;
-    await prisma.inventoryMovement.createMany({ data: [
-      { productId: data.productId, warehouseId: data.fromWarehouseId, userId: session.id, type: "transfer_out", quantity: -quantity, previousStock: sourcePrevious, newStock: sourcePrevious - quantity, reason: "Transferencia entre bodegas", referenceId: transfer.id, notes: data.notes ?? null, createdAt: new Date() },
-      { productId: data.productId, warehouseId: data.toWarehouseId, userId: session.id, type: "transfer_in", quantity, previousStock: destinationPrevious, newStock: destinationPrevious + quantity, reason: "Transferencia entre bodegas", referenceId: transfer.id, notes: data.notes ?? null, createdAt: new Date() },
-    ] });
 
     await scheduleInvalidateStockAllocationCaches();
     return NextResponse.json({ id: transfer.id, status: "completed", productId: transfer.productId, fromWarehouseId: transfer.fromWarehouseId, toWarehouseId: transfer.toWarehouseId, quantity: Number(transfer.quantity) });
