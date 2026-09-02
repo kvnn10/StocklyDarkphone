@@ -71,6 +71,15 @@ export function applyPromotion(price: number, quantity: number, promotion: Promo
   return { unitPrice: price, discount: 0 };
 }
 
+/** Returns the actual line subtotal after the selected promotion. */
+export function calculatePromotionSubtotal(price: number, quantity: number, promotion: Promotion | null) {
+  if (!Number.isFinite(price) || price < 0) throw new Error("Invalid price");
+  if (!Number.isInteger(quantity) || quantity <= 0) throw new Error("Invalid quantity");
+  const gross = roundMoney(price * quantity);
+  const promotionResult = applyPromotion(price, quantity, promotion);
+  return roundMoney(Math.max(0, gross - promotionResult.discount));
+}
+
 export function choosePromotion(promotions: Promotion[], productId: string, now = new Date()) {
   return promotions
     .filter((p) => (!p.productId || p.productId === productId) && isPromotionActive(p, now))
@@ -129,14 +138,13 @@ export async function quotePricing(userId: string, items: PricingItemInput[], al
     const regularUnitPrice = Math.max(0, Number(product.price));
     const purchaseCost = Math.max(0, Number(product.purchasePrice ?? 0));
     const promotion = choosePromotion(promotions, product.id);
-    const promo = applyPromotion(regularUnitPrice, item.quantity, promotion);
-    const promoSubtotal = roundMoney(promo.unitPrice * item.quantity);
+    const promoSubtotal = calculatePromotionSubtotal(regularUnitPrice, item.quantity, promotion);
     const manualDiscount = allowManualDiscount
       ? calculateManualDiscount(promoSubtotal, item.discountType, item.discountValue)
       : 0;
     if (!allowManualDiscount && (item.discountValue ?? 0) > 0) throw new Error("Manual discounts require administrator permission");
     const subtotal = roundMoney(Math.max(0, promoSubtotal - manualDiscount));
-    const discount = roundMoney(promo.discount + manualDiscount);
+    const discount = roundMoney(promotion ? regularUnitPrice * item.quantity - subtotal : manualDiscount);
     const margin = roundMoney(subtotal - purchaseCost * item.quantity);
     lines.push({
       productId: product.id,
@@ -146,7 +154,7 @@ export async function quotePricing(userId: string, items: PricingItemInput[], al
       regularUnitPrice,
       unitPrice: roundMoney(subtotal / item.quantity),
       gross: roundMoney(regularUnitPrice * item.quantity),
-      promotionDiscount: promo.discount,
+      promotionDiscount: roundMoney(regularUnitPrice * item.quantity - promoSubtotal),
       manualDiscount,
       discount,
       subtotal,

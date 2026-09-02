@@ -26,6 +26,9 @@ export async function POST(request: NextRequest) {
     const periodStart = last?.closedAt ?? new Date(0);
     const periodEnd = new Date();
     const movements = await prisma.cashMovement.findMany({ where: { userId: session.id, createdAt: { gt: periodStart, lte: periodEnd }, status: "active" } });
+    if (last && movements.length === 0) {
+      return NextResponse.json({ error: "La caja ya fue cerrada y no existen movimientos nuevos para realizar otro cierre" }, { status: 409 });
+    }
     const expectedCash = movements.filter(m => m.paymentMethod === "cash").reduce((sum, m) => sum + (m.type === "expense" ? -Number(m.amount) : Number(m.amount)), 0);
     const difference = countedCash - expectedCash;
     const closure = { userId: oid(session.id), periodStart, periodEnd, expectedCash, countedCash, difference, movementCount: movements.length, status: Math.abs(difference) < 0.005 ? "balanced" : "difference", closedAt: periodEnd, closedBy: oid(session.id) };

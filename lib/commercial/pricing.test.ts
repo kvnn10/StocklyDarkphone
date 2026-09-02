@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyPromotion, calculateManualDiscount, choosePromotion } from "@/lib/commercial/pricing";
+import { applyPromotion, calculateManualDiscount, calculatePromotionSubtotal, choosePromotion } from "@/lib/commercial/pricing";
 
 describe("Phase 2 commercial pricing", () => {
   it("applies 2x1 without changing the unit catalog price", () => {
@@ -12,12 +12,20 @@ describe("Phase 2 commercial pricing", () => {
     expect(result.discount).toBe(200);
   });
 
-  it("applies 3x2 correctly", () => {
-    expect(applyPromotion(90, 6, {
+  it("uses the promotion discount when calculating the real 2x1 subtotal", () => {
+    expect(calculatePromotionSubtotal(100, 5, {
+      id: "p", name: "2x1", type: "2x1", value: 0,
+      startsAt: "2026-01-01T00:00:00.000Z", endsAt: "2027-01-01T00:00:00.000Z",
+      active: true, priority: 1, stackable: false,
+    })).toBe(300);
+  });
+
+  it("applies 3x2 correctly to the line subtotal", () => {
+    expect(calculatePromotionSubtotal(90, 6, {
       id: "p", name: "3x2", type: "3x2", value: 0,
       startsAt: "2026-01-01T00:00:00.000Z", endsAt: "2027-01-01T00:00:00.000Z",
       active: true, priority: 1, stackable: false,
-    }).discount).toBe(180);
+    })).toBe(360);
   });
 
   it("never discounts more than the line value", () => {
