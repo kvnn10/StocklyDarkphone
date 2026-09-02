@@ -71,16 +71,56 @@ export async function upsertPurchasePayable(input: PurchasePayableInput) {
 export async function getSupplierStatement(userId: string, supplierId: string) {
   const db = await financeDb();
   const filter = { userId: oid(userId), supplierId: oid(supplierId) };
-  const payables = await db.collection("SupplierAccountPayable").find(filter).sort({ createdAt: -1 }).limit(500).toArray();
-  const payments = await db.collection("SupplierPayment").find({ ...filter }).sort({ createdAt: -1 }).limit(1000).toArray();
+  const payables = await db.collection("SupplierAccountPayable").find(filter).sort({ createdAt: 1, _id: 1 }).limit(1000).toArray();
+  const payableIds = payables.map((row: any) => row._id);
+  const payments = payableIds.length
+    ? await db.collection("SupplierPayment").find({ userId: oid(userId), payableId: { $in: payableIds } }).sort({ createdAt: 1, _id: 1 }).limit(2000).toArray()
+    : [];
+
+  const entries = payables.flatMap((payable: any) => {
+    const payableId = payable._id.toHexString();
+    const purchase = {
+      type: "purchase",
+      date: payable.createdAt,
+      document: payable.reference ?? payable.purchaseOrderId?.toHexString?.() ?? payableId,
+      description: `Compra ${payable.reference ?? ""}`.trim(),
+      debit: Number(payable.originalAmount ?? 0),
+      credit: 0,
+      balance: 0,
+      payableId,
+      dueDate: payable.dueDate ?? null,
+    };
+    const relatedPayments = payments
+      .filter((payment: any) => payment.payableId?.toHexString?.() === payableId)
+      .map((payment: any) => ({
+        type: "payment",
+        date: payment.createdAt,
+        document: payment._id.toHexString(),
+        description: `Abono ${payable.reference ?? "cuenta por pagar"}`,
+        debit: 0,
+        credit: Number(payment.amount ?? 0),
+        balance: 0,
+        paymentMethod: payment.paymentMethod,
+        payableId,
+      }));
+    return [purchase, ...relatedPayments];
+  });
+
+  let balance = 0;
+  for (const entry of entries) {
+    balance = Math.max(0, balance + entry.debit - entry.credit);
+    entry.balance = roundMoney(balance);
+  }
+
   const totalInvoiced = roundMoney(payables.reduce((sum, row) => sum + Number(row.originalAmount ?? 0), 0));
   const totalPaid = roundMoney(payments.reduce((sum, row) => sum + Number(row.amount ?? 0), 0));
   const outstanding = roundMoney(Math.max(0, totalInvoiced - totalPaid));
-  return { totalInvoiced, totalPaid, outstanding, payables, payments };
+  return { totalInvoiced, totalPaid, outstanding, payables, payments, entries };
 }
 
 export async function ensureSupplierPayableIndexes() {
   const db = await financeDb();
   await db.collection("SupplierAccountPayable").createIndex({ userId: 1, purchaseOrderId: 1 }, { unique: true, partialFilterExpression: { purchaseOrderId: { $exists: true } } });
   await db.collection("SupplierPayment").createIndex({ payableId: 1, createdAt: -1 });
+  await db.collection("SupplierAccountPayable").createIndex({ userId: 1, supplierId: 1, dueDate: 1 });
 }
