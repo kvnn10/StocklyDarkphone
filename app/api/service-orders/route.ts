@@ -68,11 +68,19 @@ export async function POST(request: NextRequest) {
     const issue = typeof body.issue === "string" ? body.issue.trim() : typeof body.reportedIssue === "string" ? body.reportedIssue.trim() : "";
     const status = STATUSES.includes(body.status) ? body.status : "received";
     const total = money(body.total ?? 0), paid = money(body.paid ?? body.amountPaid ?? 0);
+    const paymentMethod = typeof body.paymentMethod === "string" && body.paymentMethod.trim() ? body.paymentMethod.trim() : "cash";
     if (!customer || !phone || !model || !issue) return NextResponse.json({ error: "Cliente, teléfono, equipo y falla son obligatorios" }, { status: 400 });
     if (total === null || paid === null || paid > total) return NextResponse.json({ error: "Valores de dinero inválidos" }, { status: 400 });
     const now = new Date();
-    const created = await prisma.serviceOrder.create({ data: { orderNumber: `ST-${Date.now().toString().slice(-10)}`, userId: session.id, deviceType, brand, model, imei: imei || null, serialNumber: serial || null, reportedIssue: issue, status, total, amountPaid: paid, amountDue: total - paid, accessories: { customerName: customer, customerPhone: phone, statusHistory: [{ status, at: now.toISOString(), by: session.id }], photos: [], partWarranties: {}, partWarehouses: {} }, createdBy: session.id, updatedBy: session.id }, include: { items: true, payments: true } });
-    await writeAuditLog({ userId: session.id, action: "SERVICE_ORDER_CREATED", entityType: "ServiceOrder", entityId: created.id, details: { orderNumber: created.orderNumber, customer, device: model, status } });
+    const created = await prisma.$transaction(async tx => {
+      const order = await tx.serviceOrder.create({ data: { orderNumber: `ST-${Date.now().toString().slice(-10)}`, userId: session.id, deviceType, brand, model, imei: imei || null, serialNumber: serial || null, reportedIssue: issue, status, total, amountPaid: paid, amountDue: total - paid, accessories: { customerName: customer, customerPhone: phone, statusHistory: [{ status, at: now.toISOString(), by: session.id }], photos: [], partWarranties: {}, partWarehouses: {} }, createdBy: session.id, updatedBy: session.id } });
+      if (paid > 0) {
+        await tx.serviceOrderPayment.create({ data: { serviceOrderId: order.id, userId: session.id, recordedBy: session.id, amount: paid, paymentMethod } });
+        await tx.cashMovement.create({ data: { type: "income", source: "service_order", amount: paid, paymentMethod, orderId: order.id, orderNumber: order.orderNumber, userId: session.id, createdBy: session.id, description: `Abono inicial ${order.orderNumber}` } });
+      }
+      return tx.serviceOrder.findUnique({ where: { id: order.id }, include: { items: true, payments: true } });
+    });
+    await writeAuditLog({ userId: session.id, action: "SERVICE_ORDER_CREATED", entityType: "ServiceOrder", entityId: created!.id, details: { orderNumber: created!.orderNumber, customer, device: model, status, initialPayment: paid } });
     return NextResponse.json(legacyOrder(created), { status: 201 });
   } catch (error) { console.error("POST /api/service-orders", error); return NextResponse.json({ error: "No se pudo crear la orden" }, { status: 500 }); }
 }
@@ -126,7 +134,8 @@ export async function PUT(request: NextRequest) {
       const partId = typeof body.partId === "string" ? body.partId : "";
       const warehouseId = validId(body.warehouseId) ? body.warehouseId : "";
       const item = existing.items.find(i => i.id === partId);
-      if (!item || !item.productId || item.inventoryApplied) return NextResponse.json({ error: "Repuesto no encontrado o ya consumido" }, { status: 400 });
+      if (!item || !item.productId) return NextResponse.json({ error: "Repuesto no encontrado" }, { status: 400 });
+      if (item.inventoryApplied) return NextResponse.json({ error: "El repuesto ya fue consumido; no se puede descontar nuevamente" }, { status: 409 });
       if (!warehouseId) return NextResponse.json({ error: "Selecciona la bodega antes de descontar inventario" }, { status: 400 });
       const warehouse = await prisma.warehouse.findFirst({ where: { id: warehouseId, userId: session.id, status: true } });
       if (!warehouse) return NextResponse.json({ error: "La bodega seleccionada no existe, está inactiva o no pertenece a tu cuenta" }, { status: 400 });
@@ -137,15 +146,16 @@ export async function PUT(request: NextRequest) {
           const qty = BigInt(item.quantity);
           const allocation = await tx.stockAllocation.findFirst({ where: { productId: product.id, warehouseId, userId: session.id } });
           if (!allocation) throw new Error("No existe stock asignado de este producto en la bodega seleccionada");
+          const claimed = await tx.serviceOrderItem.updateMany({ where: { id: item.id, serviceOrderId: id, inventoryApplied: false }, data: { inventoryApplied: true, warehouseId } });
+          if (claimed.count !== 1) throw new Error("El repuesto ya fue procesado por otra operación");
           const allocated = await tx.stockAllocation.updateMany({ where: { id: allocation.id, productId: product.id, warehouseId, userId: session.id, quantity: { gte: qty } }, data: { quantity: { decrement: qty }, updatedAt: new Date() } });
           if (allocated.count !== 1) throw new Error(`Stock insuficiente en la bodega seleccionada. Disponible: ${allocation.quantity.toString()}`);
           const updated = await tx.product.updateMany({ where: { id: product.id, userId: session.id, deletedAt: null, quantity: { gte: qty } }, data: { quantity: { decrement: qty }, updatedAt: new Date(), updatedBy: session.id } });
           if (updated.count !== 1) throw new Error(`Stock global insuficiente. Disponible: ${product.quantity.toString()}`);
-          await tx.serviceOrderItem.update({ where: { id: item.id }, data: { inventoryApplied: true, warehouseId } });
           await tx.inventoryMovement.create({ data: { productId: product.id, warehouseId, userId: session.id, type: "exit", quantity: qty, previousStock: product.quantity, newStock: product.quantity - qty, reason: "service_order", referenceId: id, notes: existing.orderNumber } });
         });
       } catch (error: any) {
-        if (error?.message === "Producto no encontrado" || error?.message === "No existe stock asignado de este producto en la bodega seleccionada" || error?.message?.startsWith("Stock insuficiente") || error?.message?.startsWith("Stock global insuficiente")) return NextResponse.json({ error: error.message }, { status: 400 });
+        if (error?.message === "Producto no encontrado" || error?.message === "No existe stock asignado de este producto en la bodega seleccionada" || error?.message === "El repuesto ya fue procesado por otra operación" || error?.message?.startsWith("Stock insuficiente") || error?.message?.startsWith("Stock global insuficiente")) return NextResponse.json({ error: error.message }, { status: 409 });
         throw error;
       }
       const m = meta(existing.accessories);
@@ -156,19 +166,26 @@ export async function PUT(request: NextRequest) {
 
     if (action === "payment") {
       const amount = money(body.amount), method = typeof body.paymentMethod === "string" ? body.paymentMethod.trim() : "";
+      const idempotencyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim().slice(0, 120) : "";
       if (amount === null || amount <= 0 || !method) return NextResponse.json({ error: "Pago inválido" }, { status: 400 });
       try {
         const saved = await prisma.$transaction(async tx => {
           const current = await tx.serviceOrder.findFirst({ where: { id, userId: session.id } });
           if (!current) throw new Error("Orden no encontrada");
+          const currentMeta = meta(current.accessories);
+          const paymentKeys = currentMeta.paymentIdempotencyKeys && typeof currentMeta.paymentIdempotencyKeys === "object" ? currentMeta.paymentIdempotencyKeys : {};
+          if (idempotencyKey && paymentKeys[idempotencyKey]) {
+            return tx.serviceOrder.findUnique({ where: { id }, include: { items: true, payments: true } });
+          }
           if (amount > current.amountDue) throw new Error("El pago supera el saldo pendiente");
           const updated = await tx.serviceOrder.updateMany({ where: { id, userId: session.id, amountDue: { gte: amount } }, data: { amountPaid: { increment: amount }, amountDue: { decrement: amount }, updatedAt: new Date(), updatedBy: session.id } });
           if (updated.count !== 1) throw new Error("El saldo cambió mientras se registraba el pago. Intenta nuevamente");
           await tx.serviceOrderPayment.create({ data: { serviceOrderId: id, userId: session.id, recordedBy: session.id, amount, paymentMethod: method } });
           await tx.cashMovement.create({ data: { type: "income", source: "service_order", amount, paymentMethod: method, orderId: id, orderNumber: current.orderNumber, userId: session.id, createdBy: session.id, description: `Abono ${current.orderNumber}` } });
+          if (idempotencyKey) await tx.serviceOrder.update({ where: { id }, data: { accessories: { ...currentMeta, paymentIdempotencyKeys: { ...paymentKeys, [idempotencyKey]: true } } } });
           return tx.serviceOrder.findUnique({ where: { id }, include: { items: true, payments: true } });
         });
-        await writeAuditLog({ userId: session.id, action: "SERVICE_PAYMENT_RECORDED", entityType: "ServiceOrder", entityId: id, details: { amount, paymentMethod: method } });
+        await writeAuditLog({ userId: session.id, action: "SERVICE_PAYMENT_RECORDED", entityType: "ServiceOrder", entityId: id, details: { amount, paymentMethod: method, idempotencyKey: idempotencyKey || undefined } });
         return NextResponse.json(legacyOrder(saved));
       } catch (error: any) {
         if (error?.message === "Orden no encontrada" || error?.message === "El pago supera el saldo pendiente" || error?.message === "El saldo cambió mientras se registraba el pago. Intenta nuevamente") return NextResponse.json({ error: error.message }, { status: error?.message === "Orden no encontrada" ? 404 : 400 });
@@ -185,19 +202,15 @@ export async function PUT(request: NextRequest) {
       if (!STATUSES.includes(body.status)) return NextResponse.json({ error: "Estado inválido" }, { status: 400 });
       if (body.status === "delivered" && existing.amountDue > 0) return NextResponse.json({ error: "No se puede entregar una orden con saldo pendiente" }, { status: 409 });
       if (body.status === "delivered" && !existing.diagnosis?.trim()) return NextResponse.json({ error: "Registra el diagnóstico antes de entregar la orden" }, { status: 409 });
+      if (body.status === "delivered" && existing.items.some(i => i.productId && !i.inventoryApplied)) return NextResponse.json({ error: "No se puede entregar: hay repuestos pendientes de consumo o devolución" }, { status: 409 });
       update.status = body.status;
-      nextMeta.statusHistory = [...(Array.isArray(currentMeta.statusHistory) ? currentMeta.statusHistory : []), { status: body.status, at: new Date().toISOString(), by: session.id }];
+      nextMeta.statusHistory = [...(Array.isArray(currentMeta.statusHistory) ? currentMeta.statusHistory : []), { status: body.status, at: new Date().toISOString(), by: session.id }].slice(-50);
       if (body.status === "delivered") update.deliveredAt = new Date();
     }
     const map: Record<string, string> = { imei: "imei", serial: "serialNumber", issue: "reportedIssue", diagnosis: "diagnosis", technicianNotes: "workPerformed", technicianId: "technicianId", brand: "brand", model: "model" };
     for (const [from, to] of Object.entries(map)) if (body[from] !== undefined) update[to] = typeof body[from] === "string" ? body[from].trim() || null : body[from];
     if (body.device !== undefined && typeof body.device === "string") update.model = body.device.trim();
-    if (body.total !== undefined || body.paid !== undefined) {
-      const total = body.total !== undefined ? money(body.total) : existing.total;
-      const paid = body.paid !== undefined ? money(body.paid) : existing.amountPaid;
-      if (total === null || paid === null || paid > total) return NextResponse.json({ error: "Valores de dinero inválidos" }, { status: 400 });
-      update.total = total; update.amountPaid = paid; update.amountDue = total - paid;
-    }
+    if (body.total !== undefined || body.paid !== undefined || body.amountPaid !== undefined) return NextResponse.json({ error: "Los valores de venta y pagos deben modificarse mediante acciones financieras" }, { status: 400 });
     update.accessories = nextMeta;
     const saved = await prisma.serviceOrder.update({ where: { id }, data: update, include: { items: true, payments: true } });
     await writeAuditLog({ userId: session.id, action: "SERVICE_ORDER_UPDATED", entityType: "ServiceOrder", entityId: id, details: { fields: Object.keys(update) } });
