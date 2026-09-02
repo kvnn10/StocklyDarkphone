@@ -1,9 +1,5 @@
 "use client";
 
-/**
- * Home (store overview) for admin: statistics cards and quick links to products, categories, suppliers.
- * REQ-0021 — shell-first layout; hooks receive SSR initialData directly.
- */
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import React, { useEffect, useState, useRef } from "react";
@@ -18,149 +14,18 @@ import FloatingActionButtons from "@/components/shared/FloatingActionButtons";
 import { PageSectionHeader } from "@/components/shared";
 import { useProducts } from "@/hooks/queries";
 import { queryKeys, useSyncSsrQueryData } from "@/lib/react-query";
-import type {
-  ProductForHome,
-  CategoryForHome,
-  SupplierForHome,
-} from "@/lib/server/home-data";
+import type { ProductForHome, CategoryForHome, SupplierForHome } from "@/lib/server/home-data";
 import type { DashboardStats } from "@/types";
-import { LayoutDashboard } from "lucide-react";
+import { LayoutDashboard, Smartphone, ShoppingBag } from "lucide-react";
 
-export type HomePageProps = {
-  initialProducts?: ProductForHome[];
-  initialCategories?: CategoryForHome[];
-  initialSuppliers?: SupplierForHome[];
-  initialStats?: DashboardStats | null;
-  /** From server searchParams — avoids relying on client-only OAuth detection on first paint */
-  initialOAuthSuccess?: boolean;
-};
+export type HomePageProps = { initialProducts?: ProductForHome[]; initialCategories?: CategoryForHome[]; initialSuppliers?: SupplierForHome[]; initialStats?: DashboardStats | null; initialOAuthSuccess?: boolean; };
 
-/**
- * Home page client component (initialOAuthSuccess from server; useSearchParams for URL fallback).
- * Accepts optional server-fetched data for first-render hydration via hook initialData.
- */
-export default function HomePage({
-  initialProducts,
-  initialCategories,
-  initialSuppliers,
-  initialStats,
-  initialOAuthSuccess = false,
-}: HomePageProps = {}) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { isLoggedIn, isCheckingAuth, user, refreshSession } = useAuth();
-  const { data: allProducts = [] } = useProducts(initialProducts);
-
-  useSyncSsrQueryData(queryKeys.products.lists(), initialProducts);
-  useSyncSsrQueryData(queryKeys.categories.lists(), initialCategories);
-  useSyncSsrQueryData(queryKeys.suppliers.lists(), initialSuppliers);
-
-  const [isRefreshingOAuth, setIsRefreshingOAuth] = useState(false);
-  const [oauthRefreshComplete, setOauthRefreshComplete] = useState(false);
-  const oauthHandledRef = useRef(false);
-  const urlCleanedRef = useRef(false);
-
-  useEffect(() => {
-    const isOAuthFlow =
-      initialOAuthSuccess || searchParams.get("oauth_success") === "true";
-
-    if (isOAuthFlow && !oauthHandledRef.current) {
-      oauthHandledRef.current = true;
-      queueMicrotask(() => setIsRefreshingOAuth(true));
-
-      refreshSession()
-        .then(() => {
-          setOauthRefreshComplete(true);
-          setIsRefreshingOAuth(false);
-          if (
-            !urlCleanedRef.current &&
-            typeof window !== "undefined" &&
-            window.location.search.includes("oauth_success=true")
-          ) {
-            urlCleanedRef.current = true;
-            window.history.replaceState(
-              { ...window.history.state, as: "/", url: "/" },
-              "",
-              "/",
-            );
-          }
-        })
-        .catch(() => {
-          setOauthRefreshComplete(true);
-          setIsRefreshingOAuth(false);
-        });
-      return;
-    }
-
-    if (!isOAuthFlow || oauthRefreshComplete) {
-      if (isOAuthFlow && oauthRefreshComplete) {
-        if (!isCheckingAuth && !isLoggedIn) {
-          router.replace("/login", { scroll: false });
-        }
-        return;
-      }
-
-      if (!isOAuthFlow && !isCheckingAuth && !isLoggedIn) {
-        router.replace("/login", { scroll: false });
-      }
-    }
-  }, [
-    initialOAuthSuccess,
-    searchParams,
-    isLoggedIn,
-    isCheckingAuth,
-    router,
-    refreshSession,
-    isRefreshingOAuth,
-    oauthRefreshComplete,
-  ]);
-
-  return (
-    <Navbar>
-      <PageContentWrapper>
-        <PageSectionHeader
-          as="h2"
-          icon={LayoutDashboard}
-          tone="sky"
-          title="Resumen de la tienda"
-          description={
-            <>
-              Aquí puedes consultar los principales indicadores de tu tienda,
-              incluyendo tu actividad y la actividad de clientes y otros usuarios.
-              Los datos se actualizan automáticamente cuando se realizan cambios.
-              Para consultar únicamente tus pedidos, productos y actividad, visita{" "}
-              <Link
-                href="/admin/my-activity"
-                className="font-medium text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-300"
-              >
-                Mi actividad
-              </Link>
-              .
-            </>
-          }
-        />
-
-        <div id="statistics" className="pb-6 scroll-mt-20">
-          <StatisticsSection initialStats={initialStats} />
-        </div>
-
-        <div id="products" className="pb-6 scroll-mt-20">
-          <ProductList initialProducts={initialProducts} />
-        </div>
-
-        <div id="suppliers" className="pb-6 scroll-mt-20">
-          <SupplierList initialSuppliers={initialSuppliers} />
-        </div>
-
-        <div id="categories" className="pb-6 scroll-mt-20">
-          <CategoryList initialCategories={initialCategories} />
-        </div>
-
-        <FloatingActionButtons
-          allProducts={allProducts}
-          userId={user?.id || ""}
-        />
-      </PageContentWrapper>
-    </Navbar>
-  );
+export default function HomePage({ initialProducts, initialCategories, initialSuppliers, initialStats, initialOAuthSuccess = false }: HomePageProps = {}) {
+  const router = useRouter(); const searchParams = useSearchParams(); const { isLoggedIn, isCheckingAuth, user, refreshSession } = useAuth(); const { data: allProducts = [] } = useProducts(initialProducts);
+  useSyncSsrQueryData(queryKeys.products.lists(), initialProducts); useSyncSsrQueryData(queryKeys.categories.lists(), initialCategories); useSyncSsrQueryData(queryKeys.suppliers.lists(), initialSuppliers);
+  const [isRefreshingOAuth, setIsRefreshingOAuth] = useState(false), [oauthRefreshComplete, setOauthRefreshComplete] = useState(false); const oauthHandledRef = useRef(false), urlCleanedRef = useRef(false);
+  useEffect(() => { const isOAuthFlow = initialOAuthSuccess || searchParams.get("oauth_success") === "true"; if (isOAuthFlow && !oauthHandledRef.current) { oauthHandledRef.current = true; queueMicrotask(() => setIsRefreshingOAuth(true)); refreshSession().then(() => { setOauthRefreshComplete(true); setIsRefreshingOAuth(false); if (!urlCleanedRef.current && typeof window !== "undefined" && window.location.search.includes("oauth_success=true")) { urlCleanedRef.current = true; window.history.replaceState({ ...window.history.state, as: "/", url: "/" }, "", "/"); } }).catch(() => { setOauthRefreshComplete(true); setIsRefreshingOAuth(false); }); return; } if (!isOAuthFlow || oauthRefreshComplete) { if (isOAuthFlow && oauthRefreshComplete) { if (!isCheckingAuth && !isLoggedIn) router.replace("/login", { scroll: false }); return; } if (!isOAuthFlow && !isCheckingAuth && !isLoggedIn) router.replace("/login", { scroll: false }); } }, [initialOAuthSuccess, searchParams, isLoggedIn, isCheckingAuth, router, refreshSession, isRefreshingOAuth, oauthRefreshComplete]);
+  return <Navbar><PageContentWrapper><PageSectionHeader as="h2" icon={LayoutDashboard} tone="sky" title="Resumen de la tienda" description={<>Aquí puedes consultar los principales indicadores de tu tienda, incluyendo tu actividad y la actividad de clientes y otros usuarios. Los datos se actualizan automáticamente cuando se realizan cambios. Para consultar únicamente tus pedidos, productos y actividad, visita <Link href="/admin/my-activity" className="font-medium text-sky-600 hover:text-sky-800 dark:text-sky-400 dark:hover:text-sky-300">Mi actividad</Link>.</>} />
+    <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><Link href="/devices" className="group rounded-2xl border bg-background/70 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex items-center gap-3"><Smartphone className="h-5 w-5 text-violet-500" /><div><div className="font-semibold">Equipos DarkPhone</div><div className="text-xs text-muted-foreground">IMEI, garantías y rentabilidad</div></div></div></Link><Link href="/devices/purchase" className="group rounded-2xl border bg-background/70 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div className="flex items-center gap-3"><ShoppingBag className="h-5 w-5 text-emerald-500" /><div><div className="font-semibold">Comprar equipo usado</div><div className="text-xs text-muted-foreground">Compra y entrada a inventario</div></div></div></Link></div>
+    <div id="statistics" className="pb-6 scroll-mt-20"><StatisticsSection initialStats={initialStats} /></div><div id="products" className="pb-6 scroll-mt-20"><ProductList initialProducts={initialProducts} /></div><div id="suppliers" className="pb-6 scroll-mt-20"><SupplierList initialSuppliers={initialSuppliers} /></div><div id="categories" className="pb-6 scroll-mt-20"><CategoryList initialCategories={initialCategories} /></div><FloatingActionButtons allProducts={allProducts} userId={user?.id || ""} /></PageContentWrapper></Navbar>;
 }
