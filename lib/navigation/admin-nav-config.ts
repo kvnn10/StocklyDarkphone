@@ -1,8 +1,4 @@
-/**
- * Admin sidebar nav config.
- * Single source for AdminSidebar hrefs and RouteWarmPrefetch admin RSC warm.
- * CRM and commercial links are intentionally part of the primary store navigation.
- */
+/** Admin sidebar nav config. Single source for AdminSidebar hrefs and RouteWarmPrefetch admin RSC warm. */
 
 import type { AdminCounts } from "@/types";
 
@@ -30,6 +26,7 @@ export const ADMIN_MANAGEMENT_ITEMS: AdminNavItemConfig[] = [
   { href: "/admin/warehouses", label: "Almacenes", countKey: "warehouses" },
   { href: "/admin/supplier-portal", label: "Portal de proveedores", countKey: "suppliers" },
   { href: "/admin/cash", label: "Caja" },
+  { href: "/admin/finance", label: "Finanzas" },
   { href: "/user-management", label: "Gestión de usuarios", countKey: "users" },
   { href: "/admin/activity-history", label: "Historial de actividad" },
 ];

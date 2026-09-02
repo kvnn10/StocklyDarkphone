@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package, Warehouse, ShoppingCart, History, MessageSquare, Star, Store, Truck, Users, Mail, FileText, UserCircle, Wrench, Smartphone, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Package, Warehouse, ShoppingCart, History, MessageSquare, Star, Store, Truck, Users, Mail, FileText, UserCircle, Wrench, Smartphone, CircleDollarSign, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminCounts } from "@/hooks/queries";
 import { isDataSlotUnsettled } from "@/lib/react-query";
@@ -24,6 +24,7 @@ const ADMIN_NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/client-portal": Store,
   "/admin/devices": Smartphone,
   "/admin/cash": Store,
+  "/admin/finance": CircleDollarSign,
   "/admin/service-orders": Wrench,
   "/user-management": Users,
   "/admin/user-management": Users,
