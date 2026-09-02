@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/prisma/client";
 
 export type StripeReconciliationIssue = {
@@ -39,7 +40,7 @@ function isMissingLedgerCollection(error: unknown): boolean {
   return value?.code === 26 || value?.codeName === "NamespaceNotFound";
 }
 
-async function readLedger(filter: Record<string, unknown> = {}): Promise<LedgerRow[]> {
+async function readLedger(filter: Prisma.InputJsonObject = {}): Promise<LedgerRow[]> {
   try {
     const result = await prisma.$runCommandRaw({
       find: "StripeLedger",
@@ -49,8 +50,6 @@ async function readLedger(filter: Record<string, unknown> = {}): Promise<LedgerR
     }) as { cursor?: { firstBatch?: LedgerRow[] } };
     return result.cursor?.firstBatch ?? [];
   } catch (error) {
-    // A brand-new installation has no ledger collection until the first Stripe payment.
-    // Reconciliation must report an empty ledger, not turn the admin dashboard into a 500.
     if (isMissingLedgerCollection(error)) return [];
     throw error;
   }
@@ -62,7 +61,7 @@ export async function reconcileStripeLedger(options?: {
   orderId?: string;
   paymentIntentId?: string;
 }) {
-  const filter: Record<string, unknown> = { status: "applied" };
+  const filter: Prisma.InputJsonObject = { status: "applied" };
   if (options?.orderId) filter.orderId = options.orderId;
   if (options?.paymentIntentId) filter.paymentIntentId = options.paymentIntentId;
 
@@ -82,7 +81,6 @@ export async function reconcileStripeLedger(options?: {
     where: invoiceIds.length ? { id: { in: invoiceIds } } : { id: "__none__" },
   });
 
-  // Include invoices reached through an order even when the ledger row did not carry invoiceId.
   const invoiceMap = new Map(invoices.map((invoice) => [invoice.id, invoice]));
   for (const order of orders) {
     if (order.invoice) invoiceMap.set(order.invoice.id, order.invoice);
