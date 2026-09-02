@@ -3,21 +3,15 @@
  * POST /api/payments/webhook — handle Stripe webhook events
  * REQ-0152 / REQ-0209 — incremental amountPaid; sync unpaid|partial|paid;
  * first money confirms + fulfills. Browser return also calls confirm-session (localhost without local webhook).
- * REQ-0217 — refund reconciliation is cumulative and partial-refund safe.
+ * REQ-0217 — partial Stripe refunds reconcile money, inventory and cash safely.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { logger } from "@/lib/logger";
-import {
-  getStripe,
-  getWebhookSecret,
-  isStripeConfigured,
-  Stripe,
-} from "@/lib/stripe";
+import { getStripe, getWebhookSecret, isStripeConfigured, Stripe } from "@/lib/stripe";
 import { prisma } from "@/prisma/client";
 import { confirmCheckoutSessionById } from "@/lib/payments/confirm-checkout-session";
 import { invalidateOnOrderChange } from "@/lib/cache";
-import { syncOrderPaymentStatusFromInvoice } from "@/lib/payments/order-payment-from-amounts";
 
 export const runtime = "nodejs";
 
@@ -61,24 +55,18 @@ export async function POST(request: NextRequest) {
         }
         break;
       }
-      case "checkout.session.expired": {
+      case "checkout.session.expired":
         await handleCheckoutExpired(event.data.object as Stripe.Checkout.Session);
         break;
-      }
-      case "payment_intent.succeeded": {
-        const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        logger.info(`PaymentIntent succeeded: ${paymentIntent.id}`);
+      case "payment_intent.succeeded":
+        logger.info(`PaymentIntent succeeded: ${(event.data.object as Stripe.PaymentIntent).id}`);
         break;
-      }
-      case "payment_intent.payment_failed": {
-        const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        logger.warn(`PaymentIntent failed: ${paymentIntent.id}`);
+      case "payment_intent.payment_failed":
+        logger.warn(`PaymentIntent failed: ${(event.data.object as Stripe.PaymentIntent).id}`);
         break;
-      }
-      case "charge.refunded": {
+      case "charge.refunded":
         await handleChargeRefunded(event.data.object as Stripe.Charge);
         break;
-      }
       default:
         logger.info(`Unhandled event type: ${event.type}`);
     }
@@ -98,9 +86,9 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
 }
 
 /**
- * Reconcile the cumulative Stripe refund state.
- * A partial refund updates money only; a full refund cancels and restores stock once.
- * The state transitions are conditional so Stripe retries cannot duplicate inventory.
+ * Stripe's charge.refunded event exposes cumulative amount_refunded, while the
+ * Refund list exposes individual refund IDs. We reconcile each successful
+ * refund exactly once so Cash never duplicates on webhook retries.
  */
 async function handleChargeRefunded(charge: Stripe.Charge) {
   const paymentIntentId = typeof charge.payment_intent === "string"
@@ -112,86 +100,128 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     return;
   }
 
-  const refundedCents = Math.max(0, charge.amount_refunded ?? 0);
-  const chargeCents = Math.max(0, charge.amount ?? 0);
-  const isFullRefund = chargeCents > 0 && refundedCents >= chargeCents;
-  const refundedAmount = refundedCents / 100;
-
-  logger.info(`Charge refund reconciliation: ${charge.id}, PaymentIntent=${paymentIntentId}, refunded=${refundedAmount}, full=${isFullRefund}`);
-
   const order = await prisma.order.findFirst({
     where: { stripePaymentIntentId: paymentIntentId },
     include: { items: true, invoice: true },
   });
-
   const invoiceRecord = await prisma.invoice.findFirst({
     where: { stripePaymentIntentId: paymentIntentId },
     include: { order: { include: { items: true } } },
   });
+  const targetOrder = order ?? invoiceRecord?.order;
+  const targetInvoice = invoiceRecord ?? order?.invoice;
 
-  if (!order && !invoiceRecord) {
+  if (!targetOrder && !targetInvoice) {
     logger.info(`No Stockly order/invoice found for refunded PaymentIntent ${paymentIntentId}`);
     return;
   }
 
-  if (isFullRefund) {
+  const refunds = await getStripe().refunds.list({ payment_intent: paymentIntentId, limit: 100 });
+  const successfulRefunds = refunds.data.filter((refund) => refund.status === "succeeded");
+
+  for (const refund of successfulRefunds) {
+    const refundAmount = refund.amount / 100;
+    if (!Number.isFinite(refundAmount) || refundAmount <= 0) continue;
+
     await prisma.$transaction(async (tx) => {
-      const targetOrder = order ?? invoiceRecord?.order;
-      const targetInvoice = invoiceRecord ?? order?.invoice;
+      const refundDescription = `Reembolso de Stripe ${refund.id}`;
+      const existingCashMovement = targetOrder
+        ? await tx.cashMovement.findFirst({
+            where: {
+              orderId: targetOrder.id,
+              source: "refund",
+              paymentMethod: "card",
+              description: refundDescription,
+              status: "active",
+            },
+          })
+        : null;
 
-      if (targetOrder) {
-        const updated = await tx.order.updateMany({
-          where: { id: targetOrder.id, paymentStatus: { not: "refunded" } },
-          data: { paymentStatus: "refunded", status: "cancelled", cancelledAt: new Date(), updatedAt: new Date() },
+      if (existingCashMovement) return;
+
+      const currentInvoice = targetInvoice
+        ? await tx.invoice.findUnique({ where: { id: targetInvoice.id } })
+        : null;
+
+      let newAmountPaid: number | null = null;
+      let fullyRefunded = false;
+
+      if (currentInvoice) {
+        const total = Math.max(0, currentInvoice.total);
+        const currentPaid = Math.max(0, currentInvoice.amountPaid);
+        newAmountPaid = Math.max(0, currentPaid - refundAmount);
+        const newAmountDue = Math.max(0, total - newAmountPaid);
+        fullyRefunded = newAmountPaid <= 0;
+
+        await tx.invoice.update({
+          where: { id: currentInvoice.id },
+          data: fullyRefunded
+            ? {
+                status: "cancelled",
+                cancelledAt: new Date(),
+                amountPaid: 0,
+                amountDue: 0,
+                paidAt: null,
+                updatedAt: new Date(),
+              }
+            : {
+                status: "sent",
+                amountPaid: newAmountPaid,
+                amountDue: newAmountDue,
+                paidAt: null,
+                updatedAt: new Date(),
+              },
         });
+      }
 
-        if (updated.count > 0) {
-          for (const item of targetOrder.items) {
-            await tx.product.update({ where: { id: item.productId }, data: { quantity: { increment: item.quantity } } });
+      if (targetOrder && currentInvoice) {
+        if (fullyRefunded) {
+          const orderUpdate = await tx.order.updateMany({
+            where: { id: targetOrder.id, paymentStatus: { not: "refunded" } },
+            data: {
+              paymentStatus: "refunded",
+              status: "cancelled",
+              cancelledAt: new Date(),
+              updatedAt: new Date(),
+            },
+          });
+
+          if (orderUpdate.count > 0) {
+            for (const item of targetOrder.items) {
+              await tx.product.update({
+                where: { id: item.productId },
+                data: { quantity: { increment: item.quantity } },
+              });
+            }
           }
+        } else if (newAmountPaid !== null) {
+          await tx.order.update({
+            where: { id: targetOrder.id },
+            data: {
+              paymentStatus: newAmountPaid > 0 ? "partial" : "unpaid",
+              updatedAt: new Date(),
+            },
+          });
         }
       }
 
-      if (targetInvoice) {
-        await tx.invoice.updateMany({
-          where: { id: targetInvoice.id, status: { not: "cancelled" } },
-          data: { status: "cancelled", cancelledAt: new Date(), amountPaid: 0, amountDue: 0, updatedAt: new Date() },
-        });
-      }
+      await tx.cashMovement.create({
+        data: {
+          type: "expense",
+          source: "refund",
+          amount: refundAmount,
+          paymentMethod: "card",
+          orderId: targetOrder?.id,
+          orderNumber: targetOrder?.orderNumber,
+          userId: targetOrder?.userId ?? targetInvoice!.userId,
+          createdBy: targetOrder?.userId ?? targetInvoice!.userId,
+          description: refundDescription,
+          status: "active",
+        },
+      });
     });
 
-    logger.info(`Full Stripe refund reconciled for PaymentIntent ${paymentIntentId}`);
-  } else if (refundedCents > 0) {
-    const targetInvoice = invoiceRecord ?? order?.invoice;
-    if (targetInvoice) {
-      const originalPaid = Math.max(0, targetInvoice.amountPaid);
-      const remainingPaid = Math.max(0, originalPaid - refundedAmount);
-      const total = Math.max(0, targetInvoice.total);
-      const remainingDue = Math.max(0, total - remainingPaid);
-
-      await prisma.$transaction(async (tx) => {
-        await tx.invoice.updateMany({
-          where: { id: targetInvoice.id, status: { not: "cancelled" } },
-          data: {
-            amountPaid: remainingPaid,
-            amountDue: remainingDue,
-            status: remainingPaid >= total && total > 0 ? "paid" : remainingPaid > 0 ? "sent" : "sent",
-            paidAt: remainingPaid >= total && total > 0 ? (targetInvoice.paidAt ?? new Date()) : null,
-            updatedAt: new Date(),
-          },
-        });
-      });
-
-      await syncOrderPaymentStatusFromInvoice(targetInvoice.orderId, {
-        amountPaid: remainingPaid,
-        total,
-        invoiceStatus: remainingPaid >= total && total > 0 ? "paid" : "sent",
-      });
-
-      logger.info(`Partial Stripe refund reconciled for PaymentIntent ${paymentIntentId}: ${refundedAmount}`);
-    } else {
-      logger.warn(`Partial Stripe refund received without a linked invoice for PaymentIntent ${paymentIntentId}`);
-    }
+    logger.info(`Stripe refund ${refund.id} reconciled in cash and payment state: ${refundAmount}`);
   }
 
   await invalidateOnOrderChange();
