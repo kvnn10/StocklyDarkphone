@@ -4,6 +4,7 @@
  * REQ-0216 — serialize Stripe payment application so concurrent partial checkouts
  * cannot overpay an invoice or apply the same PaymentIntent twice.
  * REQ-0217 — persist every Stripe charge in SalePayment + Caja atomically.
+ * REQ-0218 — use the Stripe PaymentIntent as a durable payment idempotency key.
  */
 
 import { getStripe } from "@/lib/stripe";
@@ -97,6 +98,8 @@ export async function confirmCheckoutSessionById(
     return { ok: false, alreadyApplied: false, error: "Missing Stripe payment intent" };
   }
 
+  const paymentDescription = `Pago de Stripe ${paymentIntentId}`;
+
   if (type === "order" && (orderIdMeta || referenceId)) {
     const orderId = orderIdMeta || referenceId!;
     try {
@@ -108,7 +111,16 @@ export async function confirmCheckoutSessionById(
           });
           if (!order) throw new Error("Order not found");
 
-          if (order.stripePaymentIntentId === paymentIntentId) {
+          const existingPayment = await tx.cashMovement.findFirst({
+            where: {
+              orderId,
+              source: "sale_payment",
+              paymentMethod: "card",
+              description: paymentDescription,
+              status: "active",
+            },
+          });
+          if (existingPayment) {
             return { alreadyApplied: true, invoiceId: order.invoice?.id };
           }
 
@@ -214,7 +226,7 @@ export async function confirmCheckoutSessionById(
               orderNumber: order.orderNumber,
               userId: order.userId,
               createdBy: order.userId,
-              description: "Pago de venta vía Stripe",
+              description: paymentDescription,
               status: "active",
               createdAt: new Date(),
             },
@@ -270,7 +282,18 @@ export async function confirmCheckoutSessionById(
           });
           if (!invoice) throw new Error("Invoice not found");
 
-          if (invoice.stripePaymentIntentId === paymentIntentId) {
+          const existingPayment = invoice.order
+            ? await tx.cashMovement.findFirst({
+                where: {
+                  orderId: invoice.order.id,
+                  source: "sale_payment",
+                  paymentMethod: "card",
+                  description: paymentDescription,
+                  status: "active",
+                },
+              })
+            : null;
+          if (existingPayment) {
             return { alreadyApplied: true, orderId: invoice.orderId };
           }
 
@@ -322,7 +345,7 @@ export async function confirmCheckoutSessionById(
                 orderNumber: invoice.order.orderNumber,
                 userId: invoice.order.userId,
                 createdBy: invoice.order.userId,
-                description: "Pago de factura vía Stripe",
+                description: paymentDescription,
                 status: "active",
                 createdAt: new Date(),
               },
