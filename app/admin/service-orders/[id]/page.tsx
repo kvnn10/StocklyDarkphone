@@ -3,6 +3,7 @@ import ServiceOrderPhotoEvidence from "@/components/admin/ServiceOrderPhotoEvide
 import ServicePartWarrantyPanel from "@/components/admin/ServicePartWarrantyPanel";
 import WarrantyHistory from "@/components/admin/WarrantyHistory";
 import ServiceOrderDeviceHistory from "@/components/admin/ServiceOrderDeviceHistory";
+import ServiceOrderLifecyclePanel from "@/components/admin/ServiceOrderLifecyclePanel";
 
 export default async function ServiceOrderDetailPage({
   params,
@@ -14,6 +15,9 @@ export default async function ServiceOrderDetailPage({
   return (
     <>
       <ServiceOrderDetail orderId={id} />
+      <div className="px-2 sm:px-4">
+        <ServiceOrderLifecyclePanel orderId={id} />
+      </div>
       <div className="px-2 sm:px-4">
         <ServiceOrderDeviceHistory orderId={id} />
       </div>
