@@ -25,9 +25,9 @@ function safeDevice(doc: any) {
 async function ensureIndexes(collection: any) {
   await Promise.all([
     collection.createIndex({ userId: 1, createdAt: -1 }),
-    collection.createIndex({ userId: 1, imei1: 1 }, { unique: true, partialFilterExpression: { imei1: { $type: "string", $ne: "" } } }),
-    collection.createIndex({ userId: 1, imei2: 1 }, { unique: true, partialFilterExpression: { imei2: { $type: "string", $ne: "" } } }),
-    collection.createIndex({ userId: 1, serial: 1 }, { unique: true, partialFilterExpression: { serial: { $type: "string", $ne: "" } } }),
+    collection.createIndex({ userId: 1, imei1: 1 }, { unique: true, partialFilterExpression: { imei1: { $gt: "" } } }),
+    collection.createIndex({ userId: 1, imei2: 1 }, { unique: true, partialFilterExpression: { imei2: { $gt: "" } } }),
+    collection.createIndex({ userId: 1, serial: 1 }, { unique: true, partialFilterExpression: { serial: { $gt: "" } } }),
   ]);
 }
 
