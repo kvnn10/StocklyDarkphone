@@ -61,9 +61,11 @@ export async function reconcileStripeLedger(options?: {
   orderId?: string;
   paymentIntentId?: string;
 }) {
-  const filter: Prisma.InputJsonObject = { status: "applied" };
-  if (options?.orderId) filter.orderId = options.orderId;
-  if (options?.paymentIntentId) filter.paymentIntentId = options.paymentIntentId;
+  const filter: Prisma.InputJsonObject = {
+    status: "applied",
+    ...(options?.orderId ? { orderId: options.orderId } : {}),
+    ...(options?.paymentIntentId ? { paymentIntentId: options.paymentIntentId } : {}),
+  };
 
   const ledger = await readLedger(filter);
   const payments = ledger.filter((entry) => entry.kind === "payment_intent");
