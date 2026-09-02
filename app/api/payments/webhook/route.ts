@@ -4,6 +4,7 @@
  * REQ-0152 / REQ-0209 — incremental amountPaid; sync unpaid|partial|paid;
  * first money confirms + fulfills. Browser return also calls confirm-session (localhost without local webhook).
  * REQ-0217 — partial Stripe refunds reconcile money, inventory and cash safely.
+ * REQ-0218 — resolve Stripe payments independently of the order's latest PaymentIntent.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -100,10 +101,26 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     return;
   }
 
-  const order = await prisma.order.findFirst({
-    where: { stripePaymentIntentId: paymentIntentId },
-    include: { items: true, invoice: true },
+  const paymentMovement = await prisma.cashMovement.findFirst({
+    where: {
+      source: "sale_payment",
+      paymentMethod: "card",
+      description: `Pago de Stripe ${paymentIntentId}`,
+      status: "active",
+    },
+    select: { orderId: true, orderNumber: true, userId: true },
   });
+
+  const order = paymentMovement?.orderId
+    ? await prisma.order.findUnique({
+        where: { id: paymentMovement.orderId },
+        include: { items: true, invoice: true },
+      })
+    : await prisma.order.findFirst({
+        where: { stripePaymentIntentId: paymentIntentId },
+        include: { items: true, invoice: true },
+      });
+
   const invoiceRecord = await prisma.invoice.findFirst({
     where: { stripePaymentIntentId: paymentIntentId },
     include: { order: { include: { items: true } } },
@@ -123,103 +140,111 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     const refundAmount = refund.amount / 100;
     if (!Number.isFinite(refundAmount) || refundAmount <= 0) continue;
 
-    await prisma.$transaction(async (tx) => {
-      const refundDescription = `Reembolso de Stripe ${refund.id}`;
-      const existingCashMovement = targetOrder
-        ? await tx.cashMovement.findFirst({
-            where: {
-              orderId: targetOrder.id,
-              source: "refund",
-              paymentMethod: "card",
-              description: refundDescription,
-              status: "active",
-            },
-          })
-        : null;
-
-      if (existingCashMovement) return;
-
-      const currentInvoice = targetInvoice
-        ? await tx.invoice.findUnique({ where: { id: targetInvoice.id } })
-        : null;
-
-      let newAmountPaid: number | null = null;
-      let fullyRefunded = false;
-
-      if (currentInvoice) {
-        const total = Math.max(0, currentInvoice.total);
-        const currentPaid = Math.max(0, currentInvoice.amountPaid);
-        newAmountPaid = Math.max(0, currentPaid - refundAmount);
-        const newAmountDue = Math.max(0, total - newAmountPaid);
-        fullyRefunded = newAmountPaid <= 0;
-
-        await tx.invoice.update({
-          where: { id: currentInvoice.id },
-          data: fullyRefunded
-            ? {
-                status: "cancelled",
-                cancelledAt: new Date(),
-                amountPaid: 0,
-                amountDue: 0,
-                paidAt: null,
-                updatedAt: new Date(),
-              }
-            : {
-                status: "sent",
-                amountPaid: newAmountPaid,
-                amountDue: newAmountDue,
-                paidAt: null,
-                updatedAt: new Date(),
+    try {
+      await prisma.$transaction(async (tx) => {
+        const refundDescription = `Reembolso de Stripe ${refund.id}`;
+        const existingCashMovement = targetOrder
+          ? await tx.cashMovement.findFirst({
+              where: {
+                orderId: targetOrder.id,
+                source: "refund",
+                paymentMethod: "card",
+                description: refundDescription,
+                status: "active",
               },
-        });
-      }
+            })
+          : null;
 
-      if (targetOrder && currentInvoice) {
-        if (fullyRefunded) {
-          const orderUpdate = await tx.order.updateMany({
-            where: { id: targetOrder.id, paymentStatus: { not: "refunded" } },
-            data: {
-              paymentStatus: "refunded",
-              status: "cancelled",
-              cancelledAt: new Date(),
-              updatedAt: new Date(),
-            },
-          });
+        if (existingCashMovement) return;
 
-          if (orderUpdate.count > 0) {
-            for (const item of targetOrder.items) {
-              await tx.product.update({
-                where: { id: item.productId },
-                data: { quantity: { increment: item.quantity } },
-              });
-            }
-          }
-        } else if (newAmountPaid !== null) {
-          await tx.order.update({
-            where: { id: targetOrder.id },
-            data: {
-              paymentStatus: newAmountPaid > 0 ? "partial" : "unpaid",
-              updatedAt: new Date(),
-            },
+        const currentInvoice = targetInvoice
+          ? await tx.invoice.findUnique({ where: { id: targetInvoice.id } })
+          : null;
+
+        let newAmountPaid: number | null = null;
+        let fullyRefunded = false;
+
+        if (currentInvoice) {
+          const total = Math.max(0, currentInvoice.total);
+          const currentPaid = Math.max(0, currentInvoice.amountPaid);
+          newAmountPaid = Math.max(0, currentPaid - refundAmount);
+          const newAmountDue = Math.max(0, total - newAmountPaid);
+          fullyRefunded = newAmountPaid <= 0;
+
+          await tx.invoice.update({
+            where: { id: currentInvoice.id },
+            data: fullyRefunded
+              ? {
+                  status: "cancelled",
+                  cancelledAt: new Date(),
+                  amountPaid: 0,
+                  amountDue: 0,
+                  paidAt: null,
+                  updatedAt: new Date(),
+                }
+              : {
+                  status: "sent",
+                  amountPaid: newAmountPaid,
+                  amountDue: newAmountDue,
+                  paidAt: null,
+                  updatedAt: new Date(),
+                },
           });
         }
-      }
 
-      await tx.cashMovement.create({
-        data: {
-          type: "expense",
-          source: "refund",
-          amount: refundAmount,
-          paymentMethod: "card",
-          orderId: targetOrder?.id,
-          orderNumber: targetOrder?.orderNumber,
-          userId: targetOrder?.userId ?? targetInvoice!.userId,
-          createdBy: targetOrder?.userId ?? targetInvoice!.userId,
-          description: refundDescription,
-          status: "active",
-        },
+        if (targetOrder && currentInvoice) {
+          if (fullyRefunded) {
+            const orderUpdate = await tx.order.updateMany({
+              where: { id: targetOrder.id, paymentStatus: { not: "refunded" } },
+              data: {
+                paymentStatus: "refunded",
+                status: "cancelled",
+                cancelledAt: new Date(),
+                updatedAt: new Date(),
+              },
+            });
+
+            if (orderUpdate.count > 0) {
+              for (const item of targetOrder.items) {
+                await tx.product.update({
+                  where: { id: item.productId },
+                  data: { quantity: { increment: item.quantity } },
+                });
+              }
+            }
+          } else if (newAmountPaid !== null) {
+            await tx.order.update({
+              where: { id: targetOrder.id },
+              data: {
+                paymentStatus: newAmountPaid > 0 ? "partial" : "unpaid",
+                updatedAt: new Date(),
+              },
+            });
+          }
+        }
+
+        await tx.cashMovement.create({
+          data: {
+            type: "expense",
+            source: "refund",
+            amount: refundAmount,
+            paymentMethod: "card",
+            orderId: targetOrder?.id,
+            orderNumber: targetOrder?.orderNumber,
+            userId: targetOrder?.userId ?? targetInvoice!.userId,
+            createdBy: targetOrder?.userId ?? targetInvoice!.userId,
+            description: refundDescription,
+            status: "active",
+          },
+        });
       });
-    });
+    } catch (error) {
+      if ((error as { code?: string })?.code === "P2002") {
+        logger.info(`Stripe refund ${refund.id} was already reconciled concurrently`);
+        continue;
+      }
+      throw error;
+    }
 
     logger.info(`Stripe refund ${refund.id} reconciled in cash and payment state: ${refundAmount}`);
   }
