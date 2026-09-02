@@ -14,7 +14,8 @@ export type AuditAction =
   | "send"
   | "payment"
   | "ship"
-  | "settings_change";
+  | "settings_change"
+  | "COMMERCIAL_PRICING_APPLIED";
 
 export type AuditEntityType =
   | "product"
