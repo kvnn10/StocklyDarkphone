@@ -50,7 +50,7 @@ export default function FinancePage() {
     { label: "Por cobrar", value: data.receivables.total, icon: Wallet, note: "Cartera pendiente" },
     { label: "Utilidad bruta", value: data.grossProfit.total, icon: BarChart3, note: `Margen ${data.grossProfit.margin.toFixed(1)}%` },
     { label: "Saldo de caja", value: data.cash.balance, icon: Banknote, note: `Ingresos ${money(data.cash.income)} · Gastos ${money(data.cash.expense)}` },
-  ] : [];
+  ] : [], []);
 
   return <main className="space-y-6 p-4 sm:p-6">
     <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
