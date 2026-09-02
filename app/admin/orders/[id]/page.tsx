@@ -4,6 +4,7 @@ import { getOrderDetailForPage } from "@/lib/server/order-detail-data";
 import { getOrderReviewContextForPage } from "@/lib/server/order-review-context-data";
 import { reconcileStripeReturnBeforeDetail } from "@/lib/payments/reconcile-stripe-return";
 import AdminOrderDetailContent from "@/components/admin/AdminOrderDetailContent";
+import SalePaymentPanel from "@/components/admin/SalePaymentPanel";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -43,10 +44,13 @@ export default async function AdminOrderDetailPage({
   );
 
   return (
-    <AdminOrderDetailContent
-      backHref="/admin/orders"
-      initialOrder={initialOrder}
-      initialReviewContext={initialReviewContext}
-    />
+    <>
+      <AdminOrderDetailContent
+        backHref="/admin/orders"
+        initialOrder={initialOrder}
+        initialReviewContext={initialReviewContext}
+      />
+      <SalePaymentPanel orderId={id} />
+    </>
   );
 }
