@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, Boxes, CheckCircle2, CreditCard, DollarSign, Users } from "lucide-react";
+import { AlertTriangle, ArrowRight, Boxes, CheckCircle2, CreditCard, DollarSign, FileText, History, Laptop, ReceiptText, Settings2, Users, Wrench } from "lucide-react";
 import type { DashboardStats } from "@/types";
 
 type Health = {
@@ -27,10 +27,16 @@ export default function AdminBusinessQuickAccess({ stats }: { stats?: DashboardS
   }, []);
 
   const cards = [
-    { href: "/admin/sales", label: "Ventas", value: stats?.counts?.orders ?? 0, description: "POS y ventas registradas", icon: CreditCard, tone: "from-blue-500/20 to-cyan-500/10" },
+    { href: "/admin/sales", label: "Ventas", value: stats?.counts?.orders ?? 0, description: "POS, devoluciones, pagos y cotizaciones", icon: CreditCard, tone: "from-blue-500/20 to-cyan-500/10" },
     { href: "/admin/client-portal", label: "Clientes", value: stats?.counts?.users ?? 0, description: "Usuarios registrados", icon: Users, tone: "from-violet-500/20 to-fuchsia-500/10" },
-    { href: "/cash", label: "Caja", value: "Abrir", description: "Ingresos, egresos y movimientos", icon: DollarSign, tone: "from-emerald-500/20 to-teal-500/10" },
-    { href: "/admin/products", label: "Inventario", value: stats?.counts?.products ?? 0, description: `${stats?.productStatusBreakdown?.stockLow ?? 0} con stock bajo`, icon: Boxes, tone: "from-amber-500/20 to-orange-500/10" },
+    { href: "/cash", label: "Caja", value: "Abrir", description: "Ingresos, egresos, cierres y arqueos", icon: DollarSign, tone: "from-emerald-500/20 to-teal-500/10" },
+    { href: "/admin/products", label: "Inventario", value: stats?.counts?.products ?? 0, description: "Productos, conteos y ajustes", icon: Boxes, tone: "from-amber-500/20 to-orange-500/10" },
+    { href: "/devices", label: "Equipos", value: "Abrir", description: "IMEI, seriales, costos, venta y garantía", icon: Laptop, tone: "from-sky-500/20 to-indigo-500/10" },
+    { href: "/admin/service-orders", label: "Servicio técnico", value: "Abrir", description: "Reparaciones, repuestos, fotos y garantías", icon: Wrench, tone: "from-fuchsia-500/20 to-pink-500/10" },
+    { href: "/admin/invoices", label: "Facturas", value: "Abrir", description: "Facturación y documentos de venta", icon: ReceiptText, tone: "from-cyan-500/20 to-blue-500/10" },
+    { href: "/admin/finance", label: "Finanzas", value: "Abrir", description: "Cuentas por cobrar, pagar y gastos", icon: FileText, tone: "from-lime-500/20 to-emerald-500/10" },
+    { href: "/admin/kardex", label: "Kardex", value: "Abrir", description: "Historial de movimientos de inventario", icon: History, tone: "from-orange-500/20 to-red-500/10" },
+    { href: "/admin/audit", label: "Auditoría", value: "Abrir", description: "Trazabilidad y acciones del sistema", icon: Settings2, tone: "from-slate-500/20 to-zinc-500/10" },
   ];
 
   return (
@@ -39,7 +45,7 @@ export default function AdminBusinessQuickAccess({ stats }: { stats?: DashboardS
         <h2 className="text-lg font-semibold tracking-tight">Operación de Stockly</h2>
         <p className="text-sm text-muted-foreground">Accesos rápidos a los módulos principales del negocio.</p>
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {cards.map((card) => {
           const Icon = card.icon;
           return <Link key={card.href} href={card.href} className={`group rounded-2xl border bg-gradient-to-br ${card.tone} p-4 transition-all hover:-translate-y-0.5 hover:shadow-lg`}>
