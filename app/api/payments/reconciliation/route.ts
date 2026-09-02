@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reconcileStripeLedger } from "@/lib/payments/reconcile-stripe-ledger";
 import { prisma } from "@/prisma/client";
-import { getServerSession } from "@/lib/auth";
+import { getSession } from "@/lib/auth-server";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const session = await getServerSession();
-  const userId = session?.user?.id;
+  const session = await getSession();
+  const userId = session?.id;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
@@ -21,9 +21,7 @@ export async function GET(request: NextRequest) {
     });
     return NextResponse.json(report);
   } catch (error) {
-    return NextResponse.json(
-      { error: "Reconciliation failed" },
-      { status: 500 },
-    );
+    console.error("Stripe reconciliation failed", error);
+    return NextResponse.json({ error: "Reconciliation failed" }, { status: 500 });
   }
 }

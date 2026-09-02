@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  isDuplicateStripeLedgerError,
-  recordStripeLedgerEntry,
-} from "./stripe-ledger";
+import { isDuplicateStripeLedgerError, recordStripeLedgerEntry } from "./stripe-ledger";
 
 describe("Stripe ledger", () => {
   it("persists a payment intent identity with its business references", async () => {
@@ -25,20 +22,18 @@ describe("Stripe ledger", () => {
     expect(runCommandRaw).toHaveBeenCalledTimes(1);
     expect(runCommandRaw).toHaveBeenCalledWith({
       insert: "StripeLedger",
-      documents: [
-        {
-          _id: "payment_intent:pi_regression_001",
-          kind: "payment_intent",
-          paymentIntentId: "pi_regression_001",
-          refundId: null,
-          orderId: "order_001",
-          invoiceId: "invoice_001",
-          amount: 125,
-          currency: "usd",
-          status: "applied",
-          createdAt,
-        },
-      ],
+      documents: [{
+        _id: "payment_intent:pi_regression_001",
+        kind: "payment_intent",
+        paymentIntentId: "pi_regression_001",
+        refundId: null,
+        orderId: "order_001",
+        invoiceId: "invoice_001",
+        amount: 125,
+        currency: "usd",
+        status: "applied",
+        createdAt,
+      }],
     });
   });
 
@@ -61,24 +56,20 @@ describe("Stripe ledger", () => {
 
     expect(runCommandRaw.mock.calls[0]?.[0]).toMatchObject({
       insert: "StripeLedger",
-      documents: [
-        expect.objectContaining({
-          _id: "refund:re_regression_001",
-          kind: "refund",
-          paymentIntentId: "pi_regression_001",
-          refundId: "re_regression_001",
-          amount: 50,
-        }),
-      ],
+      documents: [expect.objectContaining({
+        _id: "refund:re_regression_001",
+        kind: "refund",
+        paymentIntentId: "pi_regression_001",
+        refundId: "re_regression_001",
+        amount: 50,
+      })],
     });
-    expect(
-      runCommandRaw.mock.calls[0]?.[0].documents[0]._id,
-    ).not.toBe("payment_intent:pi_regression_001");
   });
 
-  it("recognizes Mongo duplicate-key errors as concurrent idempotency", () => {
+  it("recognizes only Mongo duplicate-key errors as concurrent idempotency", () => {
     expect(isDuplicateStripeLedgerError({ code: 11000 })).toBe(true);
     expect(isDuplicateStripeLedgerError({ code: 11001 })).toBe(false);
+    expect(isDuplicateStripeLedgerError({ code: 26, codeName: "NamespaceNotFound" })).toBe(false);
     expect(isDuplicateStripeLedgerError(new Error("duplicate"))).toBe(false);
   });
 });
