@@ -5,6 +5,7 @@
  * first money confirms + fulfills. Browser return also calls confirm-session (localhost without local webhook).
  * REQ-0217 — partial Stripe refunds reconcile money, inventory and cash safely.
  * REQ-0218 — resolve Stripe payments independently of the order's latest PaymentIntent.
+ * REQ-0219 — paginate Stripe refunds so reconciliation cannot silently stop at 100 records.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -133,8 +134,10 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     return;
   }
 
-  const refunds = await getStripe().refunds.list({ payment_intent: paymentIntentId, limit: 100 });
-  const successfulRefunds = refunds.data.filter((refund) => refund.status === "succeeded");
+  const successfulRefunds: Stripe.Refund[] = [];
+  for await (const refund of getStripe().refunds.list({ payment_intent: paymentIntentId, limit: 100 })) {
+    if (refund.status === "succeeded") successfulRefunds.push(refund);
+  }
 
   for (const refund of successfulRefunds) {
     const refundAmount = refund.amount / 100;
