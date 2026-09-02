@@ -57,7 +57,6 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        // REQ-0209 — same idempotent path as browser confirm-session (safe if both fire)
         if (session.id) {
           const result = await confirmCheckoutSessionById(session.id);
           if (!result.ok) {
@@ -124,7 +123,10 @@ async function handleCheckoutExpired(session: Stripe.Checkout.Session) {
 }
 
 /**
- * Handle charge refund (e.g. when refunded from Stripe Dashboard)
+ * Handle charge refund (e.g. when refunded from Stripe Dashboard).
+ * The conditional writes below make the handler idempotent under Stripe
+ * retries and protect inventory from being restored twice when a refund
+ * webhook races the application's own cancellation transaction.
  */
 async function handleChargeRefunded(charge: Stripe.Charge) {
   const paymentIntentId =
@@ -141,57 +143,20 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
     `Charge refunded: ${charge.id}, PaymentIntent: ${paymentIntentId}`,
   );
 
+  let changed = false;
+
   const order = await prisma.order.findFirst({
     where: { stripePaymentIntentId: paymentIntentId },
     include: { items: true, invoice: true },
   });
-  if (order && order.paymentStatus !== "refunded") {
-    await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        paymentStatus: "refunded",
-        status: "cancelled",
-        cancelledAt: new Date(),
-        updatedAt: new Date(),
-      },
-    });
-    for (const item of order.items) {
-      await prisma.product.update({
-        where: { id: item.productId },
-        data: { quantity: { increment: item.quantity } },
-      });
-    }
-    if (order.invoice && order.invoice.status !== "cancelled") {
-      await prisma.invoice.update({
-        where: { id: order.invoice.id },
-        data: {
-          status: "cancelled",
-          cancelledAt: new Date(),
-          amountDue: 0,
-          updatedAt: new Date(),
-        },
-      });
-    }
-    logger.info(`Order ${order.id} marked refunded from charge.refunded`);
-  }
 
-  const invoiceRecord = await prisma.invoice.findFirst({
-    where: { stripePaymentIntentId: paymentIntentId },
-    include: { order: { include: { items: true } } },
-  });
-  if (invoiceRecord && invoiceRecord.status !== "cancelled") {
-    await prisma.invoice.update({
-      where: { id: invoiceRecord.id },
-      data: {
-        status: "cancelled",
-        cancelledAt: new Date(),
-        amountDue: 0,
-        updatedAt: new Date(),
-      },
-    });
-    if (invoiceRecord.order && invoiceRecord.order.paymentStatus !== "refunded") {
-      await prisma.order.update({
-        where: { id: invoiceRecord.order.id },
+  if (order) {
+    const result = await prisma.$transaction(async (tx) => {
+      const orderUpdate = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          paymentStatus: { not: "refunded" },
+        },
         data: {
           paymentStatus: "refunded",
           status: "cancelled",
@@ -199,19 +164,110 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
           updatedAt: new Date(),
         },
       });
-      for (const item of invoiceRecord.order.items) {
-        await prisma.product.update({
+
+      if (orderUpdate.count === 0) {
+        return false;
+      }
+
+      for (const item of order.items) {
+        await tx.product.update({
           where: { id: item.productId },
           data: { quantity: { increment: item.quantity } },
         });
       }
+
+      if (order.invoice) {
+        await tx.invoice.updateMany({
+          where: {
+            id: order.invoice.id,
+            status: { not: "cancelled" },
+          },
+          data: {
+            status: "cancelled",
+            cancelledAt: new Date(),
+            amountPaid: 0,
+            amountDue: 0,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      return true;
+    });
+
+    changed = changed || result;
+    if (result) {
+      logger.info(`Order ${order.id} marked refunded from charge.refunded`);
+    } else {
+      logger.info(`Order ${order.id} refund webhook already applied; skipping inventory restore`);
     }
-    logger.info(
-      `Invoice ${invoiceRecord.id} marked cancelled from charge.refunded`,
-    );
   }
 
-  if (order || invoiceRecord) {
+  const invoiceRecord = await prisma.invoice.findFirst({
+    where: { stripePaymentIntentId: paymentIntentId },
+    include: { order: { include: { items: true } } },
+  });
+
+  if (invoiceRecord) {
+    const result = await prisma.$transaction(async (tx) => {
+      const invoiceUpdate = await tx.invoice.updateMany({
+        where: {
+          id: invoiceRecord.id,
+          status: { not: "cancelled" },
+        },
+        data: {
+          status: "cancelled",
+          cancelledAt: new Date(),
+          amountPaid: 0,
+          amountDue: 0,
+          updatedAt: new Date(),
+        },
+      });
+
+      if (invoiceUpdate.count === 0) {
+        return false;
+      }
+
+      if (invoiceRecord.order) {
+        const orderUpdate = await tx.order.updateMany({
+          where: {
+            id: invoiceRecord.order.id,
+            paymentStatus: { not: "refunded" },
+          },
+          data: {
+            paymentStatus: "refunded",
+            status: "cancelled",
+            cancelledAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+
+        if (orderUpdate.count > 0) {
+          for (const item of invoiceRecord.order.items) {
+            await tx.product.update({
+              where: { id: item.productId },
+              data: { quantity: { increment: item.quantity } },
+            });
+          }
+        }
+      }
+
+      return true;
+    });
+
+    changed = changed || result;
+    if (result) {
+      logger.info(
+        `Invoice ${invoiceRecord.id} marked cancelled from charge.refunded`,
+      );
+    } else {
+      logger.info(
+        `Invoice ${invoiceRecord.id} refund webhook already applied; skipping duplicate state change`,
+      );
+    }
+  }
+
+  if (order || invoiceRecord || changed) {
     await invalidateOnOrderChange();
   }
 }
