@@ -24,6 +24,7 @@ import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
 import { AuthSessionToasts } from "@/components/shared/AuthSessionToasts";
 import { SuppressApiErrorOverlay } from "@/components/shared/SuppressApiErrorOverlay";
 import { RouteWarmPrefetch } from "@/components/providers/RouteWarmPrefetch";
+import { Analytics } from "@vercel/analytics/next";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -177,6 +178,7 @@ export default async function RootLayout({
             </AuthProvider>
           </QueryProvider>
         </ErrorBoundary>
+        <Analytics />
       </body>
     </html>
   );
