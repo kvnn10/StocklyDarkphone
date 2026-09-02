@@ -3,6 +3,7 @@
  * REQ-0215 — incremental amountPaid; sync unpaid|partial|paid.
  * REQ-0216 — serialize Stripe payment application so concurrent partial checkouts
  * cannot overpay an invoice or apply the same PaymentIntent twice.
+ * REQ-0217 — persist every Stripe charge in SalePayment + Caja atomically.
  */
 
 import { getStripe } from "@/lib/stripe";
@@ -190,6 +191,35 @@ export async function confirmCheckoutSessionById(
             },
           });
 
+          await tx.salePayment.create({
+            data: {
+              orderId,
+              orderNumber: order.orderNumber,
+              userId: order.userId,
+              recordedBy: order.userId,
+              amount: chargeAmount,
+              paymentMethod: "card",
+              status: "paid",
+              createdAt: new Date(),
+            },
+          });
+
+          await tx.cashMovement.create({
+            data: {
+              type: "income",
+              source: "sale_payment",
+              amount: chargeAmount,
+              paymentMethod: "card",
+              orderId,
+              orderNumber: order.orderNumber,
+              userId: order.userId,
+              createdBy: order.userId,
+              description: "Pago de venta vía Stripe",
+              status: "active",
+              createdAt: new Date(),
+            },
+          });
+
           return { alreadyApplied: false, invoiceId };
         }),
       );
@@ -236,6 +266,7 @@ export async function confirmCheckoutSessionById(
         prisma.$transaction(async (tx) => {
           const invoice = await tx.invoice.findUnique({
             where: { id: invoiceId },
+            include: { order: true },
           });
           if (!invoice) throw new Error("Invoice not found");
 
@@ -266,6 +297,37 @@ export async function confirmCheckoutSessionById(
               updatedAt: new Date(),
             },
           });
+
+          if (invoice.order) {
+            await tx.salePayment.create({
+              data: {
+                orderId: invoice.order.id,
+                orderNumber: invoice.order.orderNumber,
+                userId: invoice.order.userId,
+                recordedBy: invoice.order.userId,
+                amount: chargeAmount,
+                paymentMethod: "card",
+                status: "paid",
+                createdAt: new Date(),
+              },
+            });
+
+            await tx.cashMovement.create({
+              data: {
+                type: "income",
+                source: "sale_payment",
+                amount: chargeAmount,
+                paymentMethod: "card",
+                orderId: invoice.order.id,
+                orderNumber: invoice.order.orderNumber,
+                userId: invoice.order.userId,
+                createdBy: invoice.order.userId,
+                description: "Pago de factura vía Stripe",
+                status: "active",
+                createdAt: new Date(),
+              },
+            });
+          }
 
           return { alreadyApplied: false, orderId: invoice.orderId };
         }),
