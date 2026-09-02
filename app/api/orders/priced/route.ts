@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       discount: quote.discount,
       notes: typeof body.notes === "string" ? body.notes : undefined,
     }, { storeOwnerUserId: session.id, createdByUserId: session.id, clientId: typeof body.clientId === "string" ? body.clientId : null });
-    await createAuditLog({ userId: session.id, action: "COMMERCIAL_PRICING_APPLIED", entityType: "Order", entityId: order.id, details: { orderNumber: order.orderNumber, gross: quote.gross, discount: quote.discount, subtotal: quote.subtotal, cost: quote.cost, margin: quote.margin, lines: quote.lines.map((line) => ({ productId: line.productId, quantity: line.quantity, promotion: line.promotion?.id ?? null, promotionDiscount: line.promotionDiscount, manualDiscount: line.manualDiscount, discount: line.discount, subtotal: line.subtotal })) } });
+    await createAuditLog({ userId: session.id, action: "COMMERCIAL_PRICING_APPLIED", entityType: "order", entityId: order.id, details: { orderNumber: order.orderNumber, gross: quote.gross, discount: quote.discount, subtotal: quote.subtotal, cost: quote.cost, margin: quote.margin, lines: quote.lines.map((line) => ({ productId: line.productId, quantity: line.quantity, promotion: line.promotion?.id ?? null, promotionDiscount: line.promotionDiscount, manualDiscount: line.manualDiscount, discount: line.discount, subtotal: line.subtotal })) } });
     await invalidateOnOrderChange();
     return NextResponse.json({ ok: true, order, pricing: quote }, { status: 201 });
   } catch (error) {
