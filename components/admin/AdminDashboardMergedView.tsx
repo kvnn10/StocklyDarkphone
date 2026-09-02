@@ -5,6 +5,7 @@ import { PageContentWrapper } from "@/components/shared";
 import AdminAnalyticsContent from "./AdminAnalyticsContent";
 import AdminBusinessQuickAccess from "./AdminBusinessQuickAccess";
 import AdminOperationalHealthCard from "./AdminOperationalHealthCard";
+import AdminOperationsCenter from "./AdminOperationsCenter";
 import ServiceProfitabilityDashboardCard from "./ServiceProfitabilityDashboardCard";
 import AdminProfitabilityCard from "./AdminProfitabilityCard";
 import InventoryIntelligenceCard from "./InventoryIntelligenceCard";
@@ -16,12 +17,13 @@ export type AdminDashboardMergedViewProps = {
   initialForecasting?: import("@/types").ForecastingSummary;
 };
 
-/** Merged dashboard: KPIs + analytics + inventory intelligence + business profitability. */
+/** Merged dashboard: KPIs + analytics + operational center + inventory intelligence + business profitability. */
 export default function AdminDashboardMergedView({ variant, initialStats, initialForecasting }: AdminDashboardMergedViewProps) {
   return (
     <PageContentWrapper noPadding={variant === "store"}>
       <div className="space-y-6">
         <AdminBusinessQuickAccess stats={initialStats} />
+        {variant === "store" && <AdminOperationsCenter />}
         {variant === "store" && <AdminOperationalHealthCard />}
         {variant === "store" && <AdminProfitabilityCard />}
         {variant === "store" && <InventoryIntelligenceCard />}
