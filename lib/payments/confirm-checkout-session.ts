@@ -1,17 +1,18 @@
 /**
  * REQ-0209 gap — Apply Stripe Checkout Session on browser return (`?payment=success&session_id=`).
- * Idempotent vs webhook: if PaymentIntent already stored, only re-run payment→status sync
- * (confirms Pending→Confirmed on first money when webhook used older logic or remote webhook).
- * REQ-0215 — after apply (and alreadyApplied), always heal invoice + sync order so
- * partial→remainder settle promotes invoice paid / order paymentStatus paid.
+ * REQ-0215 — incremental amountPaid; sync unpaid|partial|paid.
+ * REQ-0216 — serialize Stripe payment application so concurrent partial checkouts
+ * cannot overpay an invoice or apply the same PaymentIntent twice.
  */
 
 import { getStripe } from "@/lib/stripe";
 import { prisma } from "@/prisma/client";
-import { applyStripeChargeToOrderInvoice } from "@/prisma/invoice";
 import { applyIncrementalInvoicePayment } from "@/lib/payments/order-payment-from-amounts";
 import { healInvoiceStatusAfterMoney } from "@/lib/invoices/heal-invoice-status-after-money";
+import { resolveInvoiceBillingAddressInput } from "@/lib/invoices/resolve-invoice-billing-address";
+import { generateInvoiceNumber } from "@/prisma/invoice";
 import { invalidateOnOrderChange } from "@/lib/cache";
+import { createStripeRefund } from "@/lib/stripe/refund";
 import { logger } from "@/lib/logger";
 
 export type ConfirmCheckoutSessionResult = {
@@ -21,14 +22,42 @@ export type ConfirmCheckoutSessionResult = {
   invoiceId?: string;
   paymentStatus?: string | null;
   orderStatus?: string | null;
-  /** REQ-0215 — healed invoice status when available */
   invoiceStatus?: string | null;
   error?: string;
 };
 
-/**
- * Retrieve Checkout Session and sync order/invoice money + fulfillment status.
- */
+class PaymentExceedsDueError extends Error {
+  constructor() {
+    super("Stripe payment exceeds the remaining balance");
+    this.name = "PaymentExceedsDueError";
+  }
+}
+
+async function runPaymentTransaction<T>(work: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await work();
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code !== "P2034" || attempt === 3) throw error;
+      logger.warn("Retrying concurrent Stripe payment transaction", { attempt });
+    }
+  }
+  throw new Error("Stripe payment transaction failed");
+}
+
+async function refundExcessStripePayment(paymentIntentId: string): Promise<void> {
+  try {
+    await createStripeRefund(paymentIntentId, "requested_by_customer");
+    logger.warn("Stripe payment refunded because it exceeded the remaining balance", {
+      paymentIntentId,
+    });
+  } catch (error) {
+    logger.error("Failed to refund Stripe overpayment", { paymentIntentId, error });
+    throw error;
+  }
+}
+
 export async function confirmCheckoutSessionById(
   sessionId: string,
 ): Promise<ConfirmCheckoutSessionResult> {
@@ -63,133 +92,218 @@ export async function confirmCheckoutSessionById(
       ? session.payment_intent
       : session.payment_intent?.id;
 
+  if (!paymentIntentId) {
+    return { ok: false, alreadyApplied: false, error: "Missing Stripe payment intent" };
+  }
+
   if (type === "order" && (orderIdMeta || referenceId)) {
     const orderId = orderIdMeta || referenceId!;
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        status: true,
-        paymentStatus: true,
-        stripePaymentIntentId: true,
-      },
-    });
-    if (!order) {
-      return { ok: false, alreadyApplied: false, error: "Order not found" };
-    }
+    try {
+      const applied = await runPaymentTransaction(async () =>
+        prisma.$transaction(async (tx) => {
+          const order = await tx.order.findUnique({
+            where: { id: orderId },
+            include: { invoice: true },
+          });
+          if (!order) throw new Error("Order not found");
 
-    const alreadyApplied =
-      !!paymentIntentId &&
-      order.stripePaymentIntentId === paymentIntentId;
+          if (order.stripePaymentIntentId === paymentIntentId) {
+            return { alreadyApplied: true, invoiceId: order.invoice?.id };
+          }
 
-    let invoiceId: string | undefined;
+          const invoice = order.invoice;
+          const currentDue = invoice?.amountDue ?? order.total;
+          const dueCents = Math.round(Math.max(0, currentDue) * 100);
+          const chargeCents = Math.round(Math.max(0, chargeAmount) * 100);
+          if (chargeCents <= 0 || chargeCents > dueCents) {
+            throw new PaymentExceedsDueError();
+          }
 
-    if (!alreadyApplied) {
-      const invoice = await applyStripeChargeToOrderInvoice(
-        orderId,
-        chargeAmount,
+          let invoiceId: string;
+          if (invoice) {
+            const next = applyIncrementalInvoicePayment({
+              priorAmountPaid: invoice.amountPaid,
+              total: invoice.total,
+              chargeAmount,
+              priorStatus: invoice.status,
+            });
+            const updated = await tx.invoice.update({
+              where: { id: invoice.id },
+              data: {
+                status: next.status,
+                amountPaid: next.amountPaid,
+                amountDue: next.amountDue,
+                paidAt: next.fullyPaid ? new Date() : null,
+                stripePaymentIntentId: paymentIntentId,
+                updatedAt: new Date(),
+              },
+            });
+            invoiceId = updated.id;
+          } else {
+            const now = new Date();
+            const next = applyIncrementalInvoicePayment({
+              priorAmountPaid: 0,
+              total: order.total,
+              chargeAmount,
+              priorStatus: "sent",
+            });
+            const invoiceNumber = await generateInvoiceNumber();
+            const created = await tx.invoice.create({
+              data: {
+                invoiceNumber,
+                orderId,
+                userId: order.userId,
+                clientId: order.clientId,
+                status: next.status,
+                subtotal: order.subtotal,
+                tax: order.tax && order.tax > 0 ? order.tax : null,
+                shipping: order.shipping && order.shipping > 0 ? order.shipping : null,
+                discount: order.discount && order.discount > 0 ? order.discount : null,
+                total: order.total,
+                amountPaid: next.amountPaid,
+                amountDue: next.amountDue,
+                dueDate: now,
+                issuedAt: now,
+                sentAt: now,
+                paidAt: next.fullyPaid ? now : null,
+                cancelledAt: null,
+                paymentLink: null,
+                notes: next.fullyPaid
+                  ? "Auto-generated when order was paid via Stripe."
+                  : "Auto-generated from Stripe partial payment on order.",
+                billingAddress: resolveInvoiceBillingAddressInput(order),
+                createdBy: order.userId,
+                updatedBy: null,
+                createdAt: now,
+                updatedAt: null,
+                stripePaymentIntentId: paymentIntentId,
+              },
+            });
+            invoiceId = created.id;
+          }
+
+          await tx.order.update({
+            where: { id: orderId },
+            data: {
+              stripePaymentIntentId: paymentIntentId,
+              updatedAt: new Date(),
+            },
+          });
+
+          return { alreadyApplied: false, invoiceId };
+        }),
       );
-      invoiceId = invoice.id;
-      if (paymentIntentId) {
-        await prisma.order.update({
-          where: { id: orderId },
-          data: {
-            stripePaymentIntentId: paymentIntentId,
-            updatedAt: new Date(),
-          },
-        });
-        await prisma.invoice.update({
-          where: { id: invoice.id },
-          data: {
-            stripePaymentIntentId: paymentIntentId,
-            updatedAt: new Date(),
-          },
-        });
-      }
-    } else {
-      const existing = await prisma.invoice.findUnique({
-        where: { orderId },
-        select: { id: true },
+
+      const invoiceStatus = applied.invoiceId
+        ? (await healInvoiceStatusAfterMoney(applied.invoiceId))?.status ?? null
+        : null;
+      await invalidateOnOrderChange();
+      const refreshed = await prisma.order.findUnique({
+        where: { id: orderId },
+        select: { status: true, paymentStatus: true },
       });
-      invoiceId = existing?.id;
+
+      return {
+        ok: true,
+        alreadyApplied: applied.alreadyApplied,
+        orderId,
+        invoiceId: applied.invoiceId,
+        paymentStatus: refreshed?.paymentStatus ?? null,
+        orderStatus: refreshed?.status ?? null,
+        invoiceStatus,
+      };
+    } catch (error) {
+      if (error instanceof PaymentExceedsDueError) {
+        await refundExcessStripePayment(paymentIntentId);
+        return {
+          ok: false,
+          alreadyApplied: false,
+          orderId,
+          error: "Stripe payment exceeded the remaining balance and was refunded",
+        };
+      }
+      if (error instanceof Error && error.message === "Order not found") {
+        return { ok: false, alreadyApplied: false, error: error.message };
+      }
+      throw error;
     }
-
-    // REQ-0215 — heal+sync always (sent→paid when settled; order partial→paid)
-    let invoiceStatus: string | null = null;
-    if (invoiceId) {
-      const healed = await healInvoiceStatusAfterMoney(invoiceId);
-      invoiceStatus = healed?.status ?? null;
-    }
-
-    await invalidateOnOrderChange();
-    const refreshed = await prisma.order.findUnique({
-      where: { id: orderId },
-      select: { status: true, paymentStatus: true },
-    });
-
-    return {
-      ok: true,
-      alreadyApplied,
-      orderId,
-      invoiceId,
-      paymentStatus: refreshed?.paymentStatus ?? null,
-      orderStatus: refreshed?.status ?? null,
-      invoiceStatus,
-    };
   }
 
   if (type === "invoice" && (invoiceIdMeta || referenceId)) {
     const invoiceId = invoiceIdMeta || referenceId!;
-    const prior = await prisma.invoice.findUnique({
-      where: { id: invoiceId },
-    });
-    if (!prior) {
-      return { ok: false, alreadyApplied: false, error: "Invoice not found" };
+    try {
+      const applied = await runPaymentTransaction(async () =>
+        prisma.$transaction(async (tx) => {
+          const invoice = await tx.invoice.findUnique({
+            where: { id: invoiceId },
+          });
+          if (!invoice) throw new Error("Invoice not found");
+
+          if (invoice.stripePaymentIntentId === paymentIntentId) {
+            return { alreadyApplied: true, orderId: invoice.orderId };
+          }
+
+          const dueCents = Math.round(Math.max(0, invoice.amountDue) * 100);
+          const chargeCents = Math.round(Math.max(0, chargeAmount) * 100);
+          if (chargeCents <= 0 || chargeCents > dueCents) {
+            throw new PaymentExceedsDueError();
+          }
+
+          const next = applyIncrementalInvoicePayment({
+            priorAmountPaid: invoice.amountPaid,
+            total: invoice.total,
+            chargeAmount,
+            priorStatus: invoice.status,
+          });
+          await tx.invoice.update({
+            where: { id: invoiceId },
+            data: {
+              status: next.status,
+              amountPaid: next.amountPaid,
+              amountDue: next.amountDue,
+              paidAt: next.fullyPaid ? new Date() : null,
+              stripePaymentIntentId: paymentIntentId,
+              updatedAt: new Date(),
+            },
+          });
+
+          return { alreadyApplied: false, orderId: invoice.orderId };
+        }),
+      );
+
+      const healed = await healInvoiceStatusAfterMoney(invoiceId);
+      await invalidateOnOrderChange();
+      const refreshed = applied.orderId
+        ? await prisma.order.findUnique({
+            where: { id: applied.orderId },
+            select: { status: true, paymentStatus: true },
+          })
+        : null;
+
+      return {
+        ok: true,
+        alreadyApplied: applied.alreadyApplied,
+        invoiceId,
+        orderId: applied.orderId,
+        paymentStatus: refreshed?.paymentStatus ?? null,
+        orderStatus: refreshed?.status ?? null,
+        invoiceStatus: healed?.status ?? null,
+      };
+    } catch (error) {
+      if (error instanceof PaymentExceedsDueError) {
+        await refundExcessStripePayment(paymentIntentId);
+        return {
+          ok: false,
+          alreadyApplied: false,
+          invoiceId,
+          error: "Stripe payment exceeded the remaining balance and was refunded",
+        };
+      }
+      if (error instanceof Error && error.message === "Invoice not found") {
+        return { ok: false, alreadyApplied: false, error: error.message };
+      }
+      throw error;
     }
-
-    const alreadyApplied =
-      !!paymentIntentId &&
-      prior.stripePaymentIntentId === paymentIntentId;
-
-    if (!alreadyApplied) {
-      const next = applyIncrementalInvoicePayment({
-        priorAmountPaid: prior.amountPaid,
-        total: prior.total,
-        chargeAmount,
-        priorStatus: prior.status,
-      });
-      await prisma.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          status: next.status,
-          amountPaid: next.amountPaid,
-          amountDue: next.amountDue,
-          paidAt: next.fullyPaid ? new Date() : null,
-          stripePaymentIntentId: paymentIntentId ?? undefined,
-          updatedAt: new Date(),
-        },
-      });
-    }
-
-    // REQ-0215 — heal after apply or alreadyApplied (promotes stuck sent→paid)
-    const healed = await healInvoiceStatusAfterMoney(invoiceId);
-    await invalidateOnOrderChange();
-    const orderId = healed?.orderId ?? prior.orderId;
-    const refreshed = orderId
-      ? await prisma.order.findUnique({
-          where: { id: orderId },
-          select: { status: true, paymentStatus: true },
-        })
-      : null;
-    return {
-      ok: true,
-      alreadyApplied,
-      invoiceId,
-      orderId,
-      paymentStatus: refreshed?.paymentStatus ?? null,
-      orderStatus: refreshed?.status ?? null,
-      invoiceStatus: healed?.status ?? null,
-    };
   }
 
   logger.warn("confirmCheckoutSession: unknown session type", {
