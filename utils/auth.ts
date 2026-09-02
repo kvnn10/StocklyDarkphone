@@ -5,14 +5,20 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { User as PrismaUser } from "@prisma/client";
-import Cookies from "js-cookie"; // Import js-cookie
+import Cookies from "js-cookie";
 import { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/prisma/client";
 
-/** Secret for signing/verifying JWT; must match across server and be set in production. */
-const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
+/** Secret for signing/verifying JWT. Production must provide JWT_SECRET explicitly. */
+const getJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET?.trim();
+  if (!secret) {
+    throw new Error("JWT_SECRET is required to create or verify sessions");
+  }
+  return secret;
+};
 
-/** Session lifetime — password login + Google OAuth share the same JWT + cookie TTL (REQ-0134). */
+/** Session lifetime — password login + Google OAuth share the same JWT + cookie TTL. */
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24; // 1 day
 export const SESSION_JWT_EXPIRES = "1d" as const;
 
@@ -23,7 +29,6 @@ const isServer = typeof window === "undefined";
 
 /**
  * Cookie options for `session_id` — keep maxAge in sync with SESSION_JWT_EXPIRES.
- * REQ-0134: keep JWT expiresIn and cookie maxAge identical (was 1h JWT vs longer cookie).
  */
 export function sessionCookieOptions(isSecure: boolean): {
   httpOnly: boolean;
@@ -43,10 +48,13 @@ export function sessionCookieOptions(isSecure: boolean): {
 
 /** Creates a signed JWT containing userId; used after login to set session cookie. */
 export const generateToken = (userId: string): string => {
-  const token = jwt.sign({ userId }, JWT_SECRET, {
+  if (!userId?.trim()) {
+    throw new Error("A valid userId is required to create a session");
+  }
+
+  return jwt.sign({ userId }, getJwtSecret(), {
     expiresIn: SESSION_JWT_EXPIRES,
   });
-  return token;
 };
 
 /** Verifies JWT and returns decoded payload (userId); returns null if invalid or on client. */
@@ -57,18 +65,21 @@ export const verifyToken = (token: string): { userId: string } | null => {
 
   // Only verify tokens on the server side
   if (!isServer) {
-    // On client side, we'll just return null to avoid JWT library issues
     return null;
   }
 
   try {
-    // Check if jwt is properly imported
-    if (typeof jwt === "undefined" || !jwt.verify) {
+    const decoded = jwt.verify(token, getJwtSecret());
+    if (
+      typeof decoded !== "object" ||
+      decoded === null ||
+      typeof decoded.userId !== "string" ||
+      !decoded.userId.trim()
+    ) {
       return null;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    return decoded;
+    return { userId: decoded.userId };
   } catch (error) {
     return null;
   }
@@ -119,7 +130,7 @@ export const getSessionFromRequest = async (request: {
   return user;
 };
 
-/** Client-side: fetches /api/auth/session with cookies to get current user (avoids using JWT on client). */
+/** Client-side: fetches /api/auth/session with cookies to get current user. */
 export const getSessionClient = async (): Promise<User | null> => {
   try {
     const token = Cookies.get("session_id");
@@ -127,14 +138,12 @@ export const getSessionClient = async (): Promise<User | null> => {
       return null;
     }
 
-    // On client side, we'll make an API call to verify the token
-    // This avoids using the JWT library on the client side
     const response = await fetch("/api/auth/session", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
       },
-      credentials: "include", // Include cookies
+      credentials: "include",
     });
 
     if (response.ok) {
