@@ -5,6 +5,7 @@
  * cannot overpay an invoice or apply the same PaymentIntent twice.
  * REQ-0217 — persist every Stripe charge in SalePayment + Caja atomically.
  * REQ-0218 — use the Stripe PaymentIntent as a durable payment idempotency key.
+ * REQ-0220 — persist Stripe PaymentIntent identity in a transactional ledger.
  */
 
 import { getStripe } from "@/lib/stripe";
@@ -16,6 +17,7 @@ import { generateInvoiceNumber } from "@/prisma/invoice";
 import { invalidateOnOrderChange } from "@/lib/cache";
 import { createStripeRefund } from "@/lib/stripe/refund";
 import { logger } from "@/lib/logger";
+import { isDuplicateStripeLedgerError, recordStripeLedgerEntry } from "@/lib/payments/stripe-ledger";
 
 export type ConfirmCheckoutSessionResult = {
   ok: boolean;
@@ -131,6 +133,19 @@ export async function confirmCheckoutSessionById(
           if (chargeCents <= 0 || chargeCents > dueCents) {
             throw new PaymentExceedsDueError();
           }
+
+          const ledgerId = `payment_intent:${paymentIntentId}`;
+          await recordStripeLedgerEntry(tx, {
+            id: ledgerId,
+            kind: "payment_intent",
+            paymentIntentId,
+            orderId,
+            invoiceId: invoice?.id ?? null,
+            amount: chargeAmount,
+            currency: session.currency ?? "usd",
+            status: "applied",
+            createdAt: new Date(),
+          });
 
           let invoiceId: string;
           if (invoice) {
@@ -255,6 +270,9 @@ export async function confirmCheckoutSessionById(
         invoiceStatus,
       };
     } catch (error) {
+      if (isDuplicateStripeLedgerError(error)) {
+        return { ok: true, alreadyApplied: true, orderId };
+      }
       if (error instanceof PaymentExceedsDueError) {
         await refundExcessStripePayment(paymentIntentId);
         return {
@@ -302,6 +320,18 @@ export async function confirmCheckoutSessionById(
           if (chargeCents <= 0 || chargeCents > dueCents) {
             throw new PaymentExceedsDueError();
           }
+
+          await recordStripeLedgerEntry(tx, {
+            id: `payment_intent:${paymentIntentId}`,
+            kind: "payment_intent",
+            paymentIntentId,
+            orderId: invoice.orderId,
+            invoiceId,
+            amount: chargeAmount,
+            currency: session.currency ?? "usd",
+            status: "applied",
+            createdAt: new Date(),
+          });
 
           const next = applyIncrementalInvoicePayment({
             priorAmountPaid: invoice.amountPaid,
@@ -375,6 +405,9 @@ export async function confirmCheckoutSessionById(
         invoiceStatus: healed?.status ?? null,
       };
     } catch (error) {
+      if (isDuplicateStripeLedgerError(error)) {
+        return { ok: true, alreadyApplied: true, invoiceId };
+      }
       if (error instanceof PaymentExceedsDueError) {
         await refundExcessStripePayment(paymentIntentId);
         return {

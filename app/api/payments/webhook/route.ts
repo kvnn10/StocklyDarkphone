@@ -6,6 +6,7 @@
  * REQ-0217 — partial Stripe refunds reconcile money, inventory and cash safely.
  * REQ-0218 — resolve Stripe payments independently of the order's latest PaymentIntent.
  * REQ-0219 — paginate Stripe refunds so reconciliation cannot silently stop at 100 records.
+ * REQ-0220 — persist Stripe PaymentIntent/Refund identities in a transactional ledger.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,6 +15,7 @@ import { getStripe, getWebhookSecret, isStripeConfigured, Stripe } from "@/lib/s
 import { prisma } from "@/prisma/client";
 import { confirmCheckoutSessionById } from "@/lib/payments/confirm-checkout-session";
 import { invalidateOnOrderChange } from "@/lib/cache";
+import { isDuplicateStripeLedgerError, recordStripeLedgerEntry } from "@/lib/payments/stripe-ledger";
 
 export const runtime = "nodejs";
 
@@ -145,6 +147,24 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
 
     try {
       await prisma.$transaction(async (tx) => {
+        try {
+          await recordStripeLedgerEntry(tx, {
+            id: `refund:${refund.id}`,
+            kind: "refund",
+            paymentIntentId,
+            refundId: refund.id,
+            orderId: targetOrder?.id ?? null,
+            invoiceId: targetInvoice?.id ?? null,
+            amount: refundAmount,
+            currency: refund.currency,
+            status: "applied",
+            createdAt: new Date(),
+          });
+        } catch (error) {
+          if (isDuplicateStripeLedgerError(error)) return;
+          throw error;
+        }
+
         const refundDescription = `Reembolso de Stripe ${refund.id}`;
         const existingCashMovement = targetOrder
           ? await tx.cashMovement.findFirst({
@@ -242,7 +262,7 @@ async function handleChargeRefunded(charge: Stripe.Charge) {
         });
       });
     } catch (error) {
-      if ((error as { code?: string })?.code === "P2002") {
+      if (isDuplicateStripeLedgerError(error)) {
         logger.info(`Stripe refund ${refund.id} was already reconciled concurrently`);
         continue;
       }
