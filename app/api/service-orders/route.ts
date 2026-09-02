@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { createHash } from "crypto";
 import { getSessionFromRequest } from "@/utils/auth";
 import { writeAuditLog } from "@/lib/audit/log";
 import { prisma } from "@/prisma/client";
@@ -11,6 +12,7 @@ const money = (value: unknown) => { const n = Number(value); return Number.isFin
 const terminal = (status: string) => status === "delivered" || status === "cancelled";
 const validId = (value: unknown) => typeof value === "string" && /^[a-f\d]{24}$/i.test(value);
 const meta = (value: unknown): Record<string, any> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
+const paymentIdForKey = (sessionId: string, orderId: string, key: string) => createHash("sha256").update(`${sessionId}:${orderId}:${key}`).digest("hex").slice(0, 24);
 
 function legacyOrder(order: any) {
   if (!order) return null;
@@ -168,27 +170,37 @@ export async function PUT(request: NextRequest) {
       const amount = money(body.amount), method = typeof body.paymentMethod === "string" ? body.paymentMethod.trim() : "";
       const idempotencyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim().slice(0, 120) : "";
       if (amount === null || amount <= 0 || !method) return NextResponse.json({ error: "Pago inválido" }, { status: 400 });
+      const deterministicPaymentId = idempotencyKey ? paymentIdForKey(session.id, id, idempotencyKey) : null;
       try {
         const saved = await prisma.$transaction(async tx => {
           const current = await tx.serviceOrder.findFirst({ where: { id, userId: session.id } });
           if (!current) throw new Error("Orden no encontrada");
-          const currentMeta = meta(current.accessories);
-          const paymentKeys = currentMeta.paymentIdempotencyKeys && typeof currentMeta.paymentIdempotencyKeys === "object" ? currentMeta.paymentIdempotencyKeys : {};
-          if (idempotencyKey && paymentKeys[idempotencyKey]) {
-            return tx.serviceOrder.findUnique({ where: { id }, include: { items: true, payments: true } });
+          if (deterministicPaymentId) {
+            const prior = await tx.serviceOrderPayment.findUnique({ where: { id: deterministicPaymentId } });
+            if (prior) {
+              if (Number(prior.amount) !== amount || prior.paymentMethod !== method) throw new Error("La clave de idempotencia ya fue utilizada con datos de pago diferentes");
+              return tx.serviceOrder.findUnique({ where: { id }, include: { items: true, payments: true } });
+            }
           }
           if (amount > current.amountDue) throw new Error("El pago supera el saldo pendiente");
           const updated = await tx.serviceOrder.updateMany({ where: { id, userId: session.id, amountDue: { gte: amount } }, data: { amountPaid: { increment: amount }, amountDue: { decrement: amount }, updatedAt: new Date(), updatedBy: session.id } });
           if (updated.count !== 1) throw new Error("El saldo cambió mientras se registraba el pago. Intenta nuevamente");
-          await tx.serviceOrderPayment.create({ data: { serviceOrderId: id, userId: session.id, recordedBy: session.id, amount, paymentMethod: method } });
+          await tx.serviceOrderPayment.create({ data: { ...(deterministicPaymentId ? { id: deterministicPaymentId } : {}), serviceOrderId: id, userId: session.id, recordedBy: session.id, amount, paymentMethod: method } });
           await tx.cashMovement.create({ data: { type: "income", source: "service_order", amount, paymentMethod: method, orderId: id, orderNumber: current.orderNumber, userId: session.id, createdBy: session.id, description: `Abono ${current.orderNumber}` } });
-          if (idempotencyKey) await tx.serviceOrder.update({ where: { id }, data: { accessories: { ...currentMeta, paymentIdempotencyKeys: { ...paymentKeys, [idempotencyKey]: true } } } });
           return tx.serviceOrder.findUnique({ where: { id }, include: { items: true, payments: true } });
         });
         await writeAuditLog({ userId: session.id, action: "SERVICE_PAYMENT_RECORDED", entityType: "ServiceOrder", entityId: id, details: { amount, paymentMethod: method, idempotencyKey: idempotencyKey || undefined } });
         return NextResponse.json(legacyOrder(saved));
       } catch (error: any) {
+        if (error?.code === "P2002" && deterministicPaymentId) {
+          const prior = await prisma.serviceOrderPayment.findUnique({ where: { id: deterministicPaymentId } });
+          if (prior) {
+            if (Number(prior.amount) !== amount || prior.paymentMethod !== method) return NextResponse.json({ error: "La clave de idempotencia ya fue utilizada con datos de pago diferentes" }, { status: 409 });
+            return NextResponse.json(legacyOrder(await getOrder(id, session.id)));
+          }
+        }
         if (error?.message === "Orden no encontrada" || error?.message === "El pago supera el saldo pendiente" || error?.message === "El saldo cambió mientras se registraba el pago. Intenta nuevamente") return NextResponse.json({ error: error.message }, { status: error?.message === "Orden no encontrada" ? 404 : 400 });
+        if (error?.message === "La clave de idempotencia ya fue utilizada con datos de pago diferentes") return NextResponse.json({ error: error.message }, { status: 409 });
         throw error;
       }
     }
