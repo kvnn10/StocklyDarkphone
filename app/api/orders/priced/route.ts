@@ -5,13 +5,21 @@ import { quotePricing } from "@/lib/commercial/pricing";
 import { createAuditLog } from "@/prisma/audit-log";
 import { invalidateOnOrderChange } from "@/lib/cache";
 
+type PricedOrderItem = {
+  productId: string;
+  quantity: number;
+  warehouseId?: string;
+  discountType?: "fixed" | "percent";
+  discountValue?: number;
+};
+
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = await request.json();
     if (!Array.isArray(body.items) || body.items.length === 0) return NextResponse.json({ error: "Debe enviar al menos un producto" }, { status: 400 });
-    const items = body.items.map((item: Record<string, unknown>) => ({
+    const items: PricedOrderItem[] = body.items.map((item: Record<string, unknown>) => ({
       productId: String(item.productId ?? ""),
       quantity: Number(item.quantity),
       warehouseId: item.warehouseId ? String(item.warehouseId) : undefined,
