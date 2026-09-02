@@ -5,7 +5,7 @@ import { prisma } from "@/prisma/client";
 
 const STATUSES = ["received", "diagnosis", "awaiting_approval", "repairing", "ready", "delivered", "cancelled"] as const;
 const ALLOWED_ROLES = ["admin", "user", "retailer"];
-const validId = (value: unknown) => typeof value === "string" && /^[a-f\\d]{24}$/i.test(value);
+const validId = (value: unknown) => typeof value === "string" && /^[a-f\d]{24}$/i.test(value);
 const meta = (value: unknown): Record<string, any> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 const toDate = (value: unknown) => {
   if (value === null || value === "") return null;
@@ -27,6 +27,8 @@ export async function PUT(request: NextRequest) {
     const nextStatus = typeof body.status === "string" ? body.status : existing.status;
     if (!STATUSES.includes(nextStatus as any)) return NextResponse.json({ error: "Estado inválido" }, { status: 400 });
     if ((existing.status === "delivered" || existing.status === "cancelled") && nextStatus !== existing.status) return NextResponse.json({ error: "Una orden cerrada no puede reabrirse desde el ciclo de vida" }, { status: 409 });
+    if (nextStatus === "delivered" && existing.amountDue > 0) return NextResponse.json({ error: "No se puede entregar una orden con saldo pendiente" }, { status: 409 });
+    if (nextStatus === "delivered" && !existing.diagnosis?.trim()) return NextResponse.json({ error: "Registra el diagnóstico antes de entregar la orden" }, { status: 409 });
 
     const estimatedDelivery = toDate(body.estimatedDelivery);
     if (estimatedDelivery === undefined) return NextResponse.json({ error: "Fecha estimada inválida" }, { status: 400 });
