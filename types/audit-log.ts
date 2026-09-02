@@ -20,6 +20,7 @@ export type AuditEntityType =
   | "product"
   | "order"
   | "invoice"
+  | "sale_payment"
   | "user"
   | "supplier"
   | "category"
@@ -39,7 +40,6 @@ export interface AuditLog {
   ipAddress?: string | null;
   userAgent?: string | null;
   createdAt: string;
-  // Populated fields (from API)
   user?: {
     id: string;
     name?: string | null;
