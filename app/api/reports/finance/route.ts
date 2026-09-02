@@ -32,22 +32,10 @@ export async function GET(request: NextRequest) {
     const paymentsCollected = salesCollected + repairsCollected;
     const activeOrders = orders.filter(o => o.status !== "cancelled");
     const activeRepairs = serviceOrders.filter(o => o.status !== "cancelled");
-    const activeOrderIds = activeOrders.map(o => o.id);
-    const activeRepairIds = activeRepairs.map(o => o.id);
-    const historicalSalePayments = activeOrderIds.length
-      ? await prisma.salePayment.findMany({ where: { userId: session.id, orderId: { in: activeOrderIds }, status: "paid" }, select: { orderId: true, amount: true } })
-      : [];
-    const historicalRepairPayments = activeRepairIds.length
-      ? await prisma.serviceOrderPayment.findMany({ where: { userId: session.id, serviceOrderId: { in: activeRepairIds }, status: "paid" }, select: { serviceOrderId: true, amount: true } })
-      : [];
-    const paidBySale = new Map<string, number>();
-    historicalSalePayments.forEach(p => paidBySale.set(p.orderId, (paidBySale.get(p.orderId) ?? 0) + Number(p.amount || 0)));
-    const paidByRepair = new Map<string, number>();
-    historicalRepairPayments.forEach(p => paidByRepair.set(p.serviceOrderId, (paidByRepair.get(p.serviceOrderId) ?? 0) + Number(p.amount || 0)));
     const salesRevenue = activeOrders.reduce((s,o) => s + Number(o.total || 0), 0);
-    const salesDue = activeOrders.reduce((s,o) => s + Math.max(0, Number(o.total || 0) - (paidBySale.get(o.id) ?? 0)), 0);
+    const salesDue = activeOrders.reduce((s,o) => { const paid = salePayments.filter(p => p.orderId === o.id).reduce((x,p) => x + Number(p.amount || 0), 0); return s + Math.max(0, Number(o.total || 0) - paid); }, 0);
     const repairRevenue = activeRepairs.reduce((s,o) => s + Number(o.total || 0), 0);
-    const repairDue = activeRepairs.reduce((s,o) => s + Math.max(0, Number(o.total || 0) - (paidByRepair.get(o.id) ?? 0)), 0);
+    const repairDue = activeRepairs.reduce((s,o) => s + Math.max(0, Number(o.amountDue || 0)), 0);
     const salesCost = activeOrders.reduce((s,o) => s + o.items.reduce((x,i) => x + Number(i.purchasePrice || 0) * i.quantity, 0), 0);
     const repairCost = activeRepairs.reduce((s,o) => s + o.items.reduce((x,i) => x + Number(i.unitCost || 0) * i.quantity, 0), 0);
     const byMethod = new Map<string, number>();

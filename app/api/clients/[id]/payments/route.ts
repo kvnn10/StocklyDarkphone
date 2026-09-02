@@ -27,17 +27,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const paid = Number(previous._sum.amount || 0), balance = Math.max(0, Number(order.total || 0) - paid);
       if (amount > balance + 0.009) return NextResponse.json({ error: `El abono supera el saldo pendiente (${balance.toLocaleString("es-CO")})` }, { status: 400 });
       await prisma.$transaction(async tx => {
-        const now = new Date();
-        await tx.salePayment.create({ data: { orderId: order.id, orderNumber: order.orderNumber, userId: session.id, recordedBy: session.id, amount, paymentMethod, status: "paid", createdAt: now } });
-        const newPaid = paid + amount;
-        await tx.order.update({ where: { id: order.id }, data: { paymentStatus: newPaid >= Number(order.total || 0) - 0.009 ? "paid" : "partial", updatedAt: now, updatedBy: session.id } });
-        const invoice = await tx.invoice.findFirst({ where: { orderId: order.id, userId: session.id }, select: { id: true } });
-        if (invoice) {
-          const invoicePaid = Math.min(Number(order.total || 0), newPaid);
-          const invoiceDue = Math.max(0, Number(order.total || 0) - invoicePaid);
-          await tx.invoice.update({ where: { id: invoice.id }, data: { amountPaid: invoicePaid, amountDue: invoiceDue, status: invoiceDue <= 0.01 ? "paid" : "sent", paidAt: invoiceDue <= 0.01 ? now : null, updatedAt: now, updatedBy: session.id } });
-        }
-        await tx.cashMovement.create({ data: { type: "income", source: "sale_payment", amount, paymentMethod, orderId: order.id, orderNumber: order.orderNumber, userId: session.id, createdBy: session.id, description: `Abono ${order.orderNumber}`, createdAt: now } });
+        await tx.salePayment.create({ data: { orderId: order.id, orderNumber: order.orderNumber, userId: session.id, recordedBy: session.id, amount, paymentMethod, status: "paid" } });
+        await tx.order.update({ where: { id: order.id }, data: { paymentStatus: paid + amount >= Number(order.total || 0) - 0.009 ? "paid" : "partial", updatedAt: new Date(), updatedBy: session.id } });
+        await tx.cashMovement.create({ data: { type: "income", source: "sale_payment", amount, paymentMethod, orderId: order.id, orderNumber: order.orderNumber, userId: session.id, createdBy: session.id, description: `Abono ${order.orderNumber}` } });
       });
     } else {
       const order = await prisma.serviceOrder.findFirst({ where: { id: documentId, userId: session.id, clientId, status: { not: "cancelled" } }, select: { id: true, orderNumber: true, total: true } });
@@ -46,10 +38,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const paid = Number(previous._sum.amount || 0), balance = Math.max(0, Number(order.total || 0) - paid);
       if (amount > balance + 0.009) return NextResponse.json({ error: `El abono supera el saldo pendiente (${balance.toLocaleString("es-CO")})` }, { status: 400 });
       await prisma.$transaction(async tx => {
-        const now = new Date();
-        await tx.serviceOrderPayment.create({ data: { serviceOrderId: order.id, userId: session.id, recordedBy: session.id, amount, paymentMethod, status: "paid", createdAt: now } });
-        await tx.serviceOrder.update({ where: { id: order.id }, data: { amountPaid: paid + amount, amountDue: Math.max(0, Number(order.total || 0) - paid - amount), updatedAt: now, updatedBy: session.id } });
-        await tx.cashMovement.create({ data: { type: "income", source: "service_payment", amount, paymentMethod, orderId: order.id, orderNumber: order.orderNumber, userId: session.id, createdBy: session.id, description: `Abono ${order.orderNumber}`, createdAt: now } });
+        await tx.serviceOrderPayment.create({ data: { serviceOrderId: order.id, userId: session.id, recordedBy: session.id, amount, paymentMethod, status: "paid" } });
+        await tx.serviceOrder.update({ where: { id: order.id }, data: { amountPaid: paid + amount, amountDue: Math.max(0, Number(order.total || 0) - paid - amount), updatedAt: new Date(), updatedBy: session.id } });
+        await tx.cashMovement.create({ data: { type: "income", source: "service_payment", amount, paymentMethod, orderId: order.id, orderNumber: order.orderNumber, userId: session.id, createdBy: session.id, description: `Abono ${order.orderNumber}` } });
       });
     }
     await writeAuditLog({ userId: session.id, action: "CLIENT_PAYMENT_RECORDED", entityType: type === "sale" ? "Order" : "ServiceOrder", entityId: documentId, details: { clientId, amount, paymentMethod } });
