@@ -55,7 +55,10 @@ export default function FinancePage() {
   return <main className="space-y-6 p-4 sm:p-6">
     <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div><div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground"><CircleDollarSign className="h-4 w-4" /> Finanzas</div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Control financiero</h1><p className="mt-1 text-sm text-muted-foreground">Ventas, cobros, cartera, utilidad y caja en un solo lugar.</p></div>
-      <div className="flex flex-wrap items-end gap-2 rounded-2xl border bg-card/80 p-3 shadow-sm"><label className="text-xs text-muted-foreground">Desde<input type="date" value={from} onChange={e => setFrom(e.target.value)} className="mt-1 block h-9 rounded-lg border bg-background px-2 text-sm" /></label><label className="text-xs text-muted-foreground">Hasta<input type="date" value={to} onChange={e => setTo(e.target.value)} className="mt-1 block h-9 rounded-lg border bg-background px-2 text-sm" /></label><Button variant="outline" size="sm" onClick={load} disabled={loading}><RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />Actualizar</Button></div>
+      <div className="flex flex-wrap items-end gap-2">
+        <Link href="/admin/finance/operations" className="inline-flex h-9 items-center justify-center rounded-md border bg-background px-3 text-sm font-medium shadow-xs transition-colors hover:bg-accent hover:text-accent-foreground">Operaciones CxC/CxP</Link>
+        <div className="flex flex-wrap items-end gap-2 rounded-2xl border bg-card/80 p-3 shadow-sm"><label className="text-xs text-muted-foreground">Desde<input type="date" value={from} onChange={e => setFrom(e.target.value)} className="mt-1 block h-9 rounded-lg border bg-background px-2 text-sm" /></label><label className="text-xs text-muted-foreground">Hasta<input type="date" value={to} onChange={e => setTo(e.target.value)} className="mt-1 block h-9 rounded-lg border bg-background px-2 text-sm" /></label><Button variant="outline" size="sm" onClick={load} disabled={loading}><RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />Actualizar</Button></div>
+      </div>
     </header>
 
     {error && <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300">{error}</div>}
