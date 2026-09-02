@@ -12,7 +12,7 @@ import { writeAuditLog } from "@/lib/audit/log";
 const detailProductSelect = { id: true, name: true, sku: true, price: true, userId: true, categoryId: true, supplierId: true, imageUrl: true } as const;
 const CASH_SALE_SOURCE = "sale";
 const CASH_REFUND_SOURCE = "refund";
-const CASH_METHODS = new Set(["cash", "card", "transfer", "other"]);
+const CASH_METHODS = new Set(["cash", "card", "transfer", "nequi", "daviplata", "other"]);
 
 export async function getOrderByIdForAdmin(orderId: string) {
   return prisma.order.findFirst({ where: { id: orderId }, include: { items: { include: { product: { select: detailProductSelect } } } } });
@@ -43,12 +43,28 @@ async function recordCashSale(orderId: string, userId: string, amount: number, t
   return db.cashMovement.create({ data: { type: "income", source: CASH_SALE_SOURCE, orderId, amount, paymentMethod: "other", userId, createdBy: userId, description: "Venta", status: "active" } });
 }
 
-async function recordCashRefund(orderId: string, userId: string, amount: number, paymentMethod?: string | null) {
-  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid refund amount");
-  const existing = await prisma.cashMovement.findFirst({ where: { userId, orderId, source: CASH_REFUND_SOURCE, status: { not: "voided" } } });
-  if (existing) return existing;
-  const method = typeof paymentMethod === "string" && CASH_METHODS.has(paymentMethod) ? paymentMethod : "other";
-  return prisma.cashMovement.create({ data: { type: "expense", source: CASH_REFUND_SOURCE, orderId, amount, paymentMethod: method, userId, createdBy: userId, description: "Reembolso de venta", status: "active" } });
+async function recordCashRefund(tx: Prisma.TransactionClient, orderId: string, userId: string, payments: Array<{ amount: number; paymentMethod: string }>) {
+  const grouped = new Map<string, number>();
+  for (const payment of payments) {
+    if (!Number.isFinite(payment.amount) || payment.amount <= 0) continue;
+    const method = CASH_METHODS.has(payment.paymentMethod) ? payment.paymentMethod : "other";
+    grouped.set(method, (grouped.get(method) ?? 0) + payment.amount);
+  }
+  if (!grouped.size) throw new Error("Invalid refund amount");
+
+  const created = [];
+  for (const [paymentMethod, amount] of grouped) {
+    const existing = await tx.cashMovement.findFirst({ where: { userId, orderId, source: CASH_REFUND_SOURCE, paymentMethod, status: { not: "voided" } } });
+    if (existing) continue;
+    created.push(await tx.cashMovement.create({
+      data: {
+        type: "expense", source: CASH_REFUND_SOURCE, orderId, amount,
+        paymentMethod, userId, createdBy: userId,
+        description: "Reembolso de venta", status: "active",
+      },
+    }));
+  }
+  return created;
 }
 
 type OrderItemStock = { productId: string; quantity: number; warehouseId?: string | null };
@@ -195,22 +211,24 @@ export async function cancelOrder(orderId: string, userId: string) {
 
   const wasFulfilled = ["confirmed", "processing", "shipped", "delivered"].includes(order.status) || order.paymentStatus === "paid";
   const allocationItems = order.items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null }));
-  const refundPaymentMethod = salePayments[0]?.paymentMethod ?? null;
 
   const cancelled = await prisma.$transaction(async (tx) => {
     if (wasFulfilled) await restoreFulfilledStock(tx, allocationItems);
     else await releasePendingStock(tx, allocationItems);
     if (refundConfirmed && hasLocalPayments) {
       await tx.salePayment.updateMany({ where: { orderId, status: "paid" }, data: { status: "refunded" } });
+      await recordCashRefund(tx, orderId, userId, salePayments.map((payment) => ({ amount: Number(payment.amount), paymentMethod: payment.paymentMethod })));
     }
-    return tx.order.update({ where: { id: orderId }, data: { status: "cancelled", paymentStatus: refundConfirmed ? "refunded" : order.paymentStatus, cancelledAt: new Date(), updatedAt: new Date(), updatedBy: userId }, include: { items: true } });
+    const cancelledOrder = await tx.order.update({ where: { id: orderId }, data: { status: "cancelled", paymentStatus: refundConfirmed ? "refunded" : order.paymentStatus, cancelledAt: new Date(), updatedAt: new Date(), updatedBy: userId }, include: { items: true } });
+    if (invoice && invoice.status !== "cancelled") {
+      await tx.invoice.update({ where: { id: invoice.id }, data: { status: "cancelled", cancelledAt: new Date(), amountPaid: 0, amountDue: 0, updatedAt: new Date() } });
+    }
+    return cancelledOrder;
   });
 
   if (refundConfirmed) {
-    await recordCashRefund(orderId, userId, amountPaid, refundPaymentMethod);
-    await writeAuditLog({ userId, action: "ORDER_REFUNDED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, amount: amountPaid, method: refundMethod } });
+    await writeAuditLog({ userId, action: "ORDER_REFUNDED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, amount: amountPaid, method: refundMethod, cashRecorded: refundMethod === "local" } });
   }
-  if (invoice && invoice.status !== "cancelled") await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "cancelled", cancelledAt: new Date(), amountPaid: 0, amountDue: 0, updatedAt: new Date() } });
   await writeAuditLog({ userId, action: "ORDER_CANCELLED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, refunded: refundConfirmed, refundAmount: amountPaid } });
   await Promise.all([invalidateCache(cacheKeys.products.pattern), invalidateCache(cacheKeys.stockAllocation.pattern)]);
   logger.info("Order cancelled", { orderId, userId, refunded: refundConfirmed, refundAmount: amountPaid });
