@@ -22,9 +22,7 @@ function legacyOrder(order: any) {
   return { ...order, _id: order.id, customer: m.customerName ?? "", phone: m.customerPhone ?? "", device: [order.brand, order.model].filter(Boolean).join(" ").trim(), imei: order.imei ?? "", serial: order.serialNumber ?? "", issue: order.reportedIssue, technicianNotes: order.workPerformed ?? "", labor: order.laborAmount, paid: order.amountPaid, balance: order.amountDue, parts, payments, statusHistory: Array.isArray(m.statusHistory) ? m.statusHistory : [{ status: order.status, at: order.createdAt, by: order.createdBy }], photos: Array.isArray(m.photos) ? m.photos : [], warrantyDays: order.warrantyDays, warrantyUntil: order.warrantyExpiresAt };
 }
 
-async function getOrder(id: string, userId: string) {
-  return prisma.serviceOrder.findFirst({ where: { id, userId }, include: { items: true, payments: true } });
-}
+async function getOrder(id: string, userId: string) { return prisma.serviceOrder.findFirst({ where: { id, userId }, include: { items: true, payments: true } }); }
 
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
@@ -37,13 +35,7 @@ export async function GET(request: NextRequest) {
     if (status && STATUSES.includes(status as Status)) where.status = status;
     if (search) {
       const or: Prisma.ServiceOrderWhereInput[] = [
-        { orderNumber: { contains: search, mode: "insensitive" } },
-        { deviceType: { contains: search, mode: "insensitive" } },
-        { brand: { contains: search, mode: "insensitive" } },
-        { model: { contains: search, mode: "insensitive" } },
-        { imei: { contains: search, mode: "insensitive" } },
-        { serialNumber: { contains: search, mode: "insensitive" } },
-        { reportedIssue: { contains: search, mode: "insensitive" } },
+        { orderNumber: { contains: search, mode: "insensitive" } }, { deviceType: { contains: search, mode: "insensitive" } }, { brand: { contains: search, mode: "insensitive" } }, { model: { contains: search, mode: "insensitive" } }, { imei: { contains: search, mode: "insensitive" } }, { serialNumber: { contains: search, mode: "insensitive" } }, { reportedIssue: { contains: search, mode: "insensitive" } },
       ];
       if (validId(search)) or.push({ id: search });
       where.OR = or;
@@ -109,11 +101,13 @@ export async function PUT(request: NextRequest) {
       if (unitPrice === null) return NextResponse.json({ error: "Precio del producto inválido" }, { status: 400 });
       try {
         await prisma.$transaction(async tx => {
+          const current = await tx.serviceOrder.findFirst({ where: { id, userId: session.id }, include: { items: true } });
+          if (!current) throw new Error("Orden no encontrada");
           await tx.serviceOrderItem.create({ data: { serviceOrderId: id, productId, productName: product.name, sku: product.sku || null, quantity, unitPrice, unitCost, subtotal: quantity * unitPrice } });
-          const partsAmount = existing.items.reduce((sum, i) => sum + Number(i.subtotal), 0) + quantity * unitPrice;
-          const total = Math.max(0, partsAmount + existing.laborAmount - existing.discount);
-          if (existing.amountPaid > total) throw new Error("El nuevo total no puede ser menor a lo ya pagado");
-          await tx.serviceOrder.update({ where: { id }, data: { partsAmount, total, amountDue: total - existing.amountPaid, updatedAt: new Date(), updatedBy: session.id } });
+          const partsAmount = current.items.reduce((sum, i) => sum + Number(i.subtotal), 0) + quantity * unitPrice;
+          const total = Math.max(0, partsAmount + current.laborAmount - current.discount);
+          if (current.amountPaid > total) throw new Error("El nuevo total no puede ser menor a lo ya pagado");
+          await tx.serviceOrder.update({ where: { id }, data: { partsAmount, total, amountDue: total - current.amountPaid, updatedAt: new Date(), updatedBy: session.id } });
         });
       } catch (error: any) { if (error?.message === "El nuevo total no puede ser menor a lo ya pagado") return NextResponse.json({ error: error.message }, { status: 400 }); throw error; }
       await writeAuditLog({ userId: session.id, action: "SERVICE_PART_ADDED", entityType: "ServiceOrder", entityId: id, details: { productId, quantity } });
@@ -122,14 +116,27 @@ export async function PUT(request: NextRequest) {
 
     if (action === "set_labor" || action === "set_discount") {
       const value = money(body.amount); if (value === null) return NextResponse.json({ error: action === "set_labor" ? "Mano de obra inválida" : "Descuento inválido" }, { status: 400 });
-      const partsAmount = existing.items.reduce((sum, i) => sum + Number(i.subtotal), 0);
-      const labor = action === "set_labor" ? value : existing.laborAmount;
-      const discount = action === "set_discount" ? value : existing.discount;
-      const total = Math.max(0, partsAmount + labor - discount);
-      if (existing.amountPaid > total) return NextResponse.json({ error: "El cambio no puede reducir el total por debajo de lo ya pagado" }, { status: 400 });
-      const saved = await prisma.serviceOrder.update({ where: { id }, data: { laborAmount: labor, discount, partsAmount, total, amountDue: total - existing.amountPaid, updatedAt: new Date(), updatedBy: session.id }, include: { items: true, payments: true } });
-      await writeAuditLog({ userId: session.id, action: action === "set_labor" ? "SERVICE_LABOR_UPDATED" : "SERVICE_DISCOUNT_UPDATED", entityType: "ServiceOrder", entityId: id, details: { value, total } });
-      return NextResponse.json(legacyOrder(saved));
+      let totalForAudit = 0;
+      try {
+        const saved = await prisma.$transaction(async tx => {
+          const current = await tx.serviceOrder.findFirst({ where: { id, userId: session.id }, include: { items: true } });
+          if (!current) throw new Error("Orden no encontrada");
+          const partsAmount = current.items.reduce((sum, i) => sum + Number(i.subtotal), 0);
+          const labor = action === "set_labor" ? value : current.laborAmount;
+          const discount = action === "set_discount" ? value : current.discount;
+          const total = Math.max(0, partsAmount + labor - discount);
+          if (current.amountPaid > total) throw new Error("El cambio no puede reducir el total por debajo de lo ya pagado");
+          totalForAudit = total;
+          const updated = await tx.serviceOrder.update({ where: { id }, data: { laborAmount: labor, discount, partsAmount, total, amountDue: total - current.amountPaid, updatedAt: new Date(), updatedBy: session.id }, include: { items: true, payments: true } });
+          return updated;
+        });
+        await writeAuditLog({ userId: session.id, action: action === "set_labor" ? "SERVICE_LABOR_UPDATED" : "SERVICE_DISCOUNT_UPDATED", entityType: "ServiceOrder", entityId: id, details: { value, total: totalForAudit } });
+        return NextResponse.json(legacyOrder(saved));
+      } catch (error: any) {
+        if (error?.message === "Orden no encontrada") return NextResponse.json({ error: error.message }, { status: 404 });
+        if (error?.message === "El cambio no puede reducir el total por debajo de lo ya pagado") return NextResponse.json({ error: error.message }, { status: 400 });
+        throw error;
+      }
     }
 
     if (action === "consume_part") {
