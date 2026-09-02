@@ -38,55 +38,17 @@ export async function getOrderByIdForClient(orderId: string, clientId: string) {
 async function recordCashSale(orderId: string, userId: string, amount: number, tx?: Prisma.TransactionClient) {
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid sale amount");
   const db = tx ?? prisma;
-  const existing = await db.cashMovement.findFirst({
-    where: { userId, orderId, source: CASH_SALE_SOURCE, status: { not: "voided" } },
-  });
+  const existing = await db.cashMovement.findFirst({ where: { userId, orderId, source: CASH_SALE_SOURCE, status: { not: "voided" } } });
   if (existing) return existing;
-
-  return db.cashMovement.create({
-    data: {
-      type: "income",
-      source: CASH_SALE_SOURCE,
-      orderId,
-      amount,
-      paymentMethod: "other",
-      userId,
-      createdBy: userId,
-      description: "Venta",
-      status: "active",
-    },
-  });
+  return db.cashMovement.create({ data: { type: "income", source: CASH_SALE_SOURCE, orderId, amount, paymentMethod: "other", userId, createdBy: userId, description: "Venta", status: "active" } });
 }
 
-async function recordCashRefund(orderId: string, userId: string, amount: number) {
+async function recordCashRefund(orderId: string, userId: string, amount: number, paymentMethod?: string | null) {
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Invalid refund amount");
-  const existing = await prisma.cashMovement.findFirst({
-    where: { userId, orderId, source: CASH_REFUND_SOURCE, status: { not: "voided" } },
-  });
+  const existing = await prisma.cashMovement.findFirst({ where: { userId, orderId, source: CASH_REFUND_SOURCE, status: { not: "voided" } } });
   if (existing) return existing;
-
-  const sale = await prisma.cashMovement.findFirst({
-    where: { userId, orderId, source: CASH_SALE_SOURCE, status: { not: "voided" } },
-    orderBy: { createdAt: "desc" },
-  });
-  const paymentMethod =
-    typeof sale?.paymentMethod === "string" && CASH_METHODS.has(sale.paymentMethod)
-      ? sale.paymentMethod
-      : "other";
-
-  return prisma.cashMovement.create({
-    data: {
-      type: "expense",
-      source: CASH_REFUND_SOURCE,
-      orderId,
-      amount,
-      paymentMethod,
-      userId,
-      createdBy: userId,
-      description: "Reembolso de venta",
-      status: "active",
-    },
-  });
+  const method = typeof paymentMethod === "string" && CASH_METHODS.has(paymentMethod) ? paymentMethod : "other";
+  return prisma.cashMovement.create({ data: { type: "expense", source: CASH_REFUND_SOURCE, orderId, amount, paymentMethod: method, userId, createdBy: userId, description: "Reembolso de venta", status: "active" } });
 }
 
 type OrderItemStock = { productId: string; quantity: number; warehouseId?: string | null };
@@ -97,7 +59,6 @@ async function restoreFulfilledStock(tx: Prisma.TransactionClient, items: OrderI
     if (!product) throw new Error(`Product ${item.productId} not found`);
     const productResult = await tx.product.updateMany({ where: { id: product.id, quantity: product.quantity }, data: { quantity: { increment: item.quantity }, updatedAt: new Date() } });
     if (productResult.count !== 1) throw new Error(`Stock changed while restoring product ${item.productId}; please retry.`);
-
     if (item.warehouseId) {
       const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: item.warehouseId } }, select: { id: true, quantity: true, reservedQuantity: true, userId: true } });
       if (!allocation) throw new Error(`No stock allocation for product ${item.productId} at warehouse ${item.warehouseId}`);
@@ -131,7 +92,6 @@ async function consumeReactivatedStock(tx: Prisma.TransactionClient, items: Orde
     if (!product || Number(product.quantity) < item.quantity) throw new Error(`Insufficient stock to reactivate product ${item.productId}`);
     const productResult = await tx.product.updateMany({ where: { id: product.id, quantity: product.quantity }, data: { quantity: { decrement: item.quantity }, updatedAt: new Date() } });
     if (productResult.count !== 1) throw new Error(`Stock changed while reactivating product ${item.productId}; please retry.`);
-
     if (item.warehouseId) {
       const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: item.warehouseId } }, select: { id: true, quantity: true, reservedQuantity: true, userId: true } });
       if (!allocation || Number(allocation.quantity) < item.quantity) throw new Error(`Insufficient warehouse stock for product ${item.productId}`);
@@ -172,7 +132,6 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
   if (data.deliveredAt) updateData.deliveredAt = data.deliveredAt;
   if (data.cancelledAt) updateData.cancelledAt = data.cancelledAt;
   if (data.notes !== undefined) updateData.notes = data.notes;
-
   const previousStatus = existing.status;
   const previousPaid = existing.paymentStatus === "paid";
   const nextStatus = data.status ?? previousStatus;
@@ -184,7 +143,6 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
   const reactivating = previousStatus === "cancelled" && isFulfilled;
   const paymentCaptured = nextPaid && !previousPaid;
   const stockLines = items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null }));
-
   let updated;
   if (confirming || cancelling || reactivating || paymentCaptured) {
     updated = await prisma.$transaction(async (tx) => {
@@ -199,10 +157,7 @@ export async function updateOrder(orderId: string, data: UpdateOrderInput, userI
   } else {
     updated = await prisma.order.update({ where: { id: orderId }, data: updateData, include: { items: { include: { product: { select: detailProductSelect } } } } });
   }
-
-  if (paymentCaptured) {
-    await writeAuditLog({ userId, action: "PAYMENT_CAPTURED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber, amount: Number(updated.total) } });
-  }
+  if (paymentCaptured) await writeAuditLog({ userId, action: "PAYMENT_CAPTURED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber, amount: Number(updated.total) } });
   if (confirming) await writeAuditLog({ userId, action: "ORDER_CONFIRMED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber } });
   if (reactivating) await writeAuditLog({ userId, action: "ORDER_REACTIVATED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber } });
   if (cancelling) await writeAuditLog({ userId, action: "ORDER_CANCELLED", entityType: "Order", entityId: orderId, details: { orderNumber: updated.orderNumber, previousStatus } });
@@ -217,30 +172,47 @@ export async function cancelOrder(orderId: string, userId: string) {
 
   const shouldRefund = orderCancelShouldRefundPayment(order.paymentStatus, order.status);
   const invoice = await prisma.invoice.findUnique({ where: { orderId }, select: { id: true, status: true, amountPaid: true, stripePaymentIntentId: true } });
+  const salePayments = await prisma.salePayment.findMany({ where: { orderId, status: "paid" }, orderBy: { createdAt: "asc" } });
+  const paidFromSalePayments = salePayments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+  const invoicePaid = Number(invoice?.amountPaid ?? 0);
+  const amountPaid = Math.max(0, Math.min(Number(order.total), Math.max(paidFromSalePayments, invoicePaid)));
+  const hasLocalPayments = paidFromSalePayments > 0;
+  const stripePaymentIntentId = order.stripePaymentIntentId ?? invoice?.stripePaymentIntentId;
   let refundConfirmed = false;
-  if (shouldRefund) {
-    const paymentIntentId = order.stripePaymentIntentId ?? invoice?.stripePaymentIntentId;
-    if (!paymentIntentId) throw new Error("No se puede cancelar una venta pagada o parcialmente pagada sin un PaymentIntent de Stripe para procesar el reembolso.");
-    await createStripeRefund(paymentIntentId, "requested_by_customer");
-    refundConfirmed = true;
+  let refundMethod: "local" | "stripe" | null = null;
+
+  if (shouldRefund && amountPaid > 0) {
+    if (hasLocalPayments) {
+      refundConfirmed = true;
+      refundMethod = "local";
+    } else {
+      if (!stripePaymentIntentId) throw new Error("No se puede cancelar una venta pagada o parcialmente pagada sin un PaymentIntent de Stripe para procesar el reembolso.");
+      await createStripeRefund(stripePaymentIntentId, "requested_by_customer");
+      refundConfirmed = true;
+      refundMethod = "stripe";
+    }
   }
 
   const wasFulfilled = ["confirmed", "processing", "shipped", "delivered"].includes(order.status) || order.paymentStatus === "paid";
   const allocationItems = order.items.map((i) => ({ productId: i.productId, quantity: i.quantity, warehouseId: i.warehouseId ?? null }));
+  const refundPaymentMethod = salePayments[0]?.paymentMethod ?? null;
 
   const cancelled = await prisma.$transaction(async (tx) => {
     if (wasFulfilled) await restoreFulfilledStock(tx, allocationItems);
     else await releasePendingStock(tx, allocationItems);
+    if (refundConfirmed && hasLocalPayments) {
+      await tx.salePayment.updateMany({ where: { orderId, status: "paid" }, data: { status: "refunded" } });
+    }
     return tx.order.update({ where: { id: orderId }, data: { status: "cancelled", paymentStatus: refundConfirmed ? "refunded" : order.paymentStatus, cancelledAt: new Date(), updatedAt: new Date(), updatedBy: userId }, include: { items: true } });
   });
 
   if (refundConfirmed) {
-    await recordCashRefund(orderId, userId, Number(invoice?.amountPaid ?? order.total));
-    await writeAuditLog({ userId, action: "ORDER_REFUNDED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, amount: Number(invoice?.amountPaid ?? order.total) } });
+    await recordCashRefund(orderId, userId, amountPaid, refundPaymentMethod);
+    await writeAuditLog({ userId, action: "ORDER_REFUNDED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, amount: amountPaid, method: refundMethod } });
   }
-  if (invoice && invoice.status !== "cancelled") await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "cancelled", cancelledAt: new Date(), amountDue: 0, updatedAt: new Date() } });
-  await writeAuditLog({ userId, action: "ORDER_CANCELLED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, refunded: refundConfirmed } });
+  if (invoice && invoice.status !== "cancelled") await prisma.invoice.update({ where: { id: invoice.id }, data: { status: "cancelled", cancelledAt: new Date(), amountPaid: 0, amountDue: 0, updatedAt: new Date() } });
+  await writeAuditLog({ userId, action: "ORDER_CANCELLED", entityType: "Order", entityId: orderId, details: { orderNumber: cancelled.orderNumber, refunded: refundConfirmed, refundAmount: amountPaid } });
   await Promise.all([invalidateCache(cacheKeys.products.pattern), invalidateCache(cacheKeys.stockAllocation.pattern)]);
-  logger.info("Order cancelled", { orderId, userId });
+  logger.info("Order cancelled", { orderId, userId, refunded: refundConfirmed, refundAmount: amountPaid });
   return cancelled;
 }
