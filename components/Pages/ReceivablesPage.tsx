@@ -1,0 +1,37 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { ArrowLeft, CalendarDays, CircleDollarSign, FileText, RefreshCw, Search, UserRound, Wrench } from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+type Entry = { id: string; type: "sale" | "repair"; typeLabel: string; number: string; clientId: string; total: number; paid: number; balance: number; createdAt: string; dueDate: string | null; pendingDays: number; overdueDays: number | null; client: { name: string; email: string; phone?: string; whatsapp?: string; document?: string } };
+type Data = { summary: { total: number; sales: number; repairs: number; clients: number; documents: number }; entries: Entry[] };
+const money = (n: number) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
+
+export default function ReceivablesPage() {
+  const [q, setQ] = useState("");
+  const [type, setType] = useState("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [data, setData] = useState<Data | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    try {
+      const p = new URLSearchParams({ q, type }); if (from) p.set("from", `${from}T00:00:00`); if (to) p.set("to", `${to}T23:59:59.999`);
+      const r = await fetch(`/api/reports/receivables?${p}`, { credentials: "include", cache: "no-store" }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "No se pudo cargar la cartera"); setData(d);
+    } catch (e) { setError(e instanceof Error ? e.message : "Error al cargar la cartera"); } finally { setLoading(false); }
+  }, [q, type, from, to]);
+  useEffect(() => { void load(); }, [load]);
+  const rows = useMemo(() => data?.entries || [], [data]);
+  return <main className="space-y-6 p-4 sm:p-6">
+    <header className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between"><div><Link href="/admin/finance" className="mb-3 inline-flex items-center gap-1 text-sm text-primary hover:underline"><ArrowLeft className="h-4 w-4" /> Finanzas</Link><div className="flex items-center gap-2 text-sm text-muted-foreground"><CircleDollarSign className="h-4 w-4" /> Cartera</div><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Cuentas por cobrar</h1><p className="mt-1 text-sm text-muted-foreground">Saldos pendientes de ventas y reparaciones, calculados con todos los abonos históricos.</p></div><Button variant="outline" onClick={load} disabled={loading}><RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />Actualizar</Button></header>
+    {error && <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300">{error}</div>}
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border bg-card/80 p-5 shadow-sm"><p className="text-sm text-muted-foreground">Cartera total</p><p className="mt-1 text-2xl font-bold">{money(data?.summary.total || 0)}</p></div><div className="rounded-2xl border bg-card/80 p-5 shadow-sm"><p className="text-sm text-muted-foreground">Ventas pendientes</p><p className="mt-1 text-2xl font-bold">{money(data?.summary.sales || 0)}</p></div><div className="rounded-2xl border bg-card/80 p-5 shadow-sm"><p className="text-sm text-muted-foreground">Reparaciones pendientes</p><p className="mt-1 text-2xl font-bold">{money(data?.summary.repairs || 0)}</p></div><div className="rounded-2xl border bg-card/80 p-5 shadow-sm"><p className="text-sm text-muted-foreground">Clientes con saldo</p><p className="mt-1 text-2xl font-bold">{data?.summary.clients || 0}</p><p className="text-xs text-muted-foreground">{data?.summary.documents || 0} documentos pendientes</p></div></div>
+    <section className="rounded-2xl border bg-card/80 p-4 shadow-sm"><div className="grid gap-3 lg:grid-cols-[1fr_auto_auto_auto]"><label className="relative block"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar cliente, documento, teléfono..." className="h-10 w-full rounded-lg border bg-background pl-9 pr-3 text-sm" /></label><select value={type} onChange={e => setType(e.target.value)} className="h-10 rounded-lg border bg-background px-3 text-sm"><option value="all">Ventas + reparaciones</option><option value="sale">Solo ventas</option><option value="repair">Solo reparaciones</option></select><label className="text-xs text-muted-foreground">Desde<input type="date" value={from} onChange={e => setFrom(e.target.value)} className="mt-1 block h-10 rounded-lg border bg-background px-3 text-sm text-foreground" /></label><label className="text-xs text-muted-foreground">Hasta<input type="date" value={to} onChange={e => setTo(e.target.value)} className="mt-1 block h-10 rounded-lg border bg-background px-3 text-sm text-foreground" /></label></div></section>
+    {loading && !data ? <div className="rounded-2xl border p-10 text-center text-sm text-muted-foreground">Cargando cartera...</div> : <section className="overflow-hidden rounded-2xl border bg-card/80 shadow-sm"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead className="border-b bg-muted/40"><tr><th className="px-4 py-3 text-left">Cliente</th><th className="px-4 py-3 text-left">Documento</th><th className="px-4 py-3 text-left">Tipo</th><th className="px-4 py-3 text-right">Total</th><th className="px-4 py-3 text-right">Abonado</th><th className="px-4 py-3 text-right">Saldo</th><th className="px-4 py-3 text-right">Antigüedad</th></tr></thead><tbody>{rows.map(e => <tr key={`${e.type}-${e.id}`} className="border-b last:border-0"><td className="px-4 py-4"><div className="flex items-center gap-2"><UserRound className="h-4 w-4 text-muted-foreground" /><div><p className="font-medium">{e.client.name}</p><p className="text-xs text-muted-foreground">{e.client.email || e.client.phone || "Sin contacto"}</p></div></div></td><td className="px-4 py-4"><span className="inline-flex items-center gap-1 font-medium"><FileText className="h-3.5 w-3.5" />{e.number}</span><p className="text-xs text-muted-foreground">{new Date(e.createdAt).toLocaleDateString("es-CO")}</p></td><td className="px-4 py-4"><span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs">{e.type === "sale" ? <CircleDollarSign className="h-3.5 w-3.5" /> : <Wrench className="h-3.5 w-3.5" />}{e.typeLabel}</span></td><td className="px-4 py-4 text-right">{money(e.total)}</td><td className="px-4 py-4 text-right">{money(e.paid)}</td><td className="px-4 py-4 text-right font-bold">{money(e.balance)}</td><td className="px-4 py-4 text-right"><span className={e.overdueDays && e.overdueDays > 0 ? "font-semibold text-amber-600" : ""}>{e.overdueDays !== null && e.overdueDays > 0 ? `${e.overdueDays} días de mora` : `${e.pendingDays} días pendiente`}</span></td></tr>)}</tbody></table></div>{!rows.length && <div className="p-10 text-center text-sm text-muted-foreground">No hay cuentas pendientes con estos filtros.</div>}</section>}
+    <p className="flex items-center gap-2 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" /> Sin rango de fechas, se consulta toda la cartera pendiente. Los filtros de fecha limitan la fecha de origen de la cuenta.</p>
+  </main>;
+}
