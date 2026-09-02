@@ -22,11 +22,12 @@ export async function POST(
 
     const session = await getSessionFromRequest(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (session.role !== "admin") {
+      return NextResponse.json({ error: "Only administrators can process order returns" }, { status: 403 });
+    }
 
     const { id } = await params;
-    const isAdmin = session.role === "admin";
-    let order = isAdmin ? await getOrderByIdForAdmin(id) : await getOrderById(id, session.id);
-    if (!order && !isAdmin) order = await getOrderByIdForProductOwner(id, session.id);
+    const order = await getOrderByIdForAdmin(id);
     if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
 
     if (order.status === "cancelled") {
@@ -36,7 +37,7 @@ export async function POST(
       return NextResponse.json({ error: "Solo se puede devolver una venta confirmada o pagada." }, { status: 409 });
     }
 
-    const cancelled = await cancelOrder(id, isAdmin ? order.userId : session.id);
+    const cancelled = await cancelOrder(id, order.userId);
 
     await createAuditLog({
       userId: session.id,
