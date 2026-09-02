@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, Boxes, CheckCircle2, CreditCard, DollarSign, FileText, History, Laptop, ReceiptText, Settings2, Users, Wrench } from "lucide-react";
+import { AlertTriangle, ArrowRight, Boxes, CheckCircle2, CreditCard, DollarSign, FileText, History, Laptop, ReceiptText, Settings2, Users, WalletCards, Wrench } from "lucide-react";
 import type { DashboardStats } from "@/types";
 
 type Health = { status: "healthy" | "attention"; inventory: { checked: number; healthy: number; issues: number; blocked: number } };
@@ -24,6 +24,7 @@ export default function AdminBusinessQuickAccess({ stats }: { stats?: DashboardS
     { href: "/admin/service-orders", label: "Servicio técnico", value: "Abrir", description: "Reparaciones, repuestos, fotos y garantías", icon: Wrench, tone: "from-fuchsia-500/20 to-pink-500/10" },
     { href: "/admin/invoices", label: "Facturas", value: "Abrir", description: "Facturación y documentos de venta", icon: ReceiptText, tone: "from-cyan-500/20 to-blue-500/10" },
     { href: "/admin/finance", label: "Finanzas", value: "Abrir", description: "Cuentas por cobrar, pagar y gastos", icon: FileText, tone: "from-lime-500/20 to-emerald-500/10" },
+    { href: "/admin/payables", label: "CxP proveedores", value: "Abrir", description: "Deudas, pagos y estado de proveedores", icon: WalletCards, tone: "from-rose-500/20 to-orange-500/10" },
     { href: "/admin/kardex", label: "Kardex", value: "Abrir", description: "Historial de movimientos de inventario", icon: History, tone: "from-orange-500/20 to-red-500/10" },
     { href: "/admin/audit", label: "Auditoría", value: "Abrir", description: "Trazabilidad y acciones del sistema", icon: Settings2, tone: "from-slate-500/20 to-zinc-500/10" },
   ];
