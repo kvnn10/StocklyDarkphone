@@ -1,8 +1,14 @@
+/**
+ * Sales API Route
+ * Creates a sale and synchronizes cash / accounts receivable.
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/utils/auth";
 import { createOrder } from "@/prisma/order";
 import { createOrderSchema } from "@/lib/validations";
 import { prisma } from "@/prisma/client";
+import { ensureSaleReceivable } from "@/lib/finance/customer-receivables";
 
 export async function POST(request: NextRequest) {
   try {
@@ -140,6 +146,17 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json(paidOrder, { status: 201 });
+    }
+
+    if (data.clientId) {
+      await ensureSaleReceivable({
+        userId: storeOwnerUserId,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        clientId: data.clientId,
+        total: Number(order.total),
+        amountPaid: 0,
+      });
     }
 
     return NextResponse.json(order, { status: 201 });
