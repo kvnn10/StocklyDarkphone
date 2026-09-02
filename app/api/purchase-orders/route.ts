@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/utils/auth";
 import { writeAuditLog } from "@/lib/audit/log";
 import { prisma } from "@/prisma/client";
+import { upsertPurchasePayable } from "@/lib/finance/supplier-payables";
 
 const n = (v: unknown) => Number(v ?? 0);
 const finiteNonNegative = (v: unknown) => {
@@ -293,6 +294,24 @@ export async function PATCH(request: NextRequest) {
       });
     });
 
+    let payable;
+    try {
+      payable = await upsertPurchasePayable({
+        userId: session.id,
+        supplierId: order.supplierId,
+        supplierName: (await prisma.supplier.findUnique({ where: { id: order.supplierId }, select: { name: true } }))?.name ?? "Proveedor",
+        purchaseOrderId: result.id,
+        purchaseNumber: result.purchaseNumber,
+        subtotal: result.subtotal,
+        tax: result.tax,
+        shipping: result.shipping,
+        receivedItems: result.items.map((item) => ({ receivedQuantity: item.receivedQuantity, unitCost: item.unitCost })),
+      });
+    } catch (payableError) {
+      console.error("POST /api/purchase-orders payable sync", payableError);
+      return NextResponse.json({ error: "La recepción se realizó, pero no se pudo sincronizar CxP. Reintenta la sincronización financiera antes de continuar." }, { status: 500 });
+    }
+
     await writeAuditLog({
       userId: session.id,
       action: result.status === "received" ? "PURCHASE_ORDER_RECEIVED" : "PURCHASE_ORDER_PARTIALLY_RECEIVED",
@@ -304,10 +323,12 @@ export async function PATCH(request: NextRequest) {
         warehouseName: warehouse.name,
         receivedUnits,
         status: result.status,
+        payableId: payable.id,
+        payableAmount: payable.originalAmount,
       },
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, payable });
   } catch (error: any) {
     const message = typeof error?.message === "string" ? error.message : "No se pudo procesar la recepción";
     const expected = [
