@@ -62,6 +62,9 @@ export async function POST(
   if (rateLimitResponse) return rateLimitResponse;
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.role !== "admin") {
+    return NextResponse.json({ error: "Only administrators can record sale payments" }, { status: 403 });
+  }
 
   try {
     const { id } = await params;
@@ -108,10 +111,7 @@ export async function POST(
       const dueAfter = Math.max(0, roundMoney(total - paidAfter));
       const paymentStatus = dueAfter <= 0.009 ? "paid" : paidAfter > 0 ? "partial" : "unpaid";
 
-      await tx.order.update({
-        where: { id },
-        data: { paymentStatus, updatedAt: new Date() },
-      });
+      await tx.order.update({ where: { id }, data: { paymentStatus, updatedAt: new Date() } });
 
       const existingCash = await tx.cashMovement.findFirst({
         where: { orderId: id, source: "sale_payment", status: "active", description: { contains: payment.id } },
@@ -120,16 +120,9 @@ export async function POST(
       if (!existingCash) {
         await tx.cashMovement.create({
           data: {
-            type: "income",
-            source: "sale_payment",
-            amount: roundMoney(amount),
-            paymentMethod,
-            orderId: id,
-            orderNumber: order.orderNumber,
-            userId: order.userId,
-            createdBy: session.id,
-            description: `Pago de venta ${order.orderNumber} (${payment.id})`,
-            status: "active",
+            type: "income", source: "sale_payment", amount: roundMoney(amount), paymentMethod,
+            orderId: id, orderNumber: order.orderNumber, userId: order.userId, createdBy: session.id,
+            description: `Pago de venta ${order.orderNumber} (${payment.id})`, status: "active",
           },
         });
       }
@@ -140,11 +133,9 @@ export async function POST(
         await tx.invoice.update({
           where: { id: invoice.id },
           data: {
-            amountPaid: Math.min(Number(invoice.total), paidAfter),
-            amountDue: invoiceDue,
+            amountPaid: Math.min(Number(invoice.total), paidAfter), amountDue: invoiceDue,
             status: invoiceDue <= 0.009 ? "paid" : paidAfter > 0 ? "partial" : invoice.status,
-            paidAt: invoiceDue <= 0.009 ? new Date() : null,
-            updatedAt: new Date(),
+            paidAt: invoiceDue <= 0.009 ? new Date() : null, updatedAt: new Date(),
           },
         });
       }
@@ -153,19 +144,8 @@ export async function POST(
     });
 
     createAuditLog({
-      userId: session.id,
-      action: "create",
-      entityType: "sale_payment",
-      entityId: result.payment.id,
-      details: {
-        orderId: id,
-        orderNumber: order.orderNumber,
-        amount: result.payment.amount,
-        paymentMethod,
-        paid: result.paid,
-        due: result.due,
-        paymentStatus: result.paymentStatus,
-      },
+      userId: session.id, action: "create", entityType: "sale_payment", entityId: result.payment.id,
+      details: { orderId: id, orderNumber: order.orderNumber, amount: result.payment.amount, paymentMethod, paid: result.paid, due: result.due, paymentStatus: result.paymentStatus },
     }).catch(() => {});
 
     await invalidateOnOrderChange();
