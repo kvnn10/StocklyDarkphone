@@ -51,9 +51,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const updateData = validationResult.data;
     const isAdmin = session.role === "admin";
 
-    // Payment state and cancellation can move money or inventory and are admin-only.
-    if (!isAdmin && updateData.paymentStatus) {
-      return NextResponse.json({ error: "Only administrators can change payment status" }, { status: 403 });
+    // Payment status must only be changed by recording a real SalePayment.
+    // This prevents generic order edits from creating accounting state without a payment record.
+    if (updateData.paymentStatus !== undefined) {
+      return NextResponse.json({ error: "Payment status can only be changed through the sale payment flow" }, { status: 409 });
     }
     if (!isAdmin && updateData.status === "cancelled") {
       return NextResponse.json({ error: "Only administrators can cancel orders" }, { status: 403 });
@@ -72,7 +73,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
     const updatePayload: Record<string, unknown> = {};
     if (updateData.status) updatePayload.status = updateData.status;
-    if (updateData.paymentStatus) updatePayload.paymentStatus = updateData.paymentStatus;
     if (updateData.shippingAddress) updatePayload.shippingAddress = updateData.shippingAddress as Record<string, unknown>;
     if (updateData.billingAddress) updatePayload.billingAddress = updateData.billingAddress as Record<string, unknown>;
     if (updateData.trackingNumber) updatePayload.trackingNumber = updateData.trackingNumber;
@@ -106,14 +106,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const trackingAdded = (updateData.trackingNumber || updateData.trackingUrl) && !existingOrder.trackingNumber && !existingOrder.trackingUrl;
     const trackingChanged = (updateData.trackingNumber && updateData.trackingNumber !== existingOrder.trackingNumber) || (updateData.trackingUrl && updateData.trackingUrl !== existingOrder.trackingUrl && updateData.trackingUrl !== "");
     const notesChanged = updateData.notes !== undefined && updateData.notes !== existingOrder.notes;
-    const otherFieldsChanged = (updateData.paymentStatus && updateData.paymentStatus !== existingOrder.paymentStatus) || updateData.estimatedDelivery || updateData.shippedAt || updateData.deliveredAt;
+    const otherFieldsChanged = updateData.estimatedDelivery || updateData.shippedAt || updateData.deliveredAt;
 
     if (statusChanged) createOrderNotification("order_status_update", order.orderNumber, `Order ${order.orderNumber} status updated from ${existingOrder.status} to ${updateData.status}`, userId, order.id).catch((error) => logger.error("Failed to create in-app notification for order status update:", error));
     if (!statusChanged && (trackingChanged || notesChanged || otherFieldsChanged)) {
       const changeMessages: string[] = [];
       if (trackingChanged) changeMessages.push("tracking information updated");
       if (notesChanged) changeMessages.push("notes updated");
-      if (updateData.paymentStatus && updateData.paymentStatus !== existingOrder.paymentStatus) changeMessages.push(`payment status changed to ${updateData.paymentStatus}`);
       if (changeMessages.length > 0) createOrderNotification("order_status_update", order.orderNumber, `Order ${order.orderNumber} edited: ${changeMessages.join(", ")}`, userId, order.id).catch((error) => logger.error("Failed to create in-app notification for order edit:", error));
     }
     if (isNowShipped || (updateData.status === "shipped" && trackingAdded)) {
