@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -9,10 +10,12 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-const SHORTCUTS: { keys: string; description: string }[] = [
-  { keys: "?", description: "Show keyboard shortcuts" },
-  { keys: "Escape", description: "Close dialog or sheet" },
-  { keys: "Tab", description: "Navigate between focusable elements" },
+export const SHORTCUTS: { keys: string; description: string }[] = [
+  { keys: "?", description: "Mostrar atajos de teclado" },
+  { keys: "F2", description: "En POS: enfocar búsqueda de producto" },
+  { keys: "F9", description: "En POS: continuar al pago" },
+  { keys: "Escape", description: "Cerrar diálogo o panel" },
+  { keys: "Tab", description: "Navegar entre elementos enfocables" },
 ];
 
 function isInputLike(target: EventTarget | null): boolean {
@@ -35,19 +38,39 @@ interface KeyboardShortcutsProviderProps {
 }
 
 /**
- * Provides global keyboard shortcut handling and a shortcuts help dialog.
- * Press ? (Shift+/) to open the dialog when not focused on an input.
+ * Global shortcuts plus POS keyboard acceleration.
+ * F2 focuses the product search and F9 opens the payment step while on /sales.
  */
 export function KeyboardShortcutsProvider({
   children,
 }: KeyboardShortcutsProviderProps) {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key !== "?" || isInputLike(e.target as EventTarget | null)) return;
-    e.preventDefault();
-    setOpen(true);
-  }, []);
+    if (e.key === "?" && !isInputLike(e.target as EventTarget | null)) {
+      e.preventDefault();
+      setOpen(true);
+      return;
+    }
+
+    if (pathname !== "/sales") return;
+
+    if (e.key === "F2") {
+      e.preventDefault();
+      const search = document.querySelector<HTMLInputElement>('input[placeholder*="Buscar producto"]');
+      search?.focus();
+      search?.select();
+      return;
+    }
+
+    if (e.key === "F9") {
+      e.preventDefault();
+      const paymentButton = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent?.includes("Continuar al pago"));
+      paymentButton?.click();
+    }
+  }, [pathname]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -63,10 +86,9 @@ export function KeyboardShortcutsProvider({
           aria-describedby="keyboard-shortcuts-description"
         >
           <DialogHeader>
-            <DialogTitle>Keyboard shortcuts</DialogTitle>
+            <DialogTitle>Atajos de teclado</DialogTitle>
             <DialogDescription id="keyboard-shortcuts-description">
-              Use these shortcuts anywhere in the app when not typing in a
-              field.
+              Usa estos atajos para trabajar más rápido sin salir del teclado.
             </DialogDescription>
           </DialogHeader>
           <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
