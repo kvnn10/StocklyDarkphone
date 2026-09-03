@@ -14,6 +14,7 @@ export const PERMISSIONS = {
   suppliers: ["read", "create", "update", "delete"] as const,
   reports: ["read"] as const,
   audit: ["read"] as const,
+  approvals: ["read", "create", "approve", "reject"] as const,
 } as const;
 
 export type Resource = keyof typeof PERMISSIONS;
@@ -31,6 +32,7 @@ const ALL: Record<Resource, readonly string[]> = {
   suppliers: PERMISSIONS.suppliers,
   reports: PERMISSIONS.reports,
   audit: PERMISSIONS.audit,
+  approvals: PERMISSIONS.approvals,
 };
 
 const ROLE_POLICY: Record<Role, Partial<Record<Resource, readonly string[]>>> = {
@@ -47,19 +49,23 @@ const ROLE_POLICY: Record<Role, Partial<Record<Resource, readonly string[]>>> = 
     suppliers: ["read", "create", "update", "delete"],
     reports: ["read"],
     audit: ["read"],
+    approvals: ["read", "create", "approve", "reject"],
   },
   vendedor: {
     products: ["read"], sales: ["read", "create", "update"], purchases: ["read"],
     finance: ["read", "create_payment", "apply_advance"], service_orders: ["read", "create"],
     devices: ["read", "create", "update"], clients: ["read", "create", "update"], suppliers: ["read"], reports: ["read"],
+    approvals: ["read", "create"],
   },
   tecnico: {
     products: ["read"], service_orders: ["read", "create", "update", "consume_part"],
     devices: ["read", "create", "update"], clients: ["read"],
+    approvals: ["read", "create"],
   },
   cajero: {
     products: ["read"], sales: ["read", "create"], finance: ["read", "create_payment", "apply_advance", "close_cash"],
     service_orders: ["read", "create_payment"], clients: ["read", "create", "update"], reports: ["read"],
+    approvals: ["read", "create"],
   },
 };
 
