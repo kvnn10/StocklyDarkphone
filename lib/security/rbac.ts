@@ -7,7 +7,7 @@ export const PERMISSIONS = {
   sales: ["read", "create", "update", "cancel", "refund", "discount"] as const,
   purchases: ["read", "create", "update", "receive", "pay"] as const,
   finance: ["read", "create_payment", "apply_advance", "close_cash", "manage_expenses"] as const,
-  service_orders: ["read", "create", "update", "consume_part", "deliver", "refund"] as const,
+  service_orders: ["read", "create", "update", "consume_part", "deliver", "refund", "create_payment"] as const,
   devices: ["read", "create", "update", "delete"] as const,
   users: ["read", "create", "update", "delete"] as const,
   reports: ["read"] as const,
@@ -17,18 +17,26 @@ export const PERMISSIONS = {
 export type Resource = keyof typeof PERMISSIONS;
 export type Action<R extends Resource = Resource> = (typeof PERMISSIONS[R])[number];
 
-const ALL: Record<Resource, readonly string[]> = Object.fromEntries(
-  Object.entries(PERMISSIONS).map(([resource, actions]) => [resource, actions]),
-) as Record<Resource, readonly string[]>;
+const ALL: Record<Resource, readonly string[]> = {
+  products: PERMISSIONS.products,
+  sales: PERMISSIONS.sales,
+  purchases: PERMISSIONS.purchases,
+  finance: PERMISSIONS.finance,
+  service_orders: PERMISSIONS.service_orders,
+  devices: PERMISSIONS.devices,
+  users: PERMISSIONS.users,
+  reports: PERMISSIONS.reports,
+  audit: PERMISSIONS.audit,
+};
 
 const ROLE_POLICY: Record<Role, Partial<Record<Resource, readonly string[]>>> = {
-  admin: Object.fromEntries(Object.keys(ALL).map((r) => [r, ALL[r as Resource]])),
+  admin: ALL,
   gerente: {
     products: ["read", "create", "update", "adjust_stock"],
     sales: ["read", "create", "update", "cancel", "refund", "discount"],
     purchases: ["read", "create", "update", "receive", "pay"],
     finance: ["read", "create_payment", "apply_advance", "close_cash", "manage_expenses"],
-    service_orders: ["read", "create", "update", "consume_part", "deliver", "refund"],
+    service_orders: ["read", "create", "update", "consume_part", "deliver", "refund", "create_payment"],
     devices: ["read", "create", "update", "delete"],
     users: ["read", "update"],
     reports: ["read"],
