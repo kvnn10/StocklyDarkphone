@@ -30,7 +30,8 @@ const RULES: Array<[string, Partial<Record<string, Rule>>]> = [
 function secret() { const value = process.env.JWT_SECRET?.trim(); if (!value) throw new Error("JWT_SECRET is required"); return value; }
 function match(pathname: string, method: string) { for (const [prefix, methods] of RULES) if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return methods[method] ?? null; return null; }
 export async function proxy(request: NextRequest) {
-  const { pathname, method } = request.nextUrl;
+  const { pathname } = request.nextUrl;
+  const method = request.method;
   if (pathname.startsWith("/api/")) {
     if (PUBLIC_API.some((prefix) => pathname.startsWith(prefix))) return NextResponse.next();
     const rule = match(pathname, method);
