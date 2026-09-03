@@ -54,6 +54,18 @@ export async function listApprovals(userId?: string, status?: ApprovalStatus) {
   return [...latest.values()].filter((item) => !status || item.details.status === status).map((item) => toApproval(item.requesterId, item.details, item.decidedBy, item.decidedAt, item.decisionNote, item.createdAt));
 }
 
+export async function getApprovedApproval(input: { approvalId: string; requesterId: string; type: ApprovalType; resource: string; action: string; entityId?: string | null }) {
+  const events = await prisma.auditLog.findMany({ where: { entityType: "approval", entityId: input.approvalId, action: { in: ["approval_requested", "approval_approved", "approval_rejected"] } }, orderBy: { createdAt: "desc" }, take: 20 });
+  const requestEvent = [...events].reverse().find((event) => event.action === "approval_requested");
+  if (!requestEvent || requestEvent.userId !== input.requesterId) return null;
+  const decisionEvent = events.find((event) => event.action === "approval_approved" || event.action === "approval_rejected");
+  if (!decisionEvent || decisionEvent.action !== "approval_approved") return null;
+  const details = readDetails(decisionEvent.details);
+  if (!details || details.type !== input.type || details.resource !== input.resource || details.action !== input.action) return null;
+  if (input.entityId !== undefined && details.entityId !== (input.entityId ?? null)) return null;
+  return { ...toApproval(requestEvent.userId, details, decisionEvent.userId, decisionEvent.createdAt, details.decisionNote ?? null, requestEvent.createdAt), approvedBy: decisionEvent.userId };
+}
+
 export async function decideApproval(input: { approvalId: string; approverId: string; decision: "approve" | "reject"; note?: string | null }) {
   const events = await prisma.auditLog.findMany({ where: { entityType: "approval", action: { in: ["approval_requested", "approval_approved", "approval_rejected"] }, entityId: input.approvalId }, orderBy: { createdAt: "desc" }, take: 20 });
   const requestEvent = [...events].reverse().find((event) => event.action === "approval_requested");

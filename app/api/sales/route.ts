@@ -5,10 +5,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeRequest } from "@/lib/security/authorize";
+import { hasPermission } from "@/lib/security/rbac";
 import { createOrder } from "@/prisma/order";
 import { createOrderSchema } from "@/lib/validations";
 import { prisma } from "@/prisma/client";
 import { ensureSaleReceivable } from "@/lib/finance/customer-receivables";
+import { getApprovedApproval } from "@/lib/security/approvals";
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,6 +26,18 @@ export async function POST(request: NextRequest) {
     }
 
     const data = parsed.data;
+    if (Number(data.discount ?? 0) > 0 && !hasPermission(session.role, "sales", "discount")) {
+      const approvalId = typeof body?.approvalId === "string" ? body.approvalId.trim() : "";
+      if (!approvalId) {
+        return NextResponse.json({ error: "APPROVAL_REQUIRED", message: "Este descuento requiere aprobación de un gerente o administrador", approvalType: "discount", resource: "sales", action: "discount" }, { status: 403 });
+      }
+      const approval = await getApprovedApproval({ approvalId, requesterId: session.id, type: "discount", resource: "sales", action: "discount" });
+      const approvedDiscount = Number(approval?.payload?.discount);
+      if (!approval || !Number.isFinite(approvedDiscount) || approvedDiscount !== Number(data.discount)) {
+        return NextResponse.json({ error: "INVALID_APPROVAL", message: "La aprobación no existe, no está aprobada o no coincide con el descuento solicitado" }, { status: 403 });
+      }
+    }
+
     const productIds = data.items.map((item) => item.productId);
     const productSkus = data.items.map((item) => item.sku).filter((sku): sku is string => Boolean(sku));
     const products = await prisma.product.findMany({
