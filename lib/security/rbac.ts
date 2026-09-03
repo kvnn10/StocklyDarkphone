@@ -62,7 +62,7 @@ export function normalizeRole(role?: string | null): Role | null {
   if (!normalized) return null;
   if (normalized === "administrator" || normalized === "admin") return "admin";
   if (normalized === "manager" || normalized === "gerente") return "gerente";
-  if (normalized === "seller" || normalized === "vendedor") return "vendedor";
+  if (normalized === "seller" || normalized === "vendedor" || normalized === "retailer" || normalized === "user") return "vendedor";
   if (normalized === "technician" || normalized === "tecnico" || normalized === "técnico") return "tecnico";
   if (normalized === "cashier" || normalized === "cajero") return "cajero";
   return null;
