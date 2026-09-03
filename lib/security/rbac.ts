@@ -10,6 +10,8 @@ export const PERMISSIONS = {
   service_orders: ["read", "create", "update", "consume_part", "deliver", "refund", "create_payment"] as const,
   devices: ["read", "create", "update", "delete"] as const,
   users: ["read", "create", "update", "delete"] as const,
+  clients: ["read", "create", "update", "delete"] as const,
+  suppliers: ["read", "create", "update", "delete"] as const,
   reports: ["read"] as const,
   audit: ["read"] as const,
 } as const;
@@ -25,6 +27,8 @@ const ALL: Record<Resource, readonly string[]> = {
   service_orders: PERMISSIONS.service_orders,
   devices: PERMISSIONS.devices,
   users: PERMISSIONS.users,
+  clients: PERMISSIONS.clients,
+  suppliers: PERMISSIONS.suppliers,
   reports: PERMISSIONS.reports,
   audit: PERMISSIONS.audit,
 };
@@ -39,21 +43,23 @@ const ROLE_POLICY: Record<Role, Partial<Record<Resource, readonly string[]>>> = 
     service_orders: ["read", "create", "update", "consume_part", "deliver", "refund", "create_payment"],
     devices: ["read", "create", "update", "delete"],
     users: ["read", "update"],
+    clients: ["read", "create", "update", "delete"],
+    suppliers: ["read", "create", "update", "delete"],
     reports: ["read"],
     audit: ["read"],
   },
   vendedor: {
     products: ["read"], sales: ["read", "create", "update"], purchases: ["read"],
     finance: ["read", "create_payment", "apply_advance"], service_orders: ["read", "create"],
-    devices: ["read", "create", "update"], reports: ["read"],
+    devices: ["read", "create", "update"], clients: ["read", "create", "update"], suppliers: ["read"], reports: ["read"],
   },
   tecnico: {
     products: ["read"], service_orders: ["read", "create", "update", "consume_part"],
-    devices: ["read", "create", "update"],
+    devices: ["read", "create", "update"], clients: ["read"],
   },
   cajero: {
     products: ["read"], sales: ["read", "create"], finance: ["read", "create_payment", "apply_advance", "close_cash"],
-    service_orders: ["read", "create_payment"], reports: ["read"],
+    service_orders: ["read", "create_payment"], clients: ["read", "create", "update"], reports: ["read"],
   },
 };
 
