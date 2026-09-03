@@ -32,7 +32,8 @@ function readDetails(details: unknown): AuditDetails | null {
 }
 
 async function writeApprovalEvent(userId: string, action: string, details: AuditDetails) {
-  await prisma.auditLog.create({ data: { userId, action, entityType: "approval", entityId: details.approvalId, details } });
+  const jsonDetails = JSON.parse(JSON.stringify(details));
+  await prisma.auditLog.create({ data: { userId, action, entityType: "approval", entityId: details.approvalId, details: jsonDetails } });
 }
 
 export async function createApproval(input: { userId: string; type: ApprovalType; resource: string; action: string; entityId?: string | null; reason?: string | null; payload?: Record<string, unknown> | null }) {
