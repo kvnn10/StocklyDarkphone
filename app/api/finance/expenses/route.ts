@@ -1,22 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/utils/auth";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { prisma } from "@/prisma/client";
 import { writeAuditLog } from "@/lib/audit/log";
-import { financeDb, jsonSafe, nextDocumentNumber, oid, validObjectId } from "@/lib/finance/financial-ledger";
-
-const ROLES = ["admin", "user", "retailer"];
+import { financeDb, jsonSafe, nextDocumentNumber, oid } from "@/lib/finance/financial-ledger";
 
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as string)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "finance", "read");
+  if (auth.response) return auth.response;
   const db = await financeDb();
-  const rows = await db.collection("Expense").find({ userId: oid(session.id) }).sort({ createdAt: -1 }).limit(500).toArray();
+  const rows = await db.collection("Expense").find({ userId: oid(auth.session!.id) }).sort({ createdAt: -1 }).limit(500).toArray();
   return NextResponse.json(rows.map(jsonSafe));
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as string)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "finance", "manage_expenses");
+  if (auth.response) return auth.response;
+  const session = auth.session!;
   try {
     const body = await request.json();
     const amount = Number(body.amount);
