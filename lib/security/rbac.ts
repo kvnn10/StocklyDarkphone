@@ -1,0 +1,81 @@
+/** Central RBAC policy for Stockly/DarkPhone. Server-side callers should enforce these permissions. */
+export const ROLES = ["admin", "gerente", "vendedor", "tecnico", "cajero"] as const;
+export type Role = (typeof ROLES)[number];
+
+export const PERMISSIONS = {
+  products: ["read", "create", "update", "delete", "adjust_stock"] as const,
+  sales: ["read", "create", "update", "cancel", "refund", "discount"] as const,
+  purchases: ["read", "create", "update", "receive", "pay"] as const,
+  finance: ["read", "create_payment", "apply_advance", "close_cash", "manage_expenses"] as const,
+  service_orders: ["read", "create", "update", "consume_part", "deliver", "refund"] as const,
+  devices: ["read", "create", "update", "delete"] as const,
+  users: ["read", "create", "update", "delete"] as const,
+  reports: ["read"] as const,
+  audit: ["read"] as const,
+} as const;
+
+export type Resource = keyof typeof PERMISSIONS;
+export type Action<R extends Resource = Resource> = (typeof PERMISSIONS[R])[number];
+
+const ALL: Record<Resource, readonly string[]> = Object.fromEntries(
+  Object.entries(PERMISSIONS).map(([resource, actions]) => [resource, actions]),
+) as Record<Resource, readonly string[]>;
+
+const ROLE_POLICY: Record<Role, Partial<Record<Resource, readonly string[]>>> = {
+  admin: Object.fromEntries(Object.keys(ALL).map((r) => [r, ALL[r as Resource]])),
+  gerente: {
+    products: ["read", "create", "update", "adjust_stock"],
+    sales: ["read", "create", "update", "cancel", "refund", "discount"],
+    purchases: ["read", "create", "update", "receive", "pay"],
+    finance: ["read", "create_payment", "apply_advance", "close_cash", "manage_expenses"],
+    service_orders: ["read", "create", "update", "consume_part", "deliver", "refund"],
+    devices: ["read", "create", "update", "delete"],
+    users: ["read", "update"],
+    reports: ["read"],
+    audit: ["read"],
+  },
+  vendedor: {
+    products: ["read"], sales: ["read", "create", "update"], purchases: ["read"],
+    finance: ["read", "create_payment", "apply_advance"], service_orders: ["read", "create"],
+    devices: ["read", "create", "update"], reports: ["read"],
+  },
+  tecnico: {
+    products: ["read"], service_orders: ["read", "create", "update", "consume_part"],
+    devices: ["read", "create", "update"],
+  },
+  cajero: {
+    products: ["read"], sales: ["read", "create"], finance: ["read", "create_payment", "apply_advance", "close_cash"],
+    service_orders: ["read", "create_payment"], reports: ["read"],
+  },
+};
+
+export function normalizeRole(role?: string | null): Role | null {
+  const normalized = role?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "administrator" || normalized === "admin") return "admin";
+  if (normalized === "manager" || normalized === "gerente") return "gerente";
+  if (normalized === "seller" || normalized === "vendedor") return "vendedor";
+  if (normalized === "technician" || normalized === "tecnico" || normalized === "técnico") return "tecnico";
+  if (normalized === "cashier" || normalized === "cajero") return "cajero";
+  return null;
+}
+
+export function hasPermission(role: string | null | undefined, resource: Resource, action: string): boolean {
+  const normalized = normalizeRole(role);
+  if (!normalized || !(resource in PERMISSIONS)) return false;
+  return ROLE_POLICY[normalized][resource]?.includes(action) ?? false;
+}
+
+export function assertPermission(role: string | null | undefined, resource: Resource, action: string): void {
+  if (!hasPermission(role, resource, action)) {
+    const error = new Error("FORBIDDEN");
+    error.name = "AuthorizationError";
+    throw error;
+  }
+}
+
+export function permissionsForRole(role: string | null | undefined): Record<string, readonly string[]> {
+  const normalized = normalizeRole(role);
+  if (!normalized) return {};
+  return { ...ROLE_POLICY[normalized] };
+}
