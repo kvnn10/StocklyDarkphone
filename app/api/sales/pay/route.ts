@@ -11,6 +11,12 @@ function isPaymentMethod(value: unknown): value is PaymentMethod {
   return typeof value === "string" && PAYMENT_METHODS.includes(value as PaymentMethod);
 }
 
+function parseCashReceived(value: unknown) {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { session, response } = await authorizeRequest(request, "finance", "create_payment");
@@ -38,6 +44,15 @@ export async function POST(request: NextRequest) {
     if (order.createdBy !== session.id && order.userId !== session.id) {
       return NextResponse.json({ error: "No puedes cobrar esta venta" }, { status: 403 });
     }
+
+    const cashReceived = parseCashReceived(body.cashReceived);
+    if (body.cashReceived !== undefined && cashReceived === null) {
+      return NextResponse.json({ error: "El efectivo recibido es inválido" }, { status: 400 });
+    }
+    if (paymentMethod === "cash" && (cashReceived === null || cashReceived < order.total)) {
+      return NextResponse.json({ error: "El efectivo recibido debe ser igual o mayor al total" }, { status: 400 });
+    }
+    const change = paymentMethod === "cash" ? (cashReceived ?? order.total) - order.total : 0;
 
     const client = new MongoClient(process.env.DATABASE_URL!);
     await client.connect();
@@ -75,6 +90,8 @@ export async function POST(request: NextRequest) {
         recordedBy: session.id,
         amount: order.total,
         paymentMethod,
+        cashReceived: paymentMethod === "cash" ? cashReceived : null,
+        change,
         status: "paid",
         createdAt: now,
       };
@@ -87,6 +104,8 @@ export async function POST(request: NextRequest) {
         orderNumber: order.orderNumber,
         amount: order.total,
         paymentMethod,
+        cashReceived: paymentMethod === "cash" ? cashReceived : null,
+        change,
         userId: order.userId,
         createdBy: session.id,
         description: `Venta ${order.orderNumber}`,
@@ -99,6 +118,8 @@ export async function POST(request: NextRequest) {
         orderNumber: order.orderNumber,
         amount: order.total,
         paymentMethod,
+        cashReceived,
+        change,
       });
     } finally {
       await client.close();

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { hasPermission, normalizeRole } from "@/lib/security/rbac";
 
+export function calculatePaymentChange(total: number, cashReceived: number) {
+  if (!Number.isFinite(total) || total < 0 || !Number.isFinite(cashReceived) || cashReceived < total) return null;
+  return cashReceived - total;
+}
+
 describe("security approvals", () => {
   it("normalizes legacy roles without weakening privileged access", () => {
     expect(normalizeRole("retailer")).toBe("vendedor");
@@ -31,5 +36,11 @@ describe("security approvals", () => {
     expect(hasPermission("cajero", "finance", "create_payment")).toBe(true);
     expect(hasPermission("vendedor", "finance", "create_payment")).toBe(true);
     expect(hasPermission("tecnico", "finance", "create_payment")).toBe(false);
+  });
+
+  it("calculates cash change and rejects insufficient cash", () => {
+    expect(calculatePaymentChange(100000, 120000)).toBe(20000);
+    expect(calculatePaymentChange(100000, 100000)).toBe(0);
+    expect(calculatePaymentChange(100000, 99999)).toBeNull();
   });
 });
