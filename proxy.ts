@@ -19,6 +19,7 @@ const RULES: Array<[string, Partial<Record<string, Rule>>]> = [
   ["/api/audit-logs", { GET: { resource: "audit", action: "read" } }],
   ["/api/approvals", { GET: { resource: "approvals", action: "read" }, POST: { resource: "approvals", action: "create" }, PATCH: { resource: "approvals", action: "approve" } }],
   ["/api/automation/notifications", { GET: { resource: "notifications", action: "read" }, POST: { resource: "notifications", action: "create" }, PATCH: { resource: "notifications", action: "update" } }],
+  ["/api/automation/run", { GET: { resource: "notifications", action: "create" }, POST: { resource: "notifications", action: "create" } }],
   ["/api/inventory", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "adjust_stock" }, PUT: { resource: "products", action: "adjust_stock" }, PATCH: { resource: "products", action: "adjust_stock" } }],
   ["/api/inventory-movements", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "adjust_stock" } }],
   ["/api/inventory-counts", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "adjust_stock" }, PATCH: { resource: "products", action: "adjust_stock" } }],
@@ -31,14 +32,11 @@ const RULES: Array<[string, Partial<Record<string, Rule>>]> = [
 function secret() { const value = process.env.JWT_SECRET?.trim(); if (!value) throw new Error("JWT_SECRET is required"); return value; }
 function match(pathname: string, method: string) { for (const [prefix, methods] of RULES) if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return methods[method] ?? null; return null; }
 export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  const method = request.method;
+  const { pathname } = request.nextUrl; const method = request.method;
   if (pathname.startsWith("/api/")) {
     if (PUBLIC_API.some((prefix) => pathname.startsWith(prefix))) return NextResponse.next();
-    const rule = match(pathname, method);
-    if (!rule) return NextResponse.next();
-    const token = request.cookies.get("session_id")?.value;
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const rule = match(pathname, method); if (!rule) return NextResponse.next();
+    const token = request.cookies.get("session_id")?.value; if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     try {
       const decoded = jwt.verify(token, secret());
       if (typeof decoded !== "object" || decoded === null || typeof decoded.userId !== "string" || !decoded.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
