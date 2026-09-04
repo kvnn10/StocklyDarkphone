@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MongoClient, ObjectId } from "mongodb";
-import { getSessionFromRequest } from "@/utils/auth";
 import { prisma } from "@/prisma/client";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { fulfillPendingOrderLines } from "@/lib/products/order-stock-reservation";
 
 const PAYMENT_METHODS = ["cash", "card", "transfer", "other"] as const;
@@ -13,10 +13,9 @@ function isPaymentMethod(value: unknown): value is PaymentMethod {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getSessionFromRequest(request);
-    if (!session || !["admin", "user", "retailer"].includes(session.role ?? "")) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    const { session, response } = await authorizeRequest(request, "finance", "create_payment");
+    if (response) return response;
+    if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
     const body = await request.json();
     const orderId = typeof body.orderId === "string" ? body.orderId : "";

@@ -26,4 +26,10 @@ describe("security approvals", () => {
     expect(hasPermission("gerente", "sales", "discount")).toBe(true);
     expect(hasPermission("admin", "sales", "refund")).toBe(true);
   });
+
+  it("allows authorized cashier/seller payment flows through finance", () => {
+    expect(hasPermission("cajero", "finance", "create_payment")).toBe(true);
+    expect(hasPermission("vendedor", "finance", "create_payment")).toBe(true);
+    expect(hasPermission("tecnico", "finance", "create_payment")).toBe(false);
+  });
 });
