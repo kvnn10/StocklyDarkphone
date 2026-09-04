@@ -1,0 +1,10 @@
+import { NextRequest, NextResponse } from "next/server";
+import { authorizeRequest } from "@/lib/security/authorize";
+import { dispatchPendingNotifications } from "@/lib/automation/dispatch";
+function isCron(request: NextRequest) { const secret = process.env.CRON_SECRET?.trim(); return Boolean(secret && request.headers.get("authorization") === `Bearer ${secret}`); }
+async function run(request: NextRequest) {
+  if (!isCron(request)) { const auth = await authorizeRequest(request, "notifications", "create"); if (auth.response) return auth.response; if (!auth.session || !["admin", "gerente"].includes(auth.session.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 }); }
+  try { return NextResponse.json({ ok: true, summary: await dispatchPendingNotifications() }); } catch (error) { console.error("notification dispatch failed", error); return NextResponse.json({ error: "Notification dispatch failed" }, { status: 500 }); }
+}
+export async function GET(request: NextRequest) { return run(request); }
+export async function POST(request: NextRequest) { return run(request); }
