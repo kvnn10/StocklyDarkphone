@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Banknote, CreditCard, Minus, Plus, Search, ShoppingCart, UserRound, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ const money = (value: number) => new Intl.NumberFormat("es-CO", { style: "curren
 export default function SalesPage() {
   const { data: products = [], isLoading } = useProducts();
   const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [clientId, setClientId] = useState("none");
@@ -41,7 +42,25 @@ export default function SalesPage() {
   function addProduct(product: (typeof products)[number]) {
     setMessage(""); setCart((current) => { const existing = current.find((line) => line.productId === product.id); if (existing) return current.map((line) => line.productId === product.id ? { ...line, quantity: Math.min(line.quantity + 1, Number(product.quantity)) } : line); return [...current, { productId: product.id, name: product.name, sku: product.sku, price: Number(product.price), quantity: 1 }]; });
   }
-  function changeQuantity(productId: string, delta: number) { setCart((current) => current.map((line) => line.productId === productId ? { ...line, quantity: line.quantity + delta } : line).filter((line) => line.quantity > 0)); }
+  function changeQuantity(productId: string, delta: number) {
+    setCart((current) => current.map((line) => {
+      if (line.productId !== productId) return line;
+      const product = products.find((item) => item.id === productId);
+      const max = Number(product?.quantity ?? line.quantity);
+      return { ...line, quantity: Math.min(Math.max(line.quantity + delta, 0), max) };
+    }).filter((line) => line.quantity > 0));
+  }
+  function handleProductSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    const query = search.trim().toLowerCase();
+    if (!query) return;
+    const exact = availableProducts.find((product) => product.sku.toLowerCase() === query);
+    if (exact) {
+      e.preventDefault();
+      addProduct(exact);
+      setSearch("");
+    }
+  }
 
   async function completeSale() {
     if (!cart.length || isSaving) return;
@@ -61,7 +80,7 @@ export default function SalesPage() {
       <PageSectionHeader title="Ventas" description="Punto de venta para registrar ventas, clientes y pagos." tone="emerald" icon={ShoppingCart} trailing={<Link href="/orders"><Button variant="outline" className="gap-2">Ver pedidos <ArrowRight className="h-4 w-4" /></Button></Link>} />
       <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
         <section className="rounded-2xl border bg-card/80 p-4 shadow-sm backdrop-blur-xl sm:p-5">
-          <div className="mb-4 flex items-center gap-3"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar producto por nombre o SKU..." className="pl-9" /></div><div className="hidden rounded-lg bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-600 sm:block">{availableProducts.length} disponibles</div></div>
+          <div className="mb-4 flex items-center gap-3"><div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input ref={searchRef} value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={handleProductSearchKeyDown} placeholder="Buscar producto por nombre o SKU..." className="pl-9" /></div><div className="hidden rounded-lg bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-600 sm:block">{availableProducts.length} disponibles</div></div>
           {isLoading ? <div className="py-16 text-center text-muted-foreground">Cargando productos...</div> : filtered.length === 0 ? <div className="py-16 text-center text-muted-foreground">No hay productos que coincidan.</div> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{filtered.map((product) => <button key={product.id} type="button" onClick={() => addProduct(product)} className="group rounded-xl border bg-background p-4 text-left transition-all hover:-translate-y-0.5 hover:border-emerald-500/50 hover:shadow-lg"><div className="mb-3 flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate font-semibold">{product.name}</p><p className="text-xs text-muted-foreground">SKU {product.sku}</p></div><Plus className="h-5 w-5 shrink-0 text-emerald-500 transition-transform group-hover:scale-110" /></div><div className="flex items-end justify-between"><span className="text-lg font-bold">{money(Number(product.price))}</span><span className="text-xs text-muted-foreground">Stock: {Number(product.quantity)}</span></div></button>)}</div>}
         </section>
         <section className="rounded-2xl border bg-card/80 p-4 shadow-sm backdrop-blur-xl sm:p-5">
