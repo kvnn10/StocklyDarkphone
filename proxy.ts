@@ -18,6 +18,7 @@ const RULES: Array<[string, Partial<Record<string, Rule>>]> = [
   ["/api/reports", { GET: { resource: "reports", action: "read" }, POST: { resource: "reports", action: "read" } }],
   ["/api/audit-logs", { GET: { resource: "audit", action: "read" } }],
   ["/api/approvals", { GET: { resource: "approvals", action: "read" }, POST: { resource: "approvals", action: "create" }, PATCH: { resource: "approvals", action: "approve" } }],
+  ["/api/automation/notifications", { GET: { resource: "notifications", action: "read" }, POST: { resource: "notifications", action: "create" }, PATCH: { resource: "notifications", action: "update" } }],
   ["/api/inventory", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "adjust_stock" }, PUT: { resource: "products", action: "adjust_stock" }, PATCH: { resource: "products", action: "adjust_stock" } }],
   ["/api/inventory-movements", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "adjust_stock" } }],
   ["/api/inventory-counts", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "adjust_stock" }, PATCH: { resource: "products", action: "adjust_stock" } }],
