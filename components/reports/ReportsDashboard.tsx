@@ -1,114 +1,29 @@
 "use client";
-
-import Link from "next/link";
-import { ArrowRight, BarChart3, CalendarDays, CircleDollarSign, ShoppingCart, TrendingUp } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BarChart3, Download, FileSpreadsheet, FileText, TrendingUp } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { PageContentWrapper, PageSectionHeader } from "@/components/shared";
 import type { DashboardStats } from "@/types";
 
-const money = (value: number) =>
-  new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-  }).format(value);
-
-export function summarizeSales(stats: DashboardStats) {
-  const trends = stats.trends ?? [];
-  const revenue = trends.reduce((sum, point) => sum + Number(point.revenue ?? 0), 0);
-  const orders = trends.reduce((sum, point) => sum + Number(point.orders ?? 0), 0);
-  return { revenue, orders, months: trends.length };
-}
-
-type Props = { stats: DashboardStats };
-
-export default function ReportsDashboard({ stats }: Props) {
-  const trends = (stats.trends ?? []).map((point) => ({
-    label: point.label,
-    ventas: Number(point.revenue ?? 0),
-    pedidos: Number(point.orders ?? 0),
-  }));
-  const summary = summarizeSales(stats);
-  const current = trends[trends.length - 1];
-  const previous = trends[trends.length - 2];
-  const revenueDelta = previous?.ventas
-    ? ((current.ventas - previous.ventas) / previous.ventas) * 100
-    : null;
-
-  return (
-    <PageContentWrapper>
-      <div className="space-y-6">
-        <PageSectionHeader
-          as="h1"
-          icon={BarChart3}
-          tone="violet"
-          title="Reportes PRO"
-          description="Indicadores comerciales para tomar decisiones sobre ventas, pedidos y evolución mensual."
-          trailing={
-            <Link
-              href="/admin/dashboard-overall-insights"
-              className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted"
-            >
-              Dashboard completo <ArrowRight className="h-4 w-4" />
-            </Link>
-          }
-        />
-
-        <div className="grid gap-4 sm:grid-cols-3">
-          <section className="rounded-2xl border bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground"><CircleDollarSign className="h-4 w-4" /> Ventas últimos 12 meses</div>
-            <p className="mt-2 text-2xl font-bold">{money(summary.revenue)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Suma de la tendencia mensual disponible</p>
-          </section>
-          <section className="rounded-2xl border bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground"><ShoppingCart className="h-4 w-4" /> Pedidos últimos 12 meses</div>
-            <p className="mt-2 text-2xl font-bold">{summary.orders.toLocaleString("es-CO")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{summary.months} períodos mensuales</p>
-          </section>
-          <section className="rounded-2xl border bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground"><TrendingUp className="h-4 w-4" /> Variación mensual</div>
-            <p className={`mt-2 text-2xl font-bold ${revenueDelta == null || revenueDelta >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-              {revenueDelta == null ? "—" : `${revenueDelta >= 0 ? "+" : ""}${revenueDelta.toFixed(1)}%`}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">Comparación del último mes contra el anterior</p>
-          </section>
-        </div>
-
-        <section className="rounded-2xl border bg-card p-5 shadow-sm">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="font-semibold">Ventas por mes</h2>
-              <p className="text-sm text-muted-foreground">Evolución de ingresos y cantidad de pedidos</p>
-            </div>
-            <CalendarDays className="h-5 w-5 text-violet-500" />
-          </div>
-          <div className="h-[320px] w-full">
-            {trends.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={trends} margin={{ top: 10, right: 12, left: 4, bottom: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(value) => `${Math.round(Number(value) / 1000000)}M`} />
-                  <Tooltip formatter={(value, name) => [name === "ventas" ? money(Number(value)) : Number(value), name === "ventas" ? "Ventas" : "Pedidos"]} />
-                  <Bar dataKey="ventas" name="Ventas" radius={[5, 5, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full items-center justify-center rounded-xl border border-dashed text-sm text-muted-foreground">No hay datos de ventas para mostrar.</div>
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-2xl border bg-card p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2"><CalendarDays className="h-4 w-4 text-violet-500" /><h2 className="font-semibold">Detalle mensual</h2></div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-sm">
-              <thead><tr className="border-b text-left text-muted-foreground"><th className="px-3 py-2 font-medium">Período</th><th className="px-3 py-2 text-right font-medium">Ventas</th><th className="px-3 py-2 text-right font-medium">Pedidos</th><th className="px-3 py-2 text-right font-medium">Promedio/pedido</th></tr></thead>
-              <tbody>{trends.map((row) => <tr key={row.label} className="border-b last:border-0"><td className="px-3 py-2 font-medium">{row.label}</td><td className="px-3 py-2 text-right">{money(row.ventas)}</td><td className="px-3 py-2 text-right">{row.pedidos.toLocaleString("es-CO")}</td><td className="px-3 py-2 text-right">{money(row.pedidos > 0 ? row.ventas / row.pedidos : 0)}</td></tr>)}</tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-    </PageContentWrapper>
-  );
+type Report = { daily:{date:string;sales:number;orders:number;profit:number}[]; sellers:{sellerId:string;seller:string;sales:number;orders:number;profit:number}[]; products:{productId:string;name:string;sku:string|null;units:number;sales:number;cost:number;profit:number;margin:number}[]; noMovement:{id:string;name:string;sku:string;stock:number;inventoryCost:number}[]; lowStock:{id:string;name:string;sku:string;stock:number;status:string}[]; summary:{sales:number;cost:number;grossProfit:number;margin:number;orders:number;products:number} };
+type Finance = { cash?:{income:number;expenses:number;balance:number}; accounts?:{receivableOutstanding:number;payableOutstanding:number}; expenses?:{recorded:number} };
+type Profit = { summary?:{revenue:number;cost:number;profit:number;margin:number;repairsCount:number} };
+const money=(n:number)=>new Intl.NumberFormat("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0}).format(n);
+const cell=(v:unknown)=>`"${String(v??"").replaceAll('"','""')}"`;
+const download=(blob:Blob,name:string)=>{const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
+export function summarizeSales(stats:DashboardStats){const t=stats.trends??[];return{revenue:t.reduce((s,p)=>s+Number(p.revenue??0),0),orders:t.reduce((s,p)=>s+Number(p.orders??0),0),months:t.length}};
+export default function ReportsDashboard({stats}:{stats:DashboardStats}){
+ const [report,setReport]=useState<Report|null>(null),[finance,setFinance]=useState<Finance|null>(null),[profit,setProfit]=useState<Profit|null>(null),[loading,setLoading]=useState(true);
+ const trends=(stats.trends??[]).map(p=>({label:p.label,ventas:Number(p.revenue??0),pedidos:Number(p.orders??0)})); const current=trends.at(-1),previous=trends.at(-2); const delta=previous?.ventas&&current?((current.ventas-previous.ventas)/previous.ventas)*100:null; const base=summarizeSales(stats);
+ useEffect(()=>{let ok=true;Promise.all([fetch("/api/reports/summary?days=30",{credentials:"include",cache:"no-store"}).then(r=>r.ok?r.json():null),fetch("/api/finance/report",{credentials:"include",cache:"no-store"}).then(r=>r.ok?r.json():null),fetch("/api/reports/profit",{credentials:"include",cache:"no-store"}).then(r=>r.ok?r.json():null)]).then(([r,f,p])=>{if(ok){setReport(r);setFinance(f);setProfit(p)}}).finally(()=>ok&&setLoading(false));return()=>{ok=false}},[]);
+ const daily=useMemo(()=>report?.daily.map(d=>({...d,label:d.date.slice(5)}))??[],[report]);
+ const exportCsv=()=>{const rows=[["Indicador","Valor"],["Ventas 12 meses",base.revenue],["Pedidos",base.orders],["CxC",finance?.accounts?.receivableOutstanding??0],["CxP",finance?.accounts?.payableOutstanding??0],["Utilidad bruta",profit?.summary?.profit??report?.summary.grossProfit??0],[],["Vendedor","Ventas","Pedidos","Utilidad"],...(report?.sellers??[]).map(s=>[s.seller,s.sales,s.orders,s.profit]),[],["Producto","Unidades","Ventas","Costo","Margen"],...(report?.products??[]).map(p=>[p.name,p.units,p.sales,p.cost,`${p.margin.toFixed(1)}%`])];download(new Blob([rows.map(r=>r.map(cell).join(",")).join("\n")],{type:"text/csv;charset=utf-8"}),"stockly-reportes-pro.csv")};
+ const exportExcel=()=>{const html=`<table><tr><th>Indicador</th><th>Valor</th></tr><tr><td>Ventas 12 meses</td><td>${base.revenue}</td></tr><tr><td>Pedidos</td><td>${base.orders}</td></tr><tr><td>CxC</td><td>${finance?.accounts?.receivableOutstanding??0}</td></tr><tr><td>CxP</td><td>${finance?.accounts?.payableOutstanding??0}</td></tr><tr><td>Utilidad bruta</td><td>${profit?.summary?.profit??0}</td></tr></table>`;download(new Blob([html],{type:"application/vnd.ms-excel"}),"stockly-reportes-pro.xls")};
+ const exportPdf=async()=>{const {default:jsPDF}=await import("jspdf");const {default:autoTable}=await import("jspdf-autotable");const doc=new jsPDF();doc.setFontSize(18);doc.text("Stockly — Reportes PRO",14,18);doc.setFontSize(10);doc.text(`Ventas ${money(base.revenue)} · CxC ${money(finance?.accounts?.receivableOutstanding??0)} · CxP ${money(finance?.accounts?.payableOutstanding??0)}`,14,27);autoTable(doc,{startY:35,head:[["Vendedor","Ventas","Pedidos","Utilidad"]],body:(report?.sellers??[]).map(s=>[s.seller,money(s.sales),String(s.orders),money(s.profit)])});doc.save("stockly-reportes-pro.pdf")};
+ return <PageContentWrapper><div className="space-y-6"><PageSectionHeader as="h1" icon={BarChart3} tone="violet" title="Reportes PRO" description="Ventas, rentabilidad, inventario y finanzas." trailing={<div className="flex flex-wrap gap-2"><button onClick={exportCsv} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"><Download className="h-4 w-4"/>CSV</button><button onClick={exportExcel} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"><FileSpreadsheet className="h-4 w-4"/>Excel</button><button onClick={exportPdf} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"><FileText className="h-4 w-4"/>PDF</button></div>}/>
+ <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[["Ventas 12 meses",money(base.revenue)],["Pedidos",base.orders.toLocaleString("es-CO")],["Variación mensual",delta==null?"—":`${delta>=0?"+":""}${delta.toFixed(1)}%`],["Margen bruto",`${(profit?.summary?.margin??report?.summary.margin??0).toFixed(1)}%`]].map(([l,v])=><section key={l} className="rounded-2xl border bg-card p-5 shadow-sm"><p className="text-sm text-muted-foreground">{l}</p><p className="mt-2 text-2xl font-bold">{v}</p></section>)}</div>
+ <section className="rounded-2xl border bg-card p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-semibold">Ventas por día</h2><p className="text-sm text-muted-foreground">Últimos 30 días</p></div><TrendingUp className="h-5 w-5"/></div><div className="h-[300px]">{loading?<div className="h-full animate-pulse rounded-xl bg-muted"/>:<ResponsiveContainer width="100%" height="100%"><BarChart data={daily}><CartesianGrid strokeDasharray="3 3"/><XAxis dataKey="label" tick={{fontSize:11}}/><YAxis/><Tooltip formatter={(v)=>money(Number(v))}/><Bar dataKey="sales" name="Ventas" radius={[4,4,0,0]}/></BarChart></ResponsiveContainer>}</div></section>
+ <div className="grid gap-6 xl:grid-cols-2"><section className="rounded-2xl border bg-card p-5 shadow-sm"><h2 className="mb-4 font-semibold">Ventas por vendedor</h2><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th>Vendedor</th><th className="text-right">Ventas</th><th className="text-right">Pedidos</th><th className="text-right">Utilidad</th></tr></thead><tbody>{(report?.sellers??[]).map(s=><tr key={s.sellerId} className="border-b"><td className="py-2">{s.seller}</td><td className="text-right">{money(s.sales)}</td><td className="text-right">{s.orders}</td><td className="text-right">{money(s.profit)}</td></tr>)}</tbody></table></div></section><section className="rounded-2xl border bg-card p-5 shadow-sm"><h2 className="mb-4 font-semibold">Productos más vendidos y margen</h2><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th>Producto</th><th className="text-right">Unid.</th><th className="text-right">Ventas</th><th className="text-right">Margen</th></tr></thead><tbody>{(report?.products??[]).slice(0,12).map(p=><tr key={p.productId} className="border-b"><td className="py-2">{p.name}</td><td className="text-right">{p.units}</td><td className="text-right">{money(p.sales)}</td><td className="text-right">{p.margin.toFixed(1)}%</td></tr>)}</tbody></table></div></section></div>
+ <div className="grid gap-6 xl:grid-cols-3"><section className="rounded-2xl border bg-card p-5 shadow-sm"><h2 className="font-semibold">Inventario</h2><p className="mt-2 text-sm">{report?.summary.products??stats.counts.products} productos · {report?.lowStock.length??0} bajo stock · {report?.noMovement.length??0} sin movimiento</p></section><section className="rounded-2xl border bg-card p-5 shadow-sm"><h2 className="font-semibold">Utilidad y reparaciones</h2><p className="mt-2 text-sm">Ingresos {money(profit?.summary?.revenue??0)} · Costos {money(profit?.summary?.cost??0)} · Utilidad {money(profit?.summary?.profit??0)}</p><p className="mt-1 text-xs text-muted-foreground">Reparaciones: {profit?.summary?.repairsCount??0}</p></section><section className="rounded-2xl border bg-card p-5 shadow-sm"><h2 className="font-semibold">Caja, CxC y CxP</h2><p className="mt-2 text-sm">Flujo neto {money(finance?.cash?.balance??0)}</p><p className="mt-1 text-sm">CxC {money(finance?.accounts?.receivableOutstanding??stats.invoiceAnalytics.outstandingAmount)}</p><p className="mt-1 text-sm">CxP {money(finance?.accounts?.payableOutstanding??0)}</p><p className="mt-1 text-sm">Gastos {money(finance?.expenses?.recorded??0)}</p></section></div>
+ </div></PageContentWrapper>;
 }
