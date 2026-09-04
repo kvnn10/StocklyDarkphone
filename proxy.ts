@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import jwt from "jsonwebtoken";
 import { prisma } from "@/prisma/client";
 import { hasPermission, normalizeRole, type Resource } from "@/lib/security/rbac";
+
 const PUBLIC_API = ["/api/auth/", "/api/health", "/api/client-portal/", "/api/portal/", "/api/supplier-portal/"];
 const PUBLIC_PAGES = ["/login", "/register", "/client-portal", "/portal", "/supplier-portal"];
 type Rule = { resource: Resource; action: string };
@@ -18,6 +19,7 @@ const RULES: Array<[string, Partial<Record<string, Rule>>]> = [
   ["/api/audit-logs", { GET: { resource: "audit", action: "read" } }],
   ["/api/approvals", { GET: { resource: "approvals", action: "read" }, POST: { resource: "approvals", action: "create" }, PATCH: { resource: "approvals", action: "approve" } }],
   ["/api/automation/notifications", { GET: { resource: "notifications", action: "read" }, POST: { resource: "notifications", action: "create" }, PATCH: { resource: "notifications", action: "update" } }],
+  ["/api/automation/run", { GET: { resource: "notifications", action: "create" }, POST: { resource: "notifications", action: "create" } }],
   ["/api/inventory", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "adjust_stock" }, PUT: { resource: "products", action: "adjust_stock" }, PATCH: { resource: "products", action: "adjust_stock" } }],
   ["/api/inventory-movements", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "adjust_stock" } }],
   ["/api/inventory-counts", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "adjust_stock" }, PATCH: { resource: "products", action: "adjust_stock" } }],
@@ -32,12 +34,27 @@ function match(pathname: string, method: string) { for (const [prefix, methods] 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl; const method = request.method;
   if (pathname.startsWith("/api/")) {
-    if (pathname === "/api/automation/run" || pathname === "/api/automation/dispatch") { const cron = process.env.CRON_SECRET?.trim(); if (cron && request.headers.get("authorization") === `Bearer ${cron}`) return NextResponse.next(); }
-    if (PUBLIC_API.some((prefix) => pathname.startsWith(prefix))) return NextResponse.next(); const rule = match(pathname, method); if (!rule) return NextResponse.next();
+    if (PUBLIC_API.some((prefix) => pathname.startsWith(prefix))) return NextResponse.next();
+    const rule = match(pathname, method); if (!rule) return NextResponse.next();
     const token = request.cookies.get("session_id")?.value; if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    try { const decoded = jwt.verify(token, secret()); if (typeof decoded !== "object" || decoded === null || typeof decoded.userId !== "string" || !decoded.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); const user = await prisma.user.findUnique({ where: { id: decoded.userId }, select: { id: true, role: true } }); const role = user ? normalizeRole(user.role) : null; if (!role || !hasPermission(role, rule.resource, rule.action)) return NextResponse.json({ error: "Forbidden" }, { status: 403 }); return NextResponse.next(); } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+    try {
+      const decoded = jwt.verify(token, secret());
+      if (typeof decoded !== "object" || decoded === null || typeof decoded.userId !== "string" || !decoded.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      const user = await prisma.user.findUnique({ where: { id: decoded.userId }, select: { id: true, role: true } });
+      const role = user ? normalizeRole(user.role) : null;
+      if (!role || !hasPermission(role, rule.resource, rule.action)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      return NextResponse.next();
+    } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
   }
-  if (pathname.startsWith("/_next/") || pathname === "/favicon.ico" || PUBLIC_PAGES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) return NextResponse.next(); const token = request.cookies.get("session_id")?.value; if (!token || token === "null" || token === "undefined") return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url));
-  try { const decoded = jwt.verify(token, secret()); if (typeof decoded !== "object" || decoded === null || typeof decoded.userId !== "string" || !decoded.userId) return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url)); const user = await prisma.user.findUnique({ where: { id: decoded.userId }, select: { id: true } }); if (!user) return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url)); return NextResponse.next(); } catch { return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url)); }
+  if (pathname.startsWith("/_next/") || pathname === "/favicon.ico" || PUBLIC_PAGES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) return NextResponse.next();
+  const token = request.cookies.get("session_id")?.value;
+  if (!token || token === "null" || token === "undefined") return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url));
+  try {
+    const decoded = jwt.verify(token, secret());
+    if (typeof decoded !== "object" || decoded === null || typeof decoded.userId !== "string" || !decoded.userId) return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url));
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId }, select: { id: true } });
+    if (!user) return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url));
+    return NextResponse.next();
+  } catch { return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(pathname)}`, request.url)); }
 }
 export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
