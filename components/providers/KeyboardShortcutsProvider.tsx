@@ -14,6 +14,11 @@ export const SHORTCUTS: { keys: string; description: string }[] = [
   { keys: "?", description: "Mostrar atajos de teclado" },
   { keys: "F2", description: "En POS: enfocar búsqueda de producto" },
   { keys: "F9", description: "En POS: continuar al pago" },
+  { keys: "F4", description: "En POS: seleccionar efectivo" },
+  { keys: "F5", description: "En POS: seleccionar tarjeta" },
+  { keys: "F6", description: "En POS: seleccionar transferencia" },
+  { keys: "F7", description: "En POS: seleccionar otro medio" },
+  { keys: "Enter", description: "En POS: cobrar cuando el pago está abierto" },
   { keys: "Escape", description: "Cerrar diálogo o panel" },
   { keys: "Tab", description: "Navegar entre elementos enfocables" },
 ];
@@ -37,10 +42,12 @@ interface KeyboardShortcutsProviderProps {
   children: ReactNode;
 }
 
-/**
- * Global shortcuts plus POS keyboard acceleration.
- * F2 focuses the product search and F9 opens the payment step while on /sales.
- */
+function clickButtonContaining(text: string): void {
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+    .find((candidate) => candidate.textContent?.includes(text));
+  button?.click();
+}
+
 export function KeyboardShortcutsProvider({
   children,
 }: KeyboardShortcutsProviderProps) {
@@ -66,9 +73,26 @@ export function KeyboardShortcutsProvider({
 
     if (e.key === "F9") {
       e.preventDefault();
-      const paymentButton = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-        .find((button) => button.textContent?.includes("Continuar al pago"));
-      paymentButton?.click();
+      clickButtonContaining("Continuar al pago");
+      return;
+    }
+
+    const paymentKeys: Record<string, string> = {
+      F4: "Efectivo",
+      F5: "Tarjeta",
+      F6: "Transferencia",
+      F7: "Otro",
+    };
+    const paymentLabel = paymentKeys[e.key];
+    if (paymentLabel) {
+      e.preventDefault();
+      clickButtonContaining(paymentLabel);
+      return;
+    }
+
+    if (e.key === "Enter" && document.querySelector("[role=dialog]")) {
+      e.preventDefault();
+      clickButtonContaining("Cobrar");
     }
   }, [pathname]);
 
