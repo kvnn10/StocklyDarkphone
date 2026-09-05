@@ -12,7 +12,7 @@ async function run(request: NextRequest) {
     const auth = await authorizeRequest(request, "notifications", "create");
     if (auth.response) return auth.response;
     const role = auth.session?.role;
-    if (!auth.session || !role || !["admin", "gerente"].includes(role)) {
+    if (!auth.session || role !== "admin" && role !== "gerente") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
   }
