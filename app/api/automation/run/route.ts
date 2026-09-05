@@ -11,7 +11,10 @@ async function run(request: NextRequest) {
   if (!isCronRequest(request)) {
     const auth = await authorizeRequest(request, "notifications", "create");
     if (auth.response) return auth.response;
-    if (!auth.session || !["admin", "gerente"].includes(auth.session.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const role = auth.session?.role;
+    if (!auth.session || !role || !["admin", "gerente"].includes(role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
   try {
     return NextResponse.json({ ok: true, summary: await runAutomationRules() });
