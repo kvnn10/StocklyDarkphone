@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Trash2, ShoppingBag, CreditCard, Banknote, RefreshCw, PackagePlus, X } from "lucide-react";
+import { Plus, Trash2, ShoppingBag, CreditCard, Banknote, RefreshCw, PackagePlus, X, Eye, Copy, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageContentWrapper } from "@/components/shared";
@@ -12,158 +12,70 @@ type Supplier = { id: string; name: string; status?: boolean };
 type Warehouse = { id: string; name: string; status?: boolean };
 type Category = { id: string; name: string; status?: boolean };
 type Line = { productId: string; quantity: number; unitCost: number };
-type Purchase = { id: string; purchaseNumber: string; supplierName: string; total: number; paymentMode: string; paymentMethod?: string; createdAt: string; items: Array<{ productName: string; sku?: string; receivedQuantity: number; unitCost: number }> ; payable?: { amountDue?: number; status?: string } | null };
+type Purchase = { id: string; purchaseNumber: string; supplierName: string; warehouseName?: string; supplierInvoice?: string; subtotal: number; discount: number; tax: number; shipping: number; total: number; paymentMode: string; paymentMethod?: string; status: string; createdAt: string; items: Array<{ id?: string; productId: string; productName: string; sku?: string; orderedQuantity: number; receivedQuantity: number; returnedQuantity?: number; unitCost: number }>; payable?: { amountDue?: number; status?: string } | null };
 
 const money = (n: number) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n || 0);
 const methods: Record<string, string> = { cash: "Efectivo", card: "Tarjeta", transfer: "Transferencia", other: "Otro" };
+const statusLabel: Record<string, string> = { received: "Recibida", partial: "Parcial", pending: "Pendiente", returned: "Devuelta", draft: "Borrador" };
 
 export default function PurchasesPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [purchases, setPurchases] = useState<Purchase[]>([]);
-  const [supplierId, setSupplierId] = useState("");
-  const [warehouseId, setWarehouseId] = useState("");
-  const [paymentMode, setPaymentMode] = useState<"paid" | "credit">("paid");
-  const [paymentMethod, setPaymentMethod] = useState("transfer");
-  const [dueDate, setDueDate] = useState("");
-  const [tax, setTax] = useState("");
-  const [shipping, setShipping] = useState("");
-  const [notes, setNotes] = useState("");
+  const [products, setProducts] = useState<Product[]>([]), [suppliers, setSuppliers] = useState<Supplier[]>([]), [warehouses, setWarehouses] = useState<Warehouse[]>([]), [categories, setCategories] = useState<Category[]>([]), [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [supplierId, setSupplierId] = useState(""), [warehouseId, setWarehouseId] = useState(""), [paymentMode, setPaymentMode] = useState<"paid" | "credit">("paid"), [paymentMethod, setPaymentMethod] = useState("transfer"), [dueDate, setDueDate] = useState(""), [supplierInvoice, setSupplierInvoice] = useState(""), [discount, setDiscount] = useState(""), [tax, setTax] = useState(""), [shipping, setShipping] = useState(""), [notes, setNotes] = useState("");
   const [lines, setLines] = useState<Line[]>([{ productId: "", quantity: 1, unitCost: 0 }]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [newProductOpen, setNewProductOpen] = useState(false);
-  const [newProductLineIndex, setNewProductLineIndex] = useState(0);
-  const [newProductSaving, setNewProductSaving] = useState(false);
+  const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [message, setMessage] = useState("");
+  const [newProductOpen, setNewProductOpen] = useState(false), [newProductLineIndex, setNewProductLineIndex] = useState(0), [newProductSaving, setNewProductSaving] = useState(false);
   const [newProduct, setNewProduct] = useState({ name: "", sku: "", purchasePrice: "", price: "", categoryId: "" });
+  const [detail, setDetail] = useState<Purchase | null>(null), [detailAction, setDetailAction] = useState<"receive" | "return" | null>(null), [detailQty, setDetailQty] = useState<Record<string, number>>({});
 
   const load = async () => {
     setLoading(true);
     try {
-      const [p, s, w, c, h] = await Promise.all([
-        fetch("/api/products").then((r) => r.json()),
-        fetch("/api/suppliers").then((r) => r.json()),
-        fetch("/api/warehouses").then((r) => r.json()),
-        fetch("/api/categories").then((r) => r.json()),
-        fetch("/api/purchases").then((r) => r.json()),
-      ]);
-      setProducts(Array.isArray(p) ? p : []);
-      setSuppliers(Array.isArray(s) ? s.filter((x) => x.status !== false) : []);
-      setWarehouses(Array.isArray(w) ? w.filter((x) => x.status !== false) : []);
-      setCategories(Array.isArray(c) ? c.filter((x) => x.status !== false) : []);
-      setPurchases(Array.isArray(h) ? h : []);
+      const [p, s, w, c, h] = await Promise.all([fetch("/api/products").then(r => r.json()), fetch("/api/suppliers").then(r => r.json()), fetch("/api/warehouses").then(r => r.json()), fetch("/api/categories").then(r => r.json()), fetch("/api/purchases").then(r => r.json())]);
+      setProducts(Array.isArray(p) ? p : []); setSuppliers(Array.isArray(s) ? s.filter((x: Supplier) => x.status !== false) : []); setWarehouses(Array.isArray(w) ? w.filter((x: Warehouse) => x.status !== false) : []); setCategories(Array.isArray(c) ? c.filter((x: Category) => x.status !== false) : []); setPurchases(Array.isArray(h) ? h : []);
       if (!supplierId && Array.isArray(s) && s.length) setSupplierId(s.find((x: Supplier) => x.status !== false)?.id ?? s[0].id);
       if (!warehouseId && Array.isArray(w) && w.length) setWarehouseId(w.find((x: Warehouse) => x.status !== false)?.id ?? w[0].id);
-    } catch { setMessage("No se pudieron cargar los datos de compras."); }
-    finally { setLoading(false); }
+    } catch { setMessage("No se pudieron cargar los datos de compras."); } finally { setLoading(false); }
   };
-
   useEffect(() => { load(); }, []);
-
-  const subtotal = useMemo(() => lines.reduce((sum, line) => sum + Math.max(0, line.quantity) * Math.max(0, line.unitCost), 0), [lines]);
-  const total = subtotal + Math.max(0, Number(tax) || 0) + Math.max(0, Number(shipping) || 0);
-
-  const updateLine = (index: number, patch: Partial<Line>) => setLines((current) => current.map((line, i) => i === index ? { ...line, ...patch } : line));
-  const selectProduct = (index: number, productId: string) => {
-    const product = products.find((p) => p.id === productId);
-    updateLine(index, { productId, unitCost: Number(product?.purchasePrice ?? 0) });
-  };
-
-  const openNewProduct = (lineIndex: number) => {
-    setNewProductLineIndex(lineIndex);
-    setNewProduct({ name: "", sku: "", purchasePrice: String(lines[lineIndex]?.unitCost || ""), price: "", categoryId: categories[0]?.id ?? "" });
-    setNewProductOpen(true);
-  };
-
+  const subtotal = useMemo(() => lines.reduce((sum, l) => sum + Math.max(0, l.quantity) * Math.max(0, l.unitCost), 0), [lines]);
+  const discountValue = Math.min(subtotal, Math.max(0, Number(discount) || 0));
+  const total = subtotal - discountValue + Math.max(0, Number(tax) || 0) + Math.max(0, Number(shipping) || 0);
+  const updateLine = (index: number, patch: Partial<Line>) => setLines(cur => cur.map((l, i) => i === index ? { ...l, ...patch } : l));
+  const selectProduct = (index: number, id: string) => { const p = products.find(x => x.id === id); updateLine(index, { productId: id, unitCost: Number(p?.purchasePrice ?? 0) }); };
+  const openNewProduct = (index: number) => { setNewProductLineIndex(index); setNewProduct({ name: "", sku: "", purchasePrice: String(lines[index]?.unitCost || ""), price: "", categoryId: categories[0]?.id ?? "" }); setNewProductOpen(true); };
   const createProduct = async () => {
-    setMessage("");
-    if (!newProduct.name.trim() || !newProduct.sku.trim() || !newProduct.categoryId) return setMessage("Para crear el producto necesitas nombre, SKU y categoría.");
-    const purchasePrice = Math.max(0, Number(newProduct.purchasePrice) || 0);
-    const price = Math.max(0, Number(newProduct.price) || 0);
-    if (price <= 0) return setMessage("Indica el precio de venta del producto.");
-    setNewProductSaving(true);
-    try {
-      const response = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newProduct.name.trim(), sku: newProduct.sku.trim(), purchasePrice, price, quantity: 0, status: "Stock Out", categoryId: newProduct.categoryId, supplierId }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No se pudo crear el producto");
-      setProducts((current) => [{ ...data }, ...current]);
-      updateLine(newProductLineIndex, { productId: data.id, unitCost: purchasePrice });
-      setNewProductOpen(false);
-      setMessage(`Producto ${data.name} creado y agregado a la compra.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo crear el producto"); }
-    finally { setNewProductSaving(false); }
+    setMessage(""); if (!newProduct.name.trim() || !newProduct.sku.trim() || !newProduct.categoryId || !supplierId) return setMessage("Para crear el producto necesitas nombre, SKU, categoría y proveedor.");
+    const purchasePrice = Math.max(0, Number(newProduct.purchasePrice) || 0), price = Math.max(0, Number(newProduct.price) || 0); if (price <= 0) return setMessage("Indica el precio de venta del producto.");
+    setNewProductSaving(true); try { const r = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newProduct.name.trim(), sku: newProduct.sku.trim(), purchasePrice, price, quantity: 0, status: "Stock Out", categoryId: newProduct.categoryId, supplierId }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "No se pudo crear el producto"); setProducts(cur => [d, ...cur]); updateLine(newProductLineIndex, { productId: d.id, unitCost: purchasePrice }); setNewProductOpen(false); setMessage(`Producto ${d.name} creado y agregado a la compra.`); } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo crear el producto"); } finally { setNewProductSaving(false); }
   };
-
   const save = async () => {
-    setMessage("");
-    if (!supplierId || !warehouseId) return setMessage("Selecciona proveedor y almacén.");
-    if (lines.some((line) => !line.productId || line.quantity <= 0 || line.unitCost < 0)) return setMessage("Completa correctamente todos los productos.");
-    setSaving(true);
-    try {
-      const response = await fetch("/api/purchases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supplierId, warehouseId, paymentMode, paymentMethod, dueDate: dueDate || undefined, tax: Number(tax) || 0, shipping: Number(shipping) || 0, notes, items: lines }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No se pudo registrar la compra");
-      setMessage(`Compra ${data.purchaseNumber} registrada correctamente.`);
-      setLines([{ productId: "", quantity: 1, unitCost: 0 }]); setTax(""); setShipping(""); setNotes(""); setDueDate("");
-      await load();
-    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo registrar la compra"); }
-    finally { setSaving(false); }
+    setMessage(""); if (!supplierId || !warehouseId) return setMessage("Selecciona proveedor y almacén."); if (lines.some(l => !l.productId || l.quantity <= 0 || l.unitCost < 0)) return setMessage("Completa correctamente todos los productos.");
+    setSaving(true); try { const r = await fetch("/api/purchases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supplierId, warehouseId, paymentMode, paymentMethod, dueDate: dueDate || undefined, supplierInvoice, discount: discountValue, tax: Number(tax) || 0, shipping: Number(shipping) || 0, notes, items: lines }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "No se pudo registrar la compra"); setMessage(`Compra ${d.purchaseNumber} registrada correctamente.`); setLines([{ productId: "", quantity: 1, unitCost: 0 }]); setTax(""); setShipping(""); setDiscount(""); setNotes(""); setSupplierInvoice(""); setDueDate(""); await load(); } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo registrar la compra"); } finally { setSaving(false); }
   };
+  const openDetail = async (id: string) => { try { const r = await fetch(`/api/purchases/${id}`); const d = await r.json(); if (!r.ok) throw new Error(d.error); setDetail(d); const q: Record<string, number> = {}; d.items.forEach((i: Purchase["items"][number]) => { q[i.id!] = 0; }); setDetailQty(q); } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo abrir la compra"); } };
+  const runDetailAction = async (action: "receive" | "return") => {
+    if (!detail) return; const items = detail.items.map(i => ({ itemId: i.id, quantity: Math.max(0, Math.floor(Number(detailQty[i.id!] || 0))) })).filter(i => i.quantity > 0); if (!items.length) return setMessage("Indica al menos una cantidad.");
+    setDetailAction(action); try { const r = await fetch(`/api/purchases/${detail.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, items }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "No se pudo actualizar la compra"); setMessage(action === "receive" ? "Recepción registrada y stock actualizado." : "Devolución registrada y stock actualizado."); await openDetail(detail.id); await load(); } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo actualizar la compra"); } finally { setDetailAction(null); }
+  };
+  const duplicate = (p: Purchase) => { setSupplierId(suppliers.find(s => s.name === p.supplierName)?.id ?? supplierId); setWarehouseId(warehouses.find(w => w.name === p.warehouseName)?.id ?? warehouseId); setPaymentMode("paid"); setPaymentMethod("transfer"); setSupplierInvoice(""); setDiscount(String(p.discount || 0)); setTax(String(p.tax || 0)); setShipping(String(p.shipping || 0)); setNotes(`Duplicada de ${p.purchaseNumber}`); setLines(p.items.map(i => ({ productId: i.productId, quantity: i.orderedQuantity, unitCost: i.unitCost }))); setDetail(null); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
-  return <PageContentWrapper>
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-2xl font-semibold tracking-tight">Compras</h1><p className="text-sm text-muted-foreground">Abastece inventario y deja trazabilidad financiera automáticamente.</p></div>
-        <Button variant="outline" onClick={load} disabled={loading}><RefreshCw className="h-4 w-4" />Actualizar</Button>
-      </div>
+  return <PageContentWrapper><div className="space-y-6">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold tracking-tight">Compras</h1><p className="text-sm text-muted-foreground">Abastecimiento conectado con inventario, Caja, Finanzas y cuentas por pagar.</p></div><Button variant="outline" onClick={load} disabled={loading}><RefreshCw className="h-4 w-4" />Actualizar</Button></div>
+    {message && <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">{message}</div>}
+    <section className="rounded-xl border bg-card p-5 shadow-sm space-y-5">
+      <div className="flex items-center gap-2"><ShoppingBag className="h-5 w-5" /><h2 className="font-semibold">Nueva compra</h2></div>
+      <div className="grid gap-4 md:grid-cols-4"><label className="text-sm space-y-1"><span>Proveedor</span><select className="h-10 w-full rounded-md border bg-background px-3" value={supplierId} onChange={e => setSupplierId(e.target.value)}><option value="">Seleccionar...</option>{suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label><label className="text-sm space-y-1"><span>Almacén</span><select className="h-10 w-full rounded-md border bg-background px-3" value={warehouseId} onChange={e => setWarehouseId(e.target.value)}><option value="">Seleccionar...</option>{warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label className="text-sm space-y-1"><span>Factura / referencia</span><Input value={supplierInvoice} onChange={e => setSupplierInvoice(e.target.value)} placeholder="Ej. FE-12345" /></label><label className="text-sm space-y-1"><span>Forma de pago</span><select className="h-10 w-full rounded-md border bg-background px-3" value={paymentMode} onChange={e => setPaymentMode(e.target.value as "paid" | "credit")}><option value="paid">Pago inmediato</option><option value="credit">A crédito</option></select></label></div>
+      {paymentMode === "paid" ? <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm flex gap-2 items-center"><Banknote className="h-4 w-4" /> El pago se registra inmediatamente en Caja y Finanzas.</div> : <div className="grid gap-4 md:grid-cols-2"><label className="text-sm space-y-1"><span>Vencimiento</span><Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /></label><div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm flex gap-2 items-center"><CreditCard className="h-4 w-4" /> Se crea automáticamente la cuenta por pagar.</div></div>}
+      {paymentMode === "paid" && <label className="text-sm space-y-1 block max-w-sm"><span>Método de pago</span><select className="h-10 w-full rounded-md border bg-background px-3" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>{Object.entries(methods).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select></label>}
+      <div className="space-y-3">{lines.map((line, index) => <div key={index} className="grid gap-2 md:grid-cols-[1fr_120px_160px_44px] items-end"><div className="text-sm space-y-1"><span className="block">Producto</span><div className="flex gap-2"><select className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3" value={line.productId} onChange={e => selectProduct(index, e.target.value)}><option value="">Seleccionar producto...</option>{products.map(p => <option key={p.id} value={p.id}>{p.name} · {p.sku}</option>)}</select><Button type="button" variant="outline" size="icon" onClick={() => openNewProduct(index)} title="Crear producto nuevo"><PackagePlus className="h-4 w-4" /></Button></div></div><label className="text-sm space-y-1"><span>Cantidad</span><Input type="number" min="1" value={line.quantity} onChange={e => updateLine(index, { quantity: Math.max(1, Number(e.target.value) || 1) })} /></label><label className="text-sm space-y-1"><span>Costo unitario</span><Input type="number" min="0" value={line.unitCost} onChange={e => updateLine(index, { unitCost: Math.max(0, Number(e.target.value) || 0) })} /></label><Button variant="ghost" size="icon" onClick={() => setLines(cur => cur.length > 1 ? cur.filter((_, i) => i !== index) : cur)} title="Eliminar línea"><Trash2 className="h-4 w-4" /></Button></div>)}<Button variant="outline" onClick={() => setLines(cur => [...cur, { productId: "", quantity: 1, unitCost: 0 }])}><Plus className="h-4 w-4" />Agregar producto</Button></div>
+      <div className="grid gap-4 md:grid-cols-4"><label className="text-sm space-y-1"><span>Descuento</span><Input type="number" min="0" value={discount} onChange={e => setDiscount(e.target.value)} placeholder="0" /></label><label className="text-sm space-y-1"><span>Impuestos</span><Input type="number" min="0" value={tax} onChange={e => setTax(e.target.value)} placeholder="0" /></label><label className="text-sm space-y-1"><span>Envío / otros</span><Input type="number" min="0" value={shipping} onChange={e => setShipping(e.target.value)} placeholder="0" /></label><label className="text-sm space-y-1"><span>Notas</span><Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observaciones..." /></label></div>
+      <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-4"><div><p className="text-sm text-muted-foreground">Subtotal</p><p className="text-lg font-medium">{money(subtotal)}</p><p className="text-xs text-muted-foreground">Descuento: {money(discountValue)}</p></div><div className="text-right"><p className="text-sm text-muted-foreground">Total</p><p className="text-2xl font-semibold">{money(total)}</p></div><Button onClick={save} disabled={saving || loading}>{saving ? "Registrando..." : "Registrar compra"}</Button></div>
+    </section>
+    <section className="rounded-xl border bg-card shadow-sm overflow-hidden"><div className="border-b p-5"><h2 className="font-semibold">Historial de compras</h2></div>{purchases.length === 0 ? <div className="p-8 text-center text-sm text-muted-foreground">Todavía no hay compras registradas.</div> : <div className="divide-y">{purchases.map(p => <div key={p.id} className="p-4 flex flex-wrap items-center justify-between gap-4"><div className="min-w-[280px]"><div className="font-medium">{p.purchaseNumber} · {p.supplierName}</div><div className="text-sm text-muted-foreground">{new Date(p.createdAt).toLocaleString("es-CO")} · {p.warehouseName || "—"} · {p.items.length} producto(s)</div><div className="text-xs mt-1">{statusLabel[p.status] || p.status} · {p.paymentMode === "paid" ? `Pagado · ${methods[p.paymentMethod || "other"]}` : `A crédito · saldo ${money(Number(p.payable?.amountDue ?? 0))}`}{p.supplierInvoice ? ` · Ref. ${p.supplierInvoice}` : ""}</div></div><div className="flex items-center gap-2"><span className="font-semibold mr-2">{money(p.total)}</span><Button variant="ghost" size="icon" title="Ver detalle" onClick={() => openDetail(p.id)}><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="icon" title="Duplicar compra" onClick={() => duplicate(p)}><Copy className="h-4 w-4" /></Button></div></div>)}</div>}</section>
+    <p className="text-xs text-muted-foreground">Los créditos se gestionan desde <Link className="underline" href="/admin/finance">Finanzas / cuentas por pagar</Link>.</p>
 
-      {message && <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm">{message}</div>}
+    {newProductOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"><div className="w-full max-w-lg rounded-xl border bg-card p-5 shadow-xl space-y-4"><div className="flex items-center justify-between"><h3 className="font-semibold">Crear producto desde la compra</h3><Button variant="ghost" size="icon" onClick={() => setNewProductOpen(false)}><X className="h-4 w-4" /></Button></div><div className="grid gap-3 md:grid-cols-2"><label className="text-sm space-y-1 md:col-span-2"><span>Nombre</span><Input value={newProduct.name} onChange={e => setNewProduct({ ...newProduct, name: e.target.value })} /></label><label className="text-sm space-y-1"><span>SKU</span><Input value={newProduct.sku} onChange={e => setNewProduct({ ...newProduct, sku: e.target.value })} /></label><label className="text-sm space-y-1"><span>Categoría</span><select className="h-10 w-full rounded-md border bg-background px-3" value={newProduct.categoryId} onChange={e => setNewProduct({ ...newProduct, categoryId: e.target.value })}>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label className="text-sm space-y-1"><span>Costo de compra</span><Input type="number" min="0" value={newProduct.purchasePrice} onChange={e => setNewProduct({ ...newProduct, purchasePrice: e.target.value })} /></label><label className="text-sm space-y-1"><span>Precio de venta</span><Input type="number" min="0" value={newProduct.price} onChange={e => setNewProduct({ ...newProduct, price: e.target.value })} /></label></div><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setNewProductOpen(false)}>Cancelar</Button><Button onClick={createProduct} disabled={newProductSaving}>{newProductSaving ? "Creando..." : "Crear y agregar"}</Button></div></div></div>}
 
-      <section className="rounded-xl border bg-card p-5 shadow-sm space-y-5">
-        <div className="flex items-center gap-2"><ShoppingBag className="h-5 w-5" /><h2 className="font-semibold">Nueva compra</h2></div>
-        <div className="grid gap-4 md:grid-cols-3">
-          <label className="text-sm space-y-1"><span>Proveedor</span><select className="h-10 w-full rounded-md border bg-background px-3" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}><option value="">Seleccionar...</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
-          <label className="text-sm space-y-1"><span>Almacén de entrada</span><select className="h-10 w-full rounded-md border bg-background px-3" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}><option value="">Seleccionar...</option>{warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>
-          <label className="text-sm space-y-1"><span>Forma de pago</span><select className="h-10 w-full rounded-md border bg-background px-3" value={paymentMode} onChange={(e) => setPaymentMode(e.target.value as "paid" | "credit")}><option value="paid">Pago inmediato</option><option value="credit">A crédito</option></select></label>
-        </div>
-
-        {paymentMode === "paid" ? <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm flex gap-2 items-center"><Banknote className="h-4 w-4" /> El pago se registra inmediatamente en Caja y Finanzas.</div> : <div className="grid gap-4 md:grid-cols-2"><label className="text-sm space-y-1"><span>Fecha de vencimiento</span><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label><div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm flex gap-2 items-center"><CreditCard className="h-4 w-4" /> Se crea automáticamente la cuenta por pagar al proveedor.</div></div>}
-
-        {paymentMode === "paid" && <label className="text-sm space-y-1 block max-w-sm"><span>Método de pago</span><select className="h-10 w-full rounded-md border bg-background px-3" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>{Object.entries(methods).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>}
-
-        <div className="space-y-3">
-          {lines.map((line, index) => <div key={index} className="grid gap-2 md:grid-cols-[1fr_120px_160px_44px] items-end">
-            <div className="text-sm space-y-1"><span className="block">Producto</span><div className="flex gap-2"><select className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3" value={line.productId} onChange={(e) => selectProduct(index, e.target.value)}><option value="">Seleccionar producto...</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.sku}</option>)}</select><Button type="button" variant="outline" size="icon" onClick={() => openNewProduct(index)} title="Crear producto nuevo"><PackagePlus className="h-4 w-4" /></Button></div></div>
-            <label className="text-sm space-y-1"><span>Cantidad</span><Input type="number" min="1" value={line.quantity} onChange={(e) => updateLine(index, { quantity: Math.max(1, Number(e.target.value) || 1) })} /></label>
-            <label className="text-sm space-y-1"><span>Costo unitario</span><Input type="number" min="0" value={line.unitCost} onChange={(e) => updateLine(index, { unitCost: Math.max(0, Number(e.target.value) || 0) })} /></label>
-            <Button variant="ghost" size="icon" onClick={() => setLines((current) => current.length > 1 ? current.filter((_, i) => i !== index) : current)} title="Eliminar línea"><Trash2 className="h-4 w-4" /></Button>
-          </div>)}
-          <Button variant="outline" onClick={() => setLines((current) => [...current, { productId: "", quantity: 1, unitCost: 0 }])}><Plus className="h-4 w-4" />Agregar producto</Button>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-3"><label className="text-sm space-y-1"><span>Impuestos</span><Input type="number" min="0" value={tax} onChange={(e) => setTax(e.target.value)} placeholder="0" /></label><label className="text-sm space-y-1"><span>Envío / otros</span><Input type="number" min="0" value={shipping} onChange={(e) => setShipping(e.target.value)} placeholder="0" /></label><label className="text-sm space-y-1"><span>Notas</span><Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Factura, referencia, observaciones..." /></label></div>
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-4"><div><p className="text-sm text-muted-foreground">Subtotal</p><p className="text-lg font-medium">{money(subtotal)}</p></div><div className="text-right"><p className="text-sm text-muted-foreground">Total de compra</p><p className="text-2xl font-semibold">{money(total)}</p></div><Button onClick={save} disabled={saving || loading}>{saving ? "Registrando..." : "Registrar compra"}</Button></div>
-      </section>
-
-      <section className="rounded-xl border bg-card shadow-sm overflow-hidden"><div className="border-b p-5"><h2 className="font-semibold">Historial de compras</h2></div>{purchases.length === 0 ? <div className="p-8 text-center text-sm text-muted-foreground">Todavía no hay compras registradas.</div> : <div className="divide-y">{purchases.map((purchase) => <div key={purchase.id} className="p-4 flex flex-wrap items-center justify-between gap-4"><div><div className="font-medium">{purchase.purchaseNumber} · {purchase.supplierName}</div><div className="text-sm text-muted-foreground">{new Date(purchase.createdAt).toLocaleString("es-CO")} · {purchase.items.length} producto(s) · {purchase.paymentMode === "paid" ? `Pagado · ${methods[purchase.paymentMethod ?? "other"]}` : `A crédito · saldo ${money(Number(purchase.payable?.amountDue ?? 0))}`}</div></div><div className="font-semibold">{money(purchase.total)}</div></div>)}</div>}</section>
-      <p className="text-xs text-muted-foreground">Los pagos a crédito pueden gestionarse desde <Link className="underline" href="/admin/finance">Finanzas / cuentas por pagar</Link>.</p>
-    </div>
-
-    {newProductOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="new-product-title">
-      <div className="w-full max-w-lg rounded-xl border bg-card p-5 shadow-xl">
-        <div className="flex items-center justify-between gap-3 mb-5"><div><h2 id="new-product-title" className="text-lg font-semibold">Agregar producto nuevo</h2><p className="text-sm text-muted-foreground">Se creará sin stock y la compra actual ingresará las unidades.</p></div><Button variant="ghost" size="icon" onClick={() => setNewProductOpen(false)}><X className="h-4 w-4" /></Button></div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="text-sm space-y-1 md:col-span-2"><span>Nombre del producto</span><Input autoFocus value={newProduct.name} onChange={(e) => setNewProduct((v) => ({ ...v, name: e.target.value }))} placeholder="Ej. Batería iPhone 15 Pro Max" /></label>
-          <label className="text-sm space-y-1"><span>SKU</span><Input value={newProduct.sku} onChange={(e) => setNewProduct((v) => ({ ...v, sku: e.target.value }))} placeholder="BATT15PM" /></label>
-          <label className="text-sm space-y-1"><span>Categoría</span><select className="h-10 w-full rounded-md border bg-background px-3" value={newProduct.categoryId} onChange={(e) => setNewProduct((v) => ({ ...v, categoryId: e.target.value }))}><option value="">Seleccionar...</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-          <label className="text-sm space-y-1"><span>Costo de compra</span><Input type="number" min="0" value={newProduct.purchasePrice} onChange={(e) => { setNewProduct((v) => ({ ...v, purchasePrice: e.target.value })); updateLine(newProductLineIndex, { unitCost: Math.max(0, Number(e.target.value) || 0) }); }} /></label>
-          <label className="text-sm space-y-1"><span>Precio de venta</span><Input type="number" min="0" value={newProduct.price} onChange={(e) => setNewProduct((v) => ({ ...v, price: e.target.value }))} placeholder="0" /></label>
-        </div>
-        <div className="mt-6 flex justify-end gap-2"><Button variant="outline" onClick={() => setNewProductOpen(false)}>Cancelar</Button><Button onClick={createProduct} disabled={newProductSaving || !supplierId}>{newProductSaving ? "Creando..." : "Crear y agregar"}</Button></div>
-      </div>
-    </div>}
-  </PageContentWrapper>;
+    {detail && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"><div className="w-full max-w-4xl max-h-[90vh] overflow-auto rounded-xl border bg-card p-5 shadow-xl space-y-5"><div className="flex items-start justify-between"><div><h3 className="text-xl font-semibold">{detail.purchaseNumber}</h3><p className="text-sm text-muted-foreground">{detail.supplierName} · {detail.warehouseName || "—"} · {statusLabel[detail.status] || detail.status}</p></div><Button variant="ghost" size="icon" onClick={() => setDetail(null)}><X className="h-4 w-4" /></Button></div><div className="grid gap-3 md:grid-cols-4 text-sm"><div><span className="text-muted-foreground">Referencia</span><div>{detail.supplierInvoice || "—"}</div></div><div><span className="text-muted-foreground">Subtotal</span><div>{money(detail.subtotal)}</div></div><div><span className="text-muted-foreground">Descuento</span><div>{money(detail.discount)}</div></div><div><span className="text-muted-foreground">Total</span><div className="font-semibold">{money(detail.total)}</div></div></div><div className="overflow-x-auto rounded-lg border"><table className="w-full text-sm"><thead><tr className="border-b text-left"><th className="p-3">Producto</th><th className="p-3">Pedido</th><th className="p-3">Recibido</th><th className="p-3">Devuelto</th><th className="p-3">Costo</th><th className="p-3">Cantidad</th></tr></thead><tbody>{detail.items.map(i => { const pending = i.orderedQuantity - i.receivedQuantity; const returnable = i.receivedQuantity - (i.returnedQuantity || 0); const max = detailAction === "return" ? returnable : pending; return <tr key={i.id} className="border-b last:border-0"><td className="p-3">{i.productName}<div className="text-xs text-muted-foreground">{i.sku}</div></td><td className="p-3">{i.orderedQuantity}</td><td className="p-3">{i.receivedQuantity}</td><td className="p-3">{i.returnedQuantity || 0}</td><td className="p-3">{money(i.unitCost)}</td><td className="p-3"><Input className="w-24" type="number" min="0" max={max} value={detailQty[i.id!] || ""} onChange={e => setDetailQty(q => ({ ...q, [i.id!]: Number(e.target.value) || 0 }))} placeholder={`Máx. ${max}`} /></td></tr>; })}</tbody></table></div><div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => duplicate(detail)}><Copy className="h-4 w-4" />Duplicar compra</Button><Button onClick={() => runDetailAction("receive")} disabled={!!detailAction}>{detailAction === "receive" ? "Recibiendo..." : "Recibir cantidades"}</Button><Button variant="outline" onClick={() => runDetailAction("return")} disabled={!!detailAction}><RotateCcw className="h-4 w-4" />Devolver cantidades</Button><Button variant="outline" onClick={() => setDetail(null)}>Cerrar</Button></div></div></div>}
+  </div></PageContentWrapper>;
 }
