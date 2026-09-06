@@ -5,13 +5,17 @@
 import { prisma } from "@/prisma/client";
 import type { CreateAuditLogInput, AuditLogFilters } from "@/types";
 
-const MAX_AUDIT_LOGS = 50;
+const ACTIVITY_LOG_LIMIT = 50;
 
 /**
- * Create an audit log entry. Enforces FIFO: if total count > MAX_AUDIT_LOGS, deletes oldest.
+ * Create an audit log entry.
+ *
+ * Audit history is intentionally append-only here. Retention/cleanup must be
+ * an explicit operational decision and must not silently discard evidence
+ * during normal application traffic.
  */
 export async function createAuditLog(data: CreateAuditLogInput) {
-  const created = await prisma.auditLog.create({
+  return prisma.auditLog.create({
     data: {
       userId: data.userId,
       action: data.action,
@@ -23,23 +27,6 @@ export async function createAuditLog(data: CreateAuditLogInput) {
       createdAt: new Date(),
     },
   });
-
-  const total = await prisma.auditLog.count();
-  if (total > MAX_AUDIT_LOGS) {
-    const toDelete = total - MAX_AUDIT_LOGS;
-    const oldest = await prisma.auditLog.findMany({
-      orderBy: { createdAt: "asc" },
-      take: toDelete,
-      select: { id: true },
-    });
-    if (oldest.length > 0) {
-      await prisma.auditLog.deleteMany({
-        where: { id: { in: oldest.map((o) => o.id) } },
-      });
-    }
-  }
-
-  return created;
 }
 
 /**
@@ -48,8 +35,8 @@ export async function createAuditLog(data: CreateAuditLogInput) {
 export async function getAuditLogs(
   filters: AuditLogFilters & { page?: number; limit?: number },
 ) {
-  const page = filters.page || 1;
-  const limit = filters.limit || 50;
+  const page = Math.max(filters.page || 1, 1);
+  const limit = Math.min(Math.max(filters.limit || 50, 1), 100);
   const skip = (page - 1) * limit;
 
   const where: Record<string, unknown> = {};
@@ -66,9 +53,7 @@ export async function getAuditLogs(
   if (filters.startDate || filters.endDate) {
     where.createdAt = {};
     if (filters.startDate) {
-      (where.createdAt as Record<string, Date>).gte = new Date(
-        filters.startDate,
-      );
+      (where.createdAt as Record<string, Date>).gte = new Date(filters.startDate);
     }
     if (filters.endDate) {
       (where.createdAt as Record<string, Date>).lte = new Date(filters.endDate);
@@ -103,7 +88,7 @@ export async function getAuditLogsByUser(userId: string, limit = 20) {
   return prisma.auditLog.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
-    take: limit,
+    take: Math.min(Math.max(limit, 1), 100),
   });
 }
 
@@ -118,7 +103,7 @@ export async function getAuditLogsByEntity(
   return prisma.auditLog.findMany({
     where: { entityType, entityId },
     orderBy: { createdAt: "desc" },
-    take: limit,
+    take: Math.min(Math.max(limit, 1), 100),
   });
 }
 
@@ -161,14 +146,19 @@ export async function getAuditLogsForActivity(
   return prisma.auditLog.findMany({
     where,
     orderBy: { createdAt: "desc" },
-    take: MAX_AUDIT_LOGS,
+    take: ACTIVITY_LOG_LIMIT,
   });
 }
 
 /**
- * Delete old audit logs (for cleanup/archival)
+ * Delete old audit logs (for cleanup/archival).
+ * This is intentionally explicit; normal audit writes never call it.
  */
 export async function deleteOldAuditLogs(olderThanDays: number) {
+  if (!Number.isFinite(olderThanDays) || olderThanDays <= 0) {
+    throw new Error("olderThanDays must be greater than zero");
+  }
+
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
