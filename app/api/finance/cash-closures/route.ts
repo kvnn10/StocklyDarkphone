@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/utils/auth";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { prisma } from "@/prisma/client";
 import { financeDb, jsonSafe, oid } from "@/lib/finance/financial-ledger";
 import { writeAuditLog } from "@/lib/audit/log";
 
-const ROLES = ["admin", "user", "retailer"];
-
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as string)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "finance", "read");
+  if (auth.response) return auth.response;
+  const session = auth.session!;
   const db = await financeDb();
   const rows = await db.collection("CashClosure").find({ userId: oid(session.id) }).sort({ closedAt: -1 }).limit(100).toArray();
   return NextResponse.json(rows.map(jsonSafe));
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as string)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "finance", "close_cash");
+  if (auth.response) return auth.response;
+  const session = auth.session!;
   try {
     const body = await request.json();
     const countedCash = Number(body.countedCash);
@@ -26,9 +26,7 @@ export async function POST(request: NextRequest) {
     const periodStart = last?.closedAt ?? new Date(0);
     const periodEnd = new Date();
     const movements = await prisma.cashMovement.findMany({ where: { userId: session.id, createdAt: { gt: periodStart, lte: periodEnd }, status: "active" } });
-    if (last && movements.length === 0) {
-      return NextResponse.json({ error: "La caja ya fue cerrada y no existen movimientos nuevos para realizar otro cierre" }, { status: 409 });
-    }
+    if (last && movements.length === 0) return NextResponse.json({ error: "La caja ya fue cerrada y no existen movimientos nuevos para realizar otro cierre" }, { status: 409 });
     const expectedCash = movements.filter(m => m.paymentMethod === "cash").reduce((sum, m) => sum + (m.type === "expense" ? -Number(m.amount) : Number(m.amount)), 0);
     const difference = countedCash - expectedCash;
     const closure = { userId: oid(session.id), periodStart, periodEnd, expectedCash, countedCash, difference, movementCount: movements.length, status: Math.abs(difference) < 0.005 ? "balanced" : "difference", closedAt: periodEnd, closedBy: oid(session.id) };
