@@ -1,15 +1,15 @@
 /**
- * User Management (admin) validation schemas
+ * User Management validation schemas.
+ * Roles are intentionally restricted to the canonical Stockly RBAC roles.
  */
-
 import { z } from "zod";
 
-const userRoleEnum = z.enum([
-  "user",
+export const userRoleEnum = z.enum([
   "admin",
-  "supplier",
-  "client",
-  "retailer",
+  "gerente",
+  "vendedor",
+  "tecnico",
+  "cajero",
 ]);
 
 export const updateUserAdminSchema = z.object({
