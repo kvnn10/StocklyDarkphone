@@ -13,7 +13,7 @@ import { createAuditLog } from "@/prisma/audit-log";
 import { withRateLimit, defaultRateLimits } from "@/lib/api/rate-limit";
 import { createUserAdminSchema } from "@/lib/validations/user-management";
 import { cacheKeys, getCache, scheduleInvalidateUserCaches, setCache } from "@/lib/cache";
-import type { UserForAdmin } from "@/types";
+import type { UserForAdmin, CreateUserAdminInput } from "@/types";
 
 function transform(r: Awaited<ReturnType<typeof getAllUsers>>[number]): UserForAdmin {
   return { id: r.id, email: r.email, name: r.name, username: r.username, role: r.role as UserForAdmin["role"], image: r.image, createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt?.toISOString() ?? null };
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only an admin can create a gerente user" }, { status: 403 });
     }
 
-    const createPayload = { ...data, role: requestedRole };
+    const createPayload: CreateUserAdminInput = { ...data, role: requestedRole as CreateUserAdminInput["role"] };
     if (await emailExists(data.email)) return NextResponse.json({ error: "Email already registered" }, { status: 409 });
     if (data.username && (await usernameExists(data.username))) return NextResponse.json({ error: "Username already taken" }, { status: 409 });
     const created = await createUserAdmin(createPayload);
