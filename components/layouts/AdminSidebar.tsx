@@ -3,12 +3,12 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Package, Warehouse, ShoppingCart, History, MessageSquare, Star, Store, Truck, Users, Mail, FileText, UserCircle, Wrench, Smartphone, CircleDollarSign, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Package, Warehouse, ShoppingCart, History, MessageSquare, Star, Store, Truck, Users, Mail, FileText, UserCircle, Wrench, Smartphone, CircleDollarSign, Send, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminCounts } from "@/hooks/queries";
 import { isDataSlotUnsettled } from "@/lib/react-query";
 import { DataSlotPulse } from "@/components/shared/DataSlotPulse";
-import { ADMIN_MANAGEMENT_ITEMS, ADMIN_MY_ACTIVITY_ITEMS, ADMIN_MY_STORE_ITEMS, ADMIN_SETTINGS_EMAIL_HREF, type AdminNavItemConfig } from "@/lib/navigation/admin-nav-config";
+import { ADMIN_MANAGEMENT_ITEMS, ADMIN_MY_ACTIVITY_ITEMS, ADMIN_MY_STORE_ITEMS, ADMIN_SETTINGS_EMAIL_HREF, ADMIN_SETTINGS_TELEGRAM_HREF, type AdminNavItemConfig } from "@/lib/navigation/admin-nav-config";
 import { adminSidebarLinkClass } from "@/lib/navigation/nav-link-styles";
 import type { AdminCounts } from "@/types";
 
@@ -32,6 +32,7 @@ const ADMIN_NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/activity-history": History,
   "/admin/my-activity": UserCircle,
   [ADMIN_SETTINGS_EMAIL_HREF]: Mail,
+  [ADMIN_SETTINGS_TELEGRAM_HREF]: Send,
 };
 
 export default function AdminSidebar({ collapsed = false, initialCounts }: { collapsed?: boolean; initialCounts?: AdminCounts } = {}) {
@@ -50,12 +51,13 @@ export default function AdminSidebar({ collapsed = false, initialCounts }: { col
       {!collapsed && showBadge && <span className={cn("flex-shrink-0 rounded-full px-1 py-0.5 text-xs font-medium min-w-[1.25rem] text-center", "bg-muted text-muted-foreground")} aria-label={countsLoading ? "Cargando cantidad" : count !== undefined ? `${count} elementos` : undefined}>{countsLoading ? <DataSlotPulse variant="badge" className="mx-auto" /> : count !== undefined && count > 0 ? (count > 99 ? "99+" : count) : null}</span>}
     </Link>;
   });
-  if (collapsed) return <nav className="flex min-h-0 flex-col items-center px-2 gap-1" aria-label="Navegación de administración">{renderNavItems(ADMIN_MY_STORE_ITEMS)}<div className="w-6 border-t border-gray-200/50 dark:border-white/10 my-1" />{renderNavItems(ADMIN_MANAGEMENT_ITEMS)}<div className="w-6 border-t border-gray-200/50 dark:border-white/10 my-1" />{renderNavItems(ADMIN_MY_ACTIVITY_ITEMS)}<div className="w-6 border-t border-gray-200/50 dark:border-white/10 my-1" /><Link href={ADMIN_SETTINGS_EMAIL_HREF} prefetch className={adminSidebarLinkClass(pathname, ADMIN_SETTINGS_EMAIL_HREF, { isSub: true, collapsed })} title="Preferencias de correo"><Mail className="h-4 w-4 flex-shrink-0" /></Link></nav>;
+  if (collapsed) return <nav className="flex min-h-0 flex-col items-center px-2 gap-1" aria-label="Navegación de administración">{renderNavItems(ADMIN_MY_STORE_ITEMS)}<div className="w-6 border-t border-gray-200/50 dark:border-white/10 my-1" />{renderNavItems(ADMIN_MANAGEMENT_ITEMS)}<div className="w-6 border-t border-gray-200/50 dark:border-white/10 my-1" />{renderNavItems(ADMIN_MY_ACTIVITY_ITEMS)}<div className="w-6 border-t border-gray-200/50 dark:border-white/10 my-1" /><Link href={ADMIN_SETTINGS_EMAIL_HREF} prefetch className={adminSidebarLinkClass(pathname, ADMIN_SETTINGS_EMAIL_HREF, { isSub: true, collapsed })} title="Preferencias de correo"><Mail className="h-4 w-4 flex-shrink-0" /></Link><Link href={ADMIN_SETTINGS_TELEGRAM_HREF} prefetch className={adminSidebarLinkClass(pathname, ADMIN_SETTINGS_TELEGRAM_HREF, { isSub: true, collapsed })} title="Telegram"><Send className="h-4 w-4 flex-shrink-0" /></Link></nav>;
   return <nav className="flex min-h-0 flex-col p-2 gap-1">
     <p className="px-2 pt-2 text-xs font-normal uppercase tracking-wider text-muted-foreground">Mi tienda</p>{renderNavItems(ADMIN_MY_STORE_ITEMS)}
     <p className="px-2 pt-2 text-xs font-normal uppercase tracking-wider text-muted-foreground">Gestión de productos y sistema</p>{renderNavItems(ADMIN_MANAGEMENT_ITEMS)}
     <p className="px-2 pt-2 text-xs font-normal uppercase tracking-wider text-muted-foreground">Actividad personal</p>{renderNavItems(ADMIN_MY_ACTIVITY_ITEMS)}
     <p className="px-2 pt-2 text-xs font-normal uppercase tracking-wider text-muted-foreground">Configuración del sistema</p>
     <Link href={ADMIN_SETTINGS_EMAIL_HREF} prefetch className={adminSidebarLinkClass(pathname, ADMIN_SETTINGS_EMAIL_HREF, { isSub: true })}><Mail className="h-4 w-4 flex-shrink-0" />Preferencias de correo</Link>
+    <Link href={ADMIN_SETTINGS_TELEGRAM_HREF} prefetch className={adminSidebarLinkClass(pathname, ADMIN_SETTINGS_TELEGRAM_HREF, { isSub: true })}><Send className="h-4 w-4 flex-shrink-0" />Telegram</Link>
   </nav>;
 }
