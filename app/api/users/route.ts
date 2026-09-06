@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeRequest } from "@/lib/security/authorize";
+import { normalizeRole } from "@/lib/security/rbac";
 import { logger } from "@/lib/logger";
 import { getAllUsers, createUserAdmin, emailExists, usernameExists } from "@/prisma/user-admin";
 import { createAuditLog } from "@/prisma/audit-log";
@@ -51,9 +52,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid request body", details: validation.error.errors }, { status: 400 });
     }
     const data = validation.data;
+    const actorRole = normalizeRole(session.role);
+    const requestedRole = data.role === null || data.role === undefined ? data.role : normalizeRole(data.role);
+
+    // Only an admin may create another admin. This check must remain server-side.
+    if (requestedRole === "admin" && actorRole !== "admin") {
+      return NextResponse.json({ error: "Only an admin can create an admin user" }, { status: 403 });
+    }
+
+    // A gerente can manage regular staff, but cannot promote a new gerente.
+    if (requestedRole === "gerente" && actorRole !== "admin") {
+      return NextResponse.json({ error: "Only an admin can create a gerente user" }, { status: 403 });
+    }
+
+    const createPayload = { ...data, role: requestedRole };
     if (await emailExists(data.email)) return NextResponse.json({ error: "Email already registered" }, { status: 409 });
     if (data.username && (await usernameExists(data.username))) return NextResponse.json({ error: "Username already taken" }, { status: 409 });
-    const created = await createUserAdmin(data);
+    const created = await createUserAdmin(createPayload);
     createAuditLog({ userId: session.id, action: "create", entityType: "user", entityId: created.id }).catch(() => {});
     await scheduleInvalidateUserCaches();
     return NextResponse.json(transform(created), { status: 201 });
