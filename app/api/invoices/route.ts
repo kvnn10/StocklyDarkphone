@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/utils/auth";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { logger } from "@/lib/logger";
 import { createInvoice, getInvoicesByUser, getInvoicesByClientId } from "@/prisma/invoice";
 import { createInvoiceSchema } from "@/lib/validations";
@@ -25,6 +26,12 @@ export async function GET(request: NextRequest) {
     if (rateLimitResponse) return rateLimitResponse;
     const session = await getSessionFromRequest(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    // Client/supplier portal sessions retain their scoped invoice paths.
+    // Canonical staff roles must satisfy the central sales.read policy.
+    if (session.role !== "client" && session.role !== "supplier") {
+      const authorization = await authorizeRequest(request, "sales", "read");
+      if (authorization.response) return authorization.response;
+    }
     const userId = session.id;
     const isClient = session.role === "client";
     const isSupplier = session.role === "supplier";
@@ -93,35 +100,29 @@ export async function POST(request: NextRequest) {
     if (rateLimitResponse) return rateLimitResponse;
     const session = await getSessionFromRequest(request);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (session.role === "supplier" || session.role === "client") return NextResponse.json({ error: "Forbidden: cannot create invoices for this role" }, { status: 403 });
+    // Invoice creation is a staff sales operation; portal roles cannot create invoices.
+    const authorization = await authorizeRequest(request, "sales", "create");
+    if (authorization.response) return authorization.response;
     const userId = session.id;
     const body = await request.json();
     const validationResult = createInvoiceSchema.safeParse(body);
     if (!validationResult.success) return NextResponse.json({ error: "Invalid request body", details: validationResult.error.errors }, { status: 400 });
     const newInvoiceData: CreateInvoiceInput = validationResult.data;
 
-    // Security: an issuer may only create invoices for orders owned by that issuer.
     const order = await prisma.order.findUnique({ where: { id: newInvoiceData.orderId }, select: { id: true, userId: true, status: true } });
     if (!order) return NextResponse.json({ error: "Order not found" }, { status: 404 });
     if (order.userId !== userId) return NextResponse.json({ error: "Forbidden: order does not belong to current user" }, { status: 403 });
 
-    // Never fulfill stock twice. The database also enforces one invoice per order.
     const existingInvoice = await prisma.invoice.findUnique({ where: { orderId: newInvoiceData.orderId }, select: { id: true, invoiceNumber: true } });
     if (existingInvoice) return NextResponse.json({ error: `Invoice already exists for this order: ${existingInvoice.invoiceNumber}` }, { status: 409 });
 
-    // A pending order is only a reservation. Creating its invoice is the point
-    // where the sale is confirmed and the reserved stock is actually consumed.
     const wasPending = order.status === "pending";
-    if (wasPending) {
-      await updateOrder(newInvoiceData.orderId, { status: "confirmed" }, userId);
-    }
+    if (wasPending) await updateOrder(newInvoiceData.orderId, { status: "confirmed" }, userId);
 
     let invoice;
     try {
       invoice = await createInvoice(newInvoiceData, userId);
     } catch (invoiceError) {
-      // If inventory was fulfilled but invoice creation failed, restore the order
-      // so the stock/reservations return to their previous consistent state.
       if (wasPending) {
         try { await cancelOrder(newInvoiceData.orderId, userId); } catch (rollbackError) { logger.error("Failed to rollback order after invoice creation failure", rollbackError); }
       }
