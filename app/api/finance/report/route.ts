@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/utils/auth";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { prisma } from "@/prisma/client";
 import { financeDb, oid, jsonSafe } from "@/lib/finance/financial-ledger";
 
-const ROLES = ["admin", "user", "retailer"];
-
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as string)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "finance", "read");
+  if (auth.response) return auth.response;
+  const session = auth.session!;
   try {
     const p = request.nextUrl.searchParams;
     const from = p.get("from") ? new Date(p.get("from")!) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
