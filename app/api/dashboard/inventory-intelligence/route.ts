@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/utils/auth";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { prisma } from "@/prisma/client";
 import { mergeProductListWhere } from "@/lib/products/product-query";
 
@@ -27,10 +27,9 @@ type Recommendation = {
 };
 
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !["admin", "user", "retailer"].includes(session.role ?? "")) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  }
+  const auth = await authorizeRequest(request, "reports", "read");
+  if (auth.response) return auth.response;
+  const session = auth.session;
 
   const products = await prisma.product.findMany({
     where: mergeProductListWhere({ userId: session.id }),
