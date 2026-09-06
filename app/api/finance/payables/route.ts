@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/utils/auth";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { financeDb, jsonSafe, oid, validObjectId } from "@/lib/finance/financial-ledger";
 import { prisma } from "@/prisma/client";
 import { writeAuditLog } from "@/lib/audit/log";
 import { ensureSupplierPayableIndexes } from "@/lib/finance/supplier-payables";
 
-const ROLES = ["admin", "user", "retailer"];
 const METHODS = ["cash", "card", "transfer", "other"];
 
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as string)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "finance", "read");
+  if (auth.response) return auth.response;
+  const session = auth.session!;
   const db = await financeDb();
   await ensureSupplierPayableIndexes();
   const p = request.nextUrl.searchParams;
@@ -24,8 +24,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as string)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "finance", "create_payment");
+  if (auth.response) return auth.response;
+  const session = auth.session!;
   try {
     const body = await request.json();
     if (!validObjectId(body.supplierId)) return NextResponse.json({ error: "Proveedor inválido" }, { status: 400 });
@@ -47,8 +48,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as string)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "finance", "create_payment");
+  if (auth.response) return auth.response;
+  const session = auth.session!;
   try {
     const body = await request.json();
     if (!validObjectId(body.id)) return NextResponse.json({ error: "Cuenta inválida" }, { status: 400 });
@@ -59,31 +61,19 @@ export async function PATCH(request: NextRequest) {
     await ensureSupplierPayableIndexes();
     const payableId = oid(body.id);
     const now = new Date();
-
-    const updated = await db.collection("SupplierAccountPayable").findOneAndUpdate(
-      { _id: payableId, userId: oid(session.id), status: { $in: ["open", "partial"] }, amountDue: { $gte: amount } },
-      [
-        { $set: { amountPaid: { $add: [{ $ifNull: ["$amountPaid", 0] }, amount] }, amountDue: { $max: [0, { $subtract: [{ $ifNull: ["$amountDue", 0] }, amount] }] }, updatedAt: now } },
-        { $set: { status: { $cond: [{ $lte: ["$amountDue", 0.0001] }, "paid", "partial"] } } },
-      ],
-      { returnDocument: "after" },
-    );
+    const updated = await db.collection("SupplierAccountPayable").findOneAndUpdate({ _id: payableId, userId: oid(session.id), status: { $in: ["open", "partial"] }, amountDue: { $gte: amount } }, [{ $set: { amountPaid: { $add: [{ $ifNull: ["$amountPaid", 0] }, amount] }, amountDue: { $max: [0, { $subtract: [{ $ifNull: ["$amountDue", 0] }, amount] }] }, updatedAt: now } }, { $set: { status: { $cond: [{ $lte: ["$amountDue", 0.0001] }, "paid", "partial"] } } }], { returnDocument: "after" });
     if (!updated.value) {
       const existing = await db.collection("SupplierAccountPayable").findOne({ _id: payableId, userId: oid(session.id) });
       if (!existing) return NextResponse.json({ error: "Cuenta no encontrada" }, { status: 404 });
       return NextResponse.json({ error: "El pago supera el saldo pendiente" }, { status: 409 });
     }
-
     let cashMovement;
     try {
-      cashMovement = await prisma.cashMovement.create({
-        data: { type: "expense", source: "supplier_payment", amount, paymentMethod: method, userId: session.id, createdBy: session.id, description: `Pago proveedor ${updated.value.supplierName}${updated.value.reference ? ` · ${updated.value.reference}` : ""}`, status: "active", createdAt: now },
-      });
+      cashMovement = await prisma.cashMovement.create({ data: { type: "expense", source: "supplier_payment", amount, paymentMethod: method, userId: session.id, createdBy: session.id, description: `Pago proveedor ${updated.value.supplierName}${updated.value.reference ? ` · ${updated.value.reference}` : ""}`, status: "active", createdAt: now } });
     } catch (cashError) {
       await db.collection("SupplierAccountPayable").updateOne({ _id: payableId, userId: oid(session.id) }, { $inc: { amountPaid: -amount, amountDue: amount }, $set: { status: Number(updated.value.amountPaid ?? 0) - amount <= 0.0001 ? "open" : "partial", updatedAt: new Date() } });
       throw cashError;
     }
-
     let payment;
     try {
       payment = await db.collection("SupplierPayment").insertOne({ payableId, purchaseOrderId: updated.value.purchaseOrderId ?? null, userId: oid(session.id), supplierId: updated.value.supplierId, amount, paymentMethod: method, cashMovementId: oid(cashMovement.id), createdAt: now, createdBy: oid(session.id) });
@@ -92,7 +82,6 @@ export async function PATCH(request: NextRequest) {
       await db.collection("SupplierAccountPayable").updateOne({ _id: payableId, userId: oid(session.id) }, { $inc: { amountPaid: -amount, amountDue: amount }, $set: { status: Number(updated.value.amountPaid ?? 0) - amount <= 0.0001 ? "open" : "partial", updatedAt: new Date() } });
       throw paymentError;
     }
-
     await writeAuditLog({ userId: session.id, action: "AP_PAYMENT_RECORDED", entityType: "SupplierAccountPayable", entityId: body.id, details: { paymentId: payment.insertedId.toHexString(), cashMovementId: cashMovement.id, purchaseOrderId: updated.value.purchaseOrderId?.toHexString?.() ?? null, amount, paymentMethod: method, remaining: updated.value.amountDue } });
     return NextResponse.json({ ok: true, paymentId: payment.insertedId.toHexString(), cashMovementId: cashMovement.id, amountPaid: updated.value.amountPaid, amountDue: updated.value.amountDue, status: updated.value.status });
   } catch (error) {
