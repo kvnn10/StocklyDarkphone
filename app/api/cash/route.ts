@@ -5,7 +5,7 @@ import { writeAuditLog } from "@/lib/audit/log";
 
 const TYPES = ["income", "expense"] as const;
 const METHODS = ["cash", "card", "transfer", "other"] as const;
-const SOURCES = ["sale", "repair", "manual", "refund"] as const;
+const SOURCES = ["sale", "repair", "purchase", "supplier_payment", "manual", "refund"] as const;
 const validId = (value: unknown) => typeof value === "string" && /^[a-f\d]{24}$/i.test(value);
 const parseDate = (value: string | null) => { if (!value) return null; const d = new Date(value); return Number.isNaN(d.getTime()) ? null : d; };
 
