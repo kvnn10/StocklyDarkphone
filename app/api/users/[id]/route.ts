@@ -53,7 +53,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       }
     }
     const updatePayload: UpdateUserAdminInput = {};
-    if (data.role !== undefined) updatePayload.role = requestedRole;
+    if (data.role !== undefined) updatePayload.role = requestedRole as UpdateUserAdminInput["role"];
     if (data.name !== undefined) updatePayload.name = data.name;
     const updated = await updateUserAdmin(id, updatePayload);
     createAuditLog({ userId: session.id, action: "update", entityType: "user", entityId: id }).catch(() => {});
