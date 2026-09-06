@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     if (!name || !email) return NextResponse.json({ error: "Nombre y correo electrónico son obligatorios" }, { status: 400 });
     const result = await withClientsCollection(async (users) => {
       const existing = await users.findOne({ email });
-      if (existing) return { conflict: true };
+      if (existing) return { conflict: true as const };
       const usernameBase = email.split("@")[0].replace(/[^a-zA-Z0-9._-]/g, "") || `cliente${Date.now()}`;
       let username = usernameBase, counter = 1;
       while (await users.findOne({ username })) username = `${usernameBase}${counter++}`;
@@ -68,10 +68,11 @@ export async function POST(request: NextRequest) {
       const now = new Date();
       const doc = { name, email, password, username, role: "client", phone, whatsapp, document, address, city, notes, status: true, createdAt: now, createdBy: session.id };
       const inserted = await users.insertOne(doc);
-      return { client: { id: inserted.insertedId.toString(), name, email, phone, whatsapp, document, address, city, notes, status: true, createdAt: now, orderCount: 0, totalSpent: 0 }, temporaryPassword };
+      return { conflict: false as const, client: { id: inserted.insertedId.toString(), name, email, phone, whatsapp, document, address, city, notes, status: true, createdAt: now, orderCount: 0, totalSpent: 0 }, temporaryPassword };
     });
     if (result.conflict) return NextResponse.json({ error: "Ya existe un usuario con ese correo electrónico" }, { status: 409 });
-    await writeAuditLog({ userId: session.id, action: "create", entityType: "user", entityId: result.client.id, details: { client: true, email, name } });
+    const client = result.client;
+    await writeAuditLog({ userId: session.id, action: "create", entityType: "user", entityId: client.id, details: { client: true, email, name } });
     return NextResponse.json(result, { status: 201 });
   } catch (error) { logger.error("Error creating client:", error); return NextResponse.json({ error: "No se pudo crear el cliente" }, { status: 500 }); }
 }
