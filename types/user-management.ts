@@ -2,7 +2,7 @@
  * User Management (admin) type definitions
  */
 
-export type UserRole = "user" | "admin" | "supplier" | "client" | "retailer";
+export type UserRole = "admin" | "gerente" | "vendedor" | "tecnico" | "cajero";
 
 export interface UserOverview {
   orderCount: number;
