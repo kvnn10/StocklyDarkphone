@@ -8,10 +8,10 @@ const PUBLIC_PAGES = ["/login", "/register", "/client-portal", "/portal", "/supp
 type Rule = { resource: Resource; action: string };
 const RULES: Array<[string, Partial<Record<string, Rule>>]> = [
   ["/api/products", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "create" }, PUT: { resource: "products", action: "update" }, DELETE: { resource: "products", action: "delete" } }],
-  ["/api/sales", { POST: { resource: "sales", action: "create" } }],
-  ["/api/service-orders", { GET: { resource: "service_orders", action: "read" }, POST: { resource: "service_orders", action: "create" }, PUT: { resource: "service_orders", action: "update" } }],
+  ["/api/sales", { GET: { resource: "sales", action: "read" }, POST: { resource: "sales", action: "create" }, PUT: { resource: "sales", action: "update" }, PATCH: { resource: "sales", action: "update" }, DELETE: { resource: "sales", action: "cancel" } }],
+  ["/api/service-orders", { GET: { resource: "service_orders", action: "read" }, POST: { resource: "service_orders", action: "create" }, PUT: { resource: "service_orders", action: "update" }, PATCH: { resource: "service_orders", action: "update" } }],
   ["/api/devices", { GET: { resource: "devices", action: "read" }, POST: { resource: "devices", action: "create" }, PUT: { resource: "devices", action: "update" }, DELETE: { resource: "devices", action: "delete" } }],
-  ["/api/purchase-orders", { GET: { resource: "purchases", action: "read" }, POST: { resource: "purchases", action: "create" }, PATCH: { resource: "purchases", action: "receive" } }],
+  ["/api/purchase-orders", { GET: { resource: "purchases", action: "read" }, POST: { resource: "purchases", action: "create" }, PUT: { resource: "purchases", action: "update" }, PATCH: { resource: "purchases", action: "receive" } }],
   ["/api/users", { GET: { resource: "users", action: "read" }, POST: { resource: "users", action: "create" }, PUT: { resource: "users", action: "update" }, PATCH: { resource: "users", action: "update" }, DELETE: { resource: "users", action: "delete" } }],
   ["/api/clients", { GET: { resource: "clients", action: "read" }, POST: { resource: "clients", action: "create" }, PUT: { resource: "clients", action: "update" }, PATCH: { resource: "clients", action: "update" }, DELETE: { resource: "clients", action: "delete" } }],
   ["/api/suppliers", { GET: { resource: "suppliers", action: "read" }, POST: { resource: "suppliers", action: "create" }, PUT: { resource: "suppliers", action: "update" }, PATCH: { resource: "suppliers", action: "update" }, DELETE: { resource: "suppliers", action: "delete" } }],
@@ -28,6 +28,11 @@ const RULES: Array<[string, Partial<Record<string, Rule>>]> = [
   ["/api/cash", { GET: { resource: "finance", action: "read" }, POST: { resource: "finance", action: "create_payment" }, PATCH: { resource: "finance", action: "close_cash" } }],
   ["/api/payments", { GET: { resource: "finance", action: "read" }, POST: { resource: "finance", action: "create_payment" }, PATCH: { resource: "finance", action: "create_payment" } }],
   ["/api/finance", { GET: { resource: "finance", action: "read" }, POST: { resource: "finance", action: "create_payment" }, PATCH: { resource: "finance", action: "create_payment" } }],
+  ["/api/commercial/promotions", { GET: { resource: "sales", action: "read" }, POST: { resource: "sales", action: "discount" }, PUT: { resource: "sales", action: "discount" }, PATCH: { resource: "sales", action: "discount" }, DELETE: { resource: "sales", action: "discount" } }],
+  ["/api/commercial/quotes", { GET: { resource: "sales", action: "read" }, POST: { resource: "sales", action: "create" }, PUT: { resource: "sales", action: "update" }, PATCH: { resource: "sales", action: "update" }, DELETE: { resource: "sales", action: "cancel" } }],
+  ["/api/quotes", { GET: { resource: "sales", action: "read" }, POST: { resource: "sales", action: "create" }, PUT: { resource: "sales", action: "update" }, PATCH: { resource: "sales", action: "update" }, DELETE: { resource: "sales", action: "cancel" } }],
+  ["/api/categories", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "create" }, PUT: { resource: "products", action: "update" }, PATCH: { resource: "products", action: "update" }, DELETE: { resource: "products", action: "delete" } }],
+  ["/api/warehouses", { GET: { resource: "products", action: "read" }, POST: { resource: "products", action: "create" }, PUT: { resource: "products", action: "update" }, PATCH: { resource: "products", action: "update" }, DELETE: { resource: "products", action: "delete" } }],
 ];
 function secret() { const value = process.env.JWT_SECRET?.trim(); if (!value) throw new Error("JWT_SECRET is required"); return value; }
 function match(pathname: string, method: string) { for (const [prefix, methods] of RULES) if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return methods[method] ?? null; return null; }
@@ -47,8 +52,6 @@ export async function proxy(request: NextRequest) {
         const role = normalizeRole(user.role);
         if (!role || !hasPermission(role, rule.resource, rule.action)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      // Unmapped internal API routes are still authenticated here. Their handlers remain
-      // responsible for fine-grained authorization while the proxy closes unauthenticated gaps.
       return NextResponse.next();
     } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
   }
