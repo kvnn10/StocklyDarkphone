@@ -11,6 +11,7 @@ const ADMIN_NAV_ITEMS: RoleNavItem[] = [
   { label: "Clientes", path: "/clients", hasDropdown: false },
   { label: "Facturas", path: "/invoices", hasDropdown: false },
   { label: "Movimientos", path: "/inventory-movements", hasDropdown: false },
+  { label: "Compras", path: "/admin/purchases", hasDropdown: false },
   { label: "Caja", path: "/admin/cash", hasDropdown: false },
   { label: "Servicio técnico", path: "/admin/service-orders", hasDropdown: false },
   { label: "Análisis del negocio", path: "/business-insights", hasDropdown: false },
