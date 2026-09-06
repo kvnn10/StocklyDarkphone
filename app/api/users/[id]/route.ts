@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeRequest } from "@/lib/security/authorize";
+import { normalizeRole } from "@/lib/security/rbac";
 import { logger } from "@/lib/logger";
 import { getUserById, updateUserAdmin, deleteUserAdmin } from "@/prisma/user-admin";
 import { updateUserAdminSchema } from "@/lib/validations";
@@ -40,8 +41,19 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const parsed = updateUserAdminSchema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: "Invalid request body", details: parsed.error.errors }, { status: 400 });
     const data = parsed.data;
+    const actorRole = normalizeRole(session.role);
+    const requestedRole = data.role === null ? null : normalizeRole(data.role);
+    const existingRole = normalizeRole(existing.role);
+    if (data.role !== undefined && actorRole !== "admin") {
+      if (requestedRole === "admin" || existingRole === "admin") {
+        return NextResponse.json({ error: "Only an admin can assign or modify the admin role" }, { status: 403 });
+      }
+      if (actorRole === "gerente" && requestedRole === "gerente" && existingRole !== "gerente") {
+        return NextResponse.json({ error: "A gerente cannot promote another user to gerente" }, { status: 403 });
+      }
+    }
     const updatePayload: UpdateUserAdminInput = {};
-    if (data.role !== undefined) updatePayload.role = data.role;
+    if (data.role !== undefined) updatePayload.role = requestedRole;
     if (data.name !== undefined) updatePayload.name = data.name;
     const updated = await updateUserAdmin(id, updatePayload);
     createAuditLog({ userId: session.id, action: "update", entityType: "user", entityId: id }).catch(() => {});
