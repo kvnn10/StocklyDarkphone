@@ -37,8 +37,9 @@ export const ADMIN_MY_ACTIVITY_ITEMS: AdminNavItemConfig[] = [
 ];
 
 export const ADMIN_SETTINGS_EMAIL_HREF = "/admin/settings/email-preferences";
+export const ADMIN_SETTINGS_TELEGRAM_HREF = "/admin/settings/telegram";
 
 export function getAdminSidebarWarmPaths(): string[] {
-  const paths = [...ADMIN_MY_STORE_ITEMS.map((item) => item.href), ...ADMIN_MANAGEMENT_ITEMS.map((item) => item.href), ...ADMIN_MY_ACTIVITY_ITEMS.map((item) => item.href), ADMIN_SETTINGS_EMAIL_HREF];
+  const paths = [...ADMIN_MY_STORE_ITEMS.map((item) => item.href), ...ADMIN_MANAGEMENT_ITEMS.map((item) => item.href), ...ADMIN_MY_ACTIVITY_ITEMS.map((item) => item.href), ADMIN_SETTINGS_EMAIL_HREF, ADMIN_SETTINGS_TELEGRAM_HREF];
   return [...new Set(paths)];
 }
