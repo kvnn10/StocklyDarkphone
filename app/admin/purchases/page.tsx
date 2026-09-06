@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Trash2, ShoppingBag, CreditCard, Banknote, RefreshCw } from "lucide-react";
+import { Plus, Trash2, ShoppingBag, CreditCard, Banknote, RefreshCw, PackagePlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageContentWrapper } from "@/components/shared";
 
-type Product = { id: string; name: string; sku: string; purchasePrice?: number; quantity?: number };
+type Product = { id: string; name: string; sku: string; purchasePrice?: number; price?: number; quantity?: number };
 type Supplier = { id: string; name: string; status?: boolean };
 type Warehouse = { id: string; name: string; status?: boolean };
+type Category = { id: string; name: string; status?: boolean };
 type Line = { productId: string; quantity: number; unitCost: number };
 type Purchase = { id: string; purchaseNumber: string; supplierName: string; total: number; paymentMode: string; paymentMethod?: string; createdAt: string; items: Array<{ productName: string; sku?: string; receivedQuantity: number; unitCost: number }> ; payable?: { amountDue?: number; status?: string } | null };
 
@@ -20,6 +21,7 @@ export default function PurchasesPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [supplierId, setSupplierId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
@@ -33,19 +35,25 @@ export default function PurchasesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [newProductOpen, setNewProductOpen] = useState(false);
+  const [newProductLineIndex, setNewProductLineIndex] = useState(0);
+  const [newProductSaving, setNewProductSaving] = useState(false);
+  const [newProduct, setNewProduct] = useState({ name: "", sku: "", purchasePrice: "", price: "", categoryId: "" });
 
   const load = async () => {
     setLoading(true);
     try {
-      const [p, s, w, h] = await Promise.all([
+      const [p, s, w, c, h] = await Promise.all([
         fetch("/api/products").then((r) => r.json()),
         fetch("/api/suppliers").then((r) => r.json()),
         fetch("/api/warehouses").then((r) => r.json()),
+        fetch("/api/categories").then((r) => r.json()),
         fetch("/api/purchases").then((r) => r.json()),
       ]);
       setProducts(Array.isArray(p) ? p : []);
       setSuppliers(Array.isArray(s) ? s.filter((x) => x.status !== false) : []);
       setWarehouses(Array.isArray(w) ? w.filter((x) => x.status !== false) : []);
+      setCategories(Array.isArray(c) ? c.filter((x) => x.status !== false) : []);
       setPurchases(Array.isArray(h) ? h : []);
       if (!supplierId && Array.isArray(s) && s.length) setSupplierId(s.find((x: Supplier) => x.status !== false)?.id ?? s[0].id);
       if (!warehouseId && Array.isArray(w) && w.length) setWarehouseId(w.find((x: Warehouse) => x.status !== false)?.id ?? w[0].id);
@@ -62,6 +70,31 @@ export default function PurchasesPage() {
   const selectProduct = (index: number, productId: string) => {
     const product = products.find((p) => p.id === productId);
     updateLine(index, { productId, unitCost: Number(product?.purchasePrice ?? 0) });
+  };
+
+  const openNewProduct = (lineIndex: number) => {
+    setNewProductLineIndex(lineIndex);
+    setNewProduct({ name: "", sku: "", purchasePrice: String(lines[lineIndex]?.unitCost || ""), price: "", categoryId: categories[0]?.id ?? "" });
+    setNewProductOpen(true);
+  };
+
+  const createProduct = async () => {
+    setMessage("");
+    if (!newProduct.name.trim() || !newProduct.sku.trim() || !newProduct.categoryId) return setMessage("Para crear el producto necesitas nombre, SKU y categoría.");
+    const purchasePrice = Math.max(0, Number(newProduct.purchasePrice) || 0);
+    const price = Math.max(0, Number(newProduct.price) || 0);
+    if (price <= 0) return setMessage("Indica el precio de venta del producto.");
+    setNewProductSaving(true);
+    try {
+      const response = await fetch("/api/products", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newProduct.name.trim(), sku: newProduct.sku.trim(), purchasePrice, price, quantity: 0, status: "Stock Out", categoryId: newProduct.categoryId, supplierId }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo crear el producto");
+      setProducts((current) => [{ ...data }, ...current]);
+      updateLine(newProductLineIndex, { productId: data.id, unitCost: purchasePrice });
+      setNewProductOpen(false);
+      setMessage(`Producto ${data.name} creado y agregado a la compra.`);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "No se pudo crear el producto"); }
+    finally { setNewProductSaving(false); }
   };
 
   const save = async () => {
@@ -103,7 +136,7 @@ export default function PurchasesPage() {
 
         <div className="space-y-3">
           {lines.map((line, index) => <div key={index} className="grid gap-2 md:grid-cols-[1fr_120px_160px_44px] items-end">
-            <label className="text-sm space-y-1"><span>Producto</span><select className="h-10 w-full rounded-md border bg-background px-3" value={line.productId} onChange={(e) => selectProduct(index, e.target.value)}><option value="">Seleccionar producto...</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.sku}</option>)}</select></label>
+            <div className="text-sm space-y-1"><span className="block">Producto</span><div className="flex gap-2"><select className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3" value={line.productId} onChange={(e) => selectProduct(index, e.target.value)}><option value="">Seleccionar producto...</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.sku}</option>)}</select><Button type="button" variant="outline" size="icon" onClick={() => openNewProduct(index)} title="Crear producto nuevo"><PackagePlus className="h-4 w-4" /></Button></div></div>
             <label className="text-sm space-y-1"><span>Cantidad</span><Input type="number" min="1" value={line.quantity} onChange={(e) => updateLine(index, { quantity: Math.max(1, Number(e.target.value) || 1) })} /></label>
             <label className="text-sm space-y-1"><span>Costo unitario</span><Input type="number" min="0" value={line.unitCost} onChange={(e) => updateLine(index, { unitCost: Math.max(0, Number(e.target.value) || 0) })} /></label>
             <Button variant="ghost" size="icon" onClick={() => setLines((current) => current.length > 1 ? current.filter((_, i) => i !== index) : current)} title="Eliminar línea"><Trash2 className="h-4 w-4" /></Button>
@@ -118,5 +151,19 @@ export default function PurchasesPage() {
       <section className="rounded-xl border bg-card shadow-sm overflow-hidden"><div className="border-b p-5"><h2 className="font-semibold">Historial de compras</h2></div>{purchases.length === 0 ? <div className="p-8 text-center text-sm text-muted-foreground">Todavía no hay compras registradas.</div> : <div className="divide-y">{purchases.map((purchase) => <div key={purchase.id} className="p-4 flex flex-wrap items-center justify-between gap-4"><div><div className="font-medium">{purchase.purchaseNumber} · {purchase.supplierName}</div><div className="text-sm text-muted-foreground">{new Date(purchase.createdAt).toLocaleString("es-CO")} · {purchase.items.length} producto(s) · {purchase.paymentMode === "paid" ? `Pagado · ${methods[purchase.paymentMethod ?? "other"]}` : `A crédito · saldo ${money(Number(purchase.payable?.amountDue ?? 0))}`}</div></div><div className="font-semibold">{money(purchase.total)}</div></div>)}</div>}</section>
       <p className="text-xs text-muted-foreground">Los pagos a crédito pueden gestionarse desde <Link className="underline" href="/admin/finance">Finanzas / cuentas por pagar</Link>.</p>
     </div>
+
+    {newProductOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="new-product-title">
+      <div className="w-full max-w-lg rounded-xl border bg-card p-5 shadow-xl">
+        <div className="flex items-center justify-between gap-3 mb-5"><div><h2 id="new-product-title" className="text-lg font-semibold">Agregar producto nuevo</h2><p className="text-sm text-muted-foreground">Se creará sin stock y la compra actual ingresará las unidades.</p></div><Button variant="ghost" size="icon" onClick={() => setNewProductOpen(false)}><X className="h-4 w-4" /></Button></div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="text-sm space-y-1 md:col-span-2"><span>Nombre del producto</span><Input autoFocus value={newProduct.name} onChange={(e) => setNewProduct((v) => ({ ...v, name: e.target.value }))} placeholder="Ej. Batería iPhone 15 Pro Max" /></label>
+          <label className="text-sm space-y-1"><span>SKU</span><Input value={newProduct.sku} onChange={(e) => setNewProduct((v) => ({ ...v, sku: e.target.value }))} placeholder="BATT15PM" /></label>
+          <label className="text-sm space-y-1"><span>Categoría</span><select className="h-10 w-full rounded-md border bg-background px-3" value={newProduct.categoryId} onChange={(e) => setNewProduct((v) => ({ ...v, categoryId: e.target.value }))}><option value="">Seleccionar...</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <label className="text-sm space-y-1"><span>Costo de compra</span><Input type="number" min="0" value={newProduct.purchasePrice} onChange={(e) => { setNewProduct((v) => ({ ...v, purchasePrice: e.target.value })); updateLine(newProductLineIndex, { unitCost: Math.max(0, Number(e.target.value) || 0) }); }} /></label>
+          <label className="text-sm space-y-1"><span>Precio de venta</span><Input type="number" min="0" value={newProduct.price} onChange={(e) => setNewProduct((v) => ({ ...v, price: e.target.value }))} placeholder="0" /></label>
+        </div>
+        <div className="mt-6 flex justify-end gap-2"><Button variant="outline" onClick={() => setNewProductOpen(false)}>Cancelar</Button><Button onClick={createProduct} disabled={newProductSaving || !supplierId}>{newProductSaving ? "Creando..." : "Crear y agregar"}</Button></div>
+      </div>
+    </div>}
   </PageContentWrapper>;
 }
