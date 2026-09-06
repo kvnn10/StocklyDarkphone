@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/utils/auth";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { prisma } from "@/prisma/client";
 import { writeAuditLog } from "@/lib/audit/log";
 
 const TYPES = ["income", "expense"] as const;
 const METHODS = ["cash", "card", "transfer", "other"] as const;
 const SOURCES = ["sale", "repair", "manual", "refund"] as const;
-const ROLES = ["admin", "user", "retailer"] as const;
 const validId = (value: unknown) => typeof value === "string" && /^[a-f\d]{24}$/i.test(value);
 const parseDate = (value: string | null) => { if (!value) return null; const d = new Date(value); return Number.isNaN(d.getTime()) ? null : d; };
 
 function serializeMovement(movement: any) { return { ...movement, _id: movement.id, voidedAt: movement.voidedAt?.toISOString() ?? null, createdAt: movement.createdAt.toISOString() }; }
 
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as (typeof ROLES)[number])) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const authorization = await authorizeRequest(request, "finance", "read");
+  if (authorization.response) return authorization.response;
+  const session = authorization.session;
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   try {
     const p = request.nextUrl.searchParams;
     const from = parseDate(p.get("from")); const to = parseDate(p.get("to"));
@@ -45,7 +46,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getSessionFromRequest(request); if (!session || !ROLES.includes(session.role as any)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const authorization = await authorizeRequest(request, "finance", "create_payment");
+  if (authorization.response) return authorization.response;
+  const session = authorization.session;
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   try {
     const body = await request.json().catch(() => ({}));
     if (!TYPES.includes(body.type) || !METHODS.includes(body.paymentMethod)) return NextResponse.json({ error: "Tipo o método de pago inválido" }, { status: 400 });
@@ -66,7 +70,10 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const session = await getSessionFromRequest(request); if (!session || !ROLES.includes(session.role as any)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const authorization = await authorizeRequest(request, "finance", "manage_expenses");
+  if (authorization.response) return authorization.response;
+  const session = authorization.session;
+  if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   try {
     const body = await request.json().catch(() => ({})); const id = typeof body.id === "string" ? body.id.trim() : ""; if (!validId(id)) return NextResponse.json({ error: "Movimiento inválido" }, { status: 400 });
     const result = await prisma.$transaction(async tx => { const movement = await tx.cashMovement.findFirst({ where: { id, userId: session.id } }); if (!movement) throw Object.assign(new Error("Movimiento no encontrado"), { status: 404 }); if (movement.status === "voided") throw Object.assign(new Error("El movimiento ya está anulado"), { status: 409 }); return tx.cashMovement.update({ where: { id }, data: { status: "voided", voidedAt: new Date(), voidedBy: session.id, voidReason: typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : "Movimiento anulado manualmente" } }); });
