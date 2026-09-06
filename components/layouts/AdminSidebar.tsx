@@ -26,6 +26,7 @@ const ADMIN_NAV_ICONS: Record<string, LucideIcon> = {
   "/admin/cash": Store,
   "/admin/finance": CircleDollarSign,
   "/admin/service-orders": Wrench,
+  "/admin/purchases": ShoppingCart,
   "/user-management": Users,
   "/admin/user-management": Users,
   "/admin/activity-history": History,
