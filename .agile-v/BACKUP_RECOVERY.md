@@ -23,6 +23,18 @@ Stockly usa MongoDB Atlas como base de datos de producción. La recuperación de
 7. Verificar producción y registrar el incidente en auditoría.
 8. Reanudar deploys y cambios solamente después de la validación.
 
+## Checklist operativo de backup
+
+- [ ] Cloud Backup habilitado en el proyecto Atlas de producción.
+- [ ] Continuous Cloud Backup / Point-in-Time Restore habilitado.
+- [ ] Política de retención revisada y aprobada.
+- [ ] Acceso de al menos dos responsables al proyecto Atlas.
+- [ ] Restauración de prueba ejecutada en cluster aislado.
+- [ ] Colecciones críticas, índices y conteos validados después de la restauración.
+- [ ] Smoke tests de autenticación, productos, ventas, inventario, caja, órdenes de servicio y reportes ejecutados.
+- [ ] Resultado de la restauración y timestamp documentados.
+- [ ] Procedimiento de promoción/rollback probado antes de usarlo en un incidente real.
+
 ## Errores de aplicación
 
 Las rutas críticas deben fallar de forma segura: no confirmar una operación financiera/inventario si una escritura secundaria falla. Los flujos existentes de ventas, pagos, inventario y órdenes de servicio deben conservar sus protecciones transaccionales/idempotentes y continuar agregando compensación donde MongoDB no permita una transacción completa.
