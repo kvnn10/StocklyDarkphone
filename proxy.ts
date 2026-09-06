@@ -35,14 +35,20 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl; const method = request.method;
   if (pathname.startsWith("/api/")) {
     if (PUBLIC_API.some((prefix) => pathname.startsWith(prefix))) return NextResponse.next();
-    const rule = match(pathname, method); if (!rule) return NextResponse.next();
-    const token = request.cookies.get("session_id")?.value; if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const token = request.cookies.get("session_id")?.value;
+    if (!token || token === "null" || token === "undefined") return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     try {
       const decoded = jwt.verify(token, secret());
       if (typeof decoded !== "object" || decoded === null || typeof decoded.userId !== "string" || !decoded.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       const user = await prisma.user.findUnique({ where: { id: decoded.userId }, select: { id: true, role: true } });
-      const role = user ? normalizeRole(user.role) : null;
-      if (!role || !hasPermission(role, rule.resource, rule.action)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      const rule = match(pathname, method);
+      if (rule) {
+        const role = normalizeRole(user.role);
+        if (!role || !hasPermission(role, rule.resource, rule.action)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      // Unmapped internal API routes are still authenticated here. Their handlers remain
+      // responsible for fine-grained authorization while the proxy closes unauthenticated gaps.
       return NextResponse.next();
     } catch { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
   }
