@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     if (!rawItems.length) return NextResponse.json({ error: "La compra debe tener al menos un producto" }, { status: 400 });
     const items = rawItems.map((item: any) => ({ productId: String(item.productId ?? ""), quantity: Math.floor(Number(item.quantity)), unitCost: Number(item.unitCost) })).filter((item: any) => item.productId && Number.isInteger(item.quantity) && item.quantity > 0 && Number.isFinite(item.unitCost) && item.unitCost >= 0);
     if (items.length !== rawItems.length) return NextResponse.json({ error: "Hay productos con cantidad o costo inválido" }, { status: 400 });
-    const ids = [...new Set(items.map((item: any) => item.productId))];
+    const ids: string[] = Array.from(new Set<string>(items.map((item: any) => item.productId)));
     if (ids.length !== items.length) return NextResponse.json({ error: "No repitas el mismo producto; ajusta su cantidad" }, { status: 400 });
     const products = await prisma.product.findMany({ where: mergeProductListWhere({ userId: session.id, id: { in: ids } }), select: { id: true, name: true, sku: true, quantity: true, purchasePrice: true } });
     if (products.length !== ids.length) return NextResponse.json({ error: "Uno o más productos no existen o no pertenecen a tu inventario" }, { status: 404 });
