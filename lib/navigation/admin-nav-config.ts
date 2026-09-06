@@ -17,6 +17,7 @@ export const ADMIN_MY_STORE_ITEMS: AdminNavItemConfig[] = [
   { href: "/admin/client-portal", label: "Clientes", countKey: "clients" },
   { href: "/admin/devices", label: "Equipos / IMEI" },
   { href: "/admin/service-orders", label: "Servicio técnico" },
+  { href: "/admin/purchases", label: "Compras" },
   { href: "/admin/support-tickets", label: "Tickets de soporte", countKey: "supportTickets" },
   { href: "/admin/product-reviews", label: "Reseñas de productos", countKey: "productReviews" },
 ];
