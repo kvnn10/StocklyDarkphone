@@ -44,6 +44,13 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     const actorRole = normalizeRole(session.role);
     const requestedRole = data.role === null ? null : normalizeRole(data.role);
     const existingRole = normalizeRole(existing.role);
+
+    // A user may not change their own role. This prevents accidental lockout or
+    // privilege manipulation through the users.update permission.
+    if (data.role !== undefined && id === session.id) {
+      return NextResponse.json({ error: "Cannot change your own role" }, { status: 403 });
+    }
+
     if (data.role !== undefined && actorRole !== "admin") {
       if (requestedRole === "admin" || existingRole === "admin") {
         return NextResponse.json({ error: "Only an admin can assign or modify the admin role" }, { status: 403 });
