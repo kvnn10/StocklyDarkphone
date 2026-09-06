@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getSessionFromRequest } from "@/utils/auth";
+import { hasPermission } from "@/lib/security/rbac";
 import { writeAuditLog } from "@/lib/audit/log";
 import { getPromotions, savePromotions, type Promotion, type PromotionType } from "@/lib/commercial/pricing";
 
 const TYPES = new Set<PromotionType>(["price", "2x1", "3x2", "quantity"]);
-const adminOnly = (role?: string | null) => role === "admin";
+const canManagePromotions = (role?: string | null) => hasPermission(role, "sales", "discount");
 
 function normalize(body: Record<string, unknown>, current?: Promotion): Promotion {
   const type = (body.type ?? current?.type) as PromotionType;
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!adminOnly(session.role)) return NextResponse.json({ error: "Solo administradores pueden crear promociones" }, { status: 403 });
+  if (!canManagePromotions(session.role)) return NextResponse.json({ error: "No tienes permisos para gestionar promociones" }, { status: 403 });
   try {
     const promotions = await getPromotions(session.id);
     const promotion = normalize(await request.json(), undefined);
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!adminOnly(session.role)) return NextResponse.json({ error: "Solo administradores pueden modificar promociones" }, { status: 403 });
+  if (!canManagePromotions(session.role)) return NextResponse.json({ error: "No tienes permisos para gestionar promociones" }, { status: 403 });
   try {
     const body = await request.json(); const id = String(body.id ?? ""); const promotions = await getPromotions(session.id);
     const index = promotions.findIndex((p) => p.id === id);
@@ -74,7 +75,7 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!adminOnly(session.role)) return NextResponse.json({ error: "Solo administradores pueden eliminar promociones" }, { status: 403 });
+  if (!canManagePromotions(session.role)) return NextResponse.json({ error: "No tienes permisos para gestionar promociones" }, { status: 403 });
   try {
     const id = request.nextUrl.searchParams.get("id") ?? ""; const promotions = await getPromotions(session.id);
     const removed = promotions.find((p) => p.id === id);
