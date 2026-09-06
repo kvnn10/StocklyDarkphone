@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionFromRequest } from "@/utils/auth";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { prisma } from "@/prisma/client";
 import { jsonSafe, validObjectId } from "@/lib/finance/financial-ledger";
 import { getSupplierStatement } from "@/lib/finance/supplier-payables";
 
-const ROLES = ["admin", "user", "retailer"];
-
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !ROLES.includes(session.role as string)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "finance", "read");
+  if (auth.response) return auth.response;
+  const session = auth.session!;
   const supplierId = request.nextUrl.searchParams.get("supplierId");
   if (!validObjectId(supplierId)) return NextResponse.json({ error: "Proveedor inválido" }, { status: 400 });
   const supplier = await prisma.supplier.findFirst({ where: { id: supplierId, userId: session.id } });
