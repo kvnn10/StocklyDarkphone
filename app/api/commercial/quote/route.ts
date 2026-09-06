@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/utils/auth";
+import { hasPermission } from "@/lib/security/rbac";
 import { quotePricing } from "@/lib/commercial/pricing";
 
 export async function POST(request: NextRequest) {
@@ -16,7 +17,8 @@ export async function POST(request: NextRequest) {
       discountType: item.discountType === "fixed" ? "fixed" : item.discountType === "percent" ? "percent" : undefined,
       discountValue: item.discountValue === undefined ? undefined : Number(item.discountValue),
     }));
-    const result = await quotePricing(session.id, items, session.role === "admin");
+    const canDiscount = hasPermission(session.role, "sales", "discount");
+    const result = await quotePricing(session.id, items, canDiscount);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo calcular la cotización" }, { status: 400 });
