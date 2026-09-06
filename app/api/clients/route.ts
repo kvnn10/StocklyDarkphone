@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { MongoClient, ObjectId } from "mongodb";
-import { getSessionFromRequest } from "@/utils/auth";
 import { logger } from "@/lib/logger";
 import { authorizeRequest } from "@/lib/security/authorize";
+import { writeAuditLog } from "@/lib/audit/log";
 
 async function withClientsCollection<T>(fn: (collection: any) => Promise<T>) {
   const client = new MongoClient(process.env.DATABASE_URL!);
@@ -11,9 +11,7 @@ async function withClientsCollection<T>(fn: (collection: any) => Promise<T>) {
   try {
     const collection = client.db().collection("User");
     return await fn(collection);
-  } finally {
-    await client.close();
-  }
+  } finally { await client.close(); }
 }
 
 async function getOrderStats(clientIds: string[]) {
@@ -73,6 +71,7 @@ export async function POST(request: NextRequest) {
       return { client: { id: inserted.insertedId.toString(), name, email, phone, whatsapp, document, address, city, notes, status: true, createdAt: now, orderCount: 0, totalSpent: 0 }, temporaryPassword };
     });
     if (result.conflict) return NextResponse.json({ error: "Ya existe un usuario con ese correo electrónico" }, { status: 409 });
+    await writeAuditLog({ userId: session.id, action: "create", entityType: "user", entityId: result.client.id, details: { client: true, email, name } });
     return NextResponse.json(result, { status: 201 });
   } catch (error) { logger.error("Error creating client:", error); return NextResponse.json({ error: "No se pudo crear el cliente" }, { status: 500 }); }
 }
@@ -89,6 +88,7 @@ export async function PUT(request: NextRequest) {
     for (const key of allowed) if (body[key] !== undefined) update[key] = typeof body[key] === "string" ? body[key].trim() : body[key];
     const result = await withClientsCollection(async (users) => users.updateOne({ _id: new ObjectId(body.id), role: "client" }, { $set: update }));
     if (!result.matchedCount) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+    await writeAuditLog({ userId: session.id, action: "update", entityType: "user", entityId: body.id, details: { client: true, fields: allowed.filter((key) => body[key] !== undefined) } });
     return NextResponse.json({ success: true });
   } catch (error) { logger.error("Error updating client:", error); return NextResponse.json({ error: "No se pudo actualizar el cliente" }, { status: 500 }); }
 }
@@ -102,6 +102,7 @@ export async function DELETE(request: NextRequest) {
     if (!id || !ObjectId.isValid(id)) return NextResponse.json({ error: "Cliente inválido" }, { status: 400 });
     const result = await withClientsCollection(async (users) => users.updateOne({ _id: new ObjectId(id), role: "client" }, { $set: { status: false, updatedAt: new Date(), updatedBy: session.id } }));
     if (!result.matchedCount) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 });
+    await writeAuditLog({ userId: session.id, action: "update", entityType: "user", entityId: id, details: { client: true, operation: "disable" } });
     return NextResponse.json({ success: true });
   } catch (error) { logger.error("Error disabling client:", error); return NextResponse.json({ error: "No se pudo desactivar el cliente" }, { status: 500 }); }
 }
