@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MongoClient, ObjectId } from "mongodb";
+import { authorizeRequest } from "@/lib/security/authorize";
 import { prisma } from "@/prisma/client";
-import { getSessionFromRequest } from "@/utils/auth";
-
-function allowed(session: any) {
-  return !!session && ["admin", "user", "retailer"].includes(session.role ?? "");
-}
 
 const n = (value: unknown) => Number(value ?? 0);
 
 export async function GET(request: NextRequest) {
-  const session = await getSessionFromRequest(request);
-  if (!session || !allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  const auth = await authorizeRequest(request, "reports", "read");
+  if (auth.response) return auth.response;
+  const session = auth.session;
 
   const params = new URL(request.url).searchParams;
   const requestedMonths = Math.min(24, Math.max(1, Number(params.get("months") ?? 1)));
