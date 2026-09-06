@@ -2,7 +2,20 @@
  * User Management (admin) type definitions
  */
 
-export type UserRole = "admin" | "gerente" | "vendedor" | "tecnico" | "cajero";
+/**
+ * Canonical Stockly RBAC roles plus legacy persisted aliases used by older
+ * screens/data. New writes are validated against the canonical roles.
+ */
+export type UserRole =
+  | "admin"
+  | "gerente"
+  | "vendedor"
+  | "tecnico"
+  | "cajero"
+  | "user"
+  | "supplier"
+  | "client"
+  | "retailer";
 
 export interface UserOverview {
   orderCount: number;
