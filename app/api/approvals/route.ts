@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeRequest } from "@/lib/security/authorize";
+import { normalizeRole } from "@/lib/security/rbac";
 import { APPROVAL_TYPES, createApproval, decideApproval, listApprovals, type ApprovalStatus, type ApprovalType } from "@/lib/security/approvals";
 
 export async function GET(request: NextRequest) {
   const authorization = await authorizeRequest(request, "approvals", "read");
   if (authorization.response) return authorization.response;
+  const session = authorization.session;
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status") as ApprovalStatus | null;
   if (status && !["pending", "approved", "rejected"].includes(status)) return NextResponse.json({ error: "Invalid status" }, { status: 400 });
-  const requesterId = searchParams.get("requesterId") || undefined;
+
+  const requestedRequesterId = searchParams.get("requesterId") || undefined;
+  const role = normalizeRole(session.role);
+  const canViewAll = role === "admin" || role === "gerente";
+  const requesterId = canViewAll ? requestedRequesterId : session.id;
+
   return NextResponse.json({ approvals: await listApprovals(requesterId, status ?? undefined) });
 }
 
