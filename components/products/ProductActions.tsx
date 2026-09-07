@@ -5,11 +5,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { useCreateProduct, useDeleteProduct, useReviewEligibility, useReviewsByProduct, useDeleteProductReview } from "@/hooks/queries";
 import { useAuth } from "@/contexts";
 import { logger } from "@/lib/logger";
-import { MoreVertical, Eye, Edit, Trash2, Copy, Star, Pencil, ClipboardList } from "lucide-react";
+import { MoreVertical, Eye, Edit, Trash2, Copy, Star, Pencil, ClipboardList, Layers3 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { AlertDialogWrapper } from "@/components/dialogs";
 import WriteEditReviewDialog from "@/components/product-reviews/WriteEditReviewDialog";
+import ProductVariantsDialog from "./ProductVariantsDialog";
 import type { ProductReview } from "@/types";
 
 interface ProductsDropDownProps { row: { original: Product }; detailBase?: string; }
@@ -21,6 +22,7 @@ export default function ProductsDropDown({ row, detailBase = "" }: ProductsDropD
   const deleteProductMutation = useDeleteProduct();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [variantsDialogOpen, setVariantsDialogOpen] = useState(false);
   const [editingReview, setEditingReview] = useState<ProductReview | null>(null);
   const [deleteReviewId, setDeleteReviewId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -53,6 +55,7 @@ export default function ProductsDropDown({ row, detailBase = "" }: ProductsDropD
         <DropdownMenuItem asChild><Link href={detailBase ? `${detailBase}/products/${row.original.id}` : `/products/${row.original.id}`} className="flex items-center gap-2"><Eye className="h-4 w-4" />Ver detalles</Link></DropdownMenuItem>
         <DropdownMenuItem asChild><Link href={`/admin/kardex?productId=${encodeURIComponent(productId)}`} className="flex items-center gap-2"><ClipboardList className="h-4 w-4" />Ver Kardex</Link></DropdownMenuItem>
         {!readOnlyCatalog && <>
+          <DropdownMenuItem onClick={() => setVariantsDialogOpen(true)} className="flex items-center gap-2"><Layers3 className="h-4 w-4" />Gestionar variantes</DropdownMenuItem>
           <DropdownMenuItem onClick={handleCopyProduct} disabled={isCopying} className="flex items-center gap-2"><Copy className="h-4 w-4" />{isCopying ? "Duplicando..." : "Crear duplicado"}</DropdownMenuItem>
           <DropdownMenuItem onClick={handleEditProduct} className="flex items-center gap-2"><Edit className="h-4 w-4" />Editar</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setDeleteDialogOpen(true)} disabled={isDeleting} className="flex items-center gap-2 text-red-600 dark:text-red-400"><Trash2 className="h-4 w-4" />{isDeleting ? "Eliminando..." : "Eliminar producto"}</DropdownMenuItem>
@@ -63,6 +66,7 @@ export default function ProductsDropDown({ row, detailBase = "" }: ProductsDropD
         <DropdownMenuItem onClick={() => myReviews[0] && setDeleteReviewId(myReviews[0].id)} disabled={!canEditOrDeleteReview} className="flex items-center gap-2 text-red-600 dark:text-red-400"><Trash2 className="h-4 w-4" />Eliminar reseña</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <ProductVariantsDialog product={row.original} open={variantsDialogOpen} onOpenChange={setVariantsDialogOpen} />
     <WriteEditReviewDialog open={reviewDialogOpen} onOpenChange={handleReviewDialogClose} productId={productId} productName={productName} orderId={editingReview ? undefined : firstSlot?.orderId} orderItemId={editingReview ? undefined : (firstSlot?.orderItemId ?? undefined)} existingReview={editingReview} />
     <AlertDialogWrapper open={!!deleteReviewId} onOpenChange={(open) => !open && setDeleteReviewId(null)} title="Eliminar reseña" description="¿Estás seguro de que quieres eliminar esta reseña? Esta acción no se puede deshacer." actionLabel="Eliminar" actionLoadingLabel="Eliminando..." isLoading={deleteReviewMutation.isPending} onAction={handleConfirmDeleteReview} onCancel={() => setDeleteReviewId(null)} />
     <AlertDialogWrapper open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen} title="Eliminar producto" description={`¿Estás seguro de que quieres eliminar "${row.original.name}"? Esta acción no se puede deshacer.`} actionLabel="Eliminar" actionLoadingLabel="Eliminando..." isLoading={isDeleting} onAction={handleConfirmDeleteProduct} onCancel={() => setDeleteDialogOpen(false)} />
