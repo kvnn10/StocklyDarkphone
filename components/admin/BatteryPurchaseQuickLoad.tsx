@@ -35,7 +35,7 @@ export default function BatteryPurchaseQuickLoad() {
   const [paymentMethod, setPaymentMethod] = useState("transfer");
 
   const subtotal = useMemo(() => lines.reduce((sum, line) => sum + line.quantity * line.unitCost, 0), []);
-  const total = subtotal + 108000;
+  const total = subtotal + 16000;
   const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
 
   const close = () => {
@@ -123,7 +123,7 @@ export default function BatteryPurchaseQuickLoad() {
           paymentMethod,
           discount: 0,
           tax: 0,
-          shipping: 108000,
+          shipping: 16000,
           notes: "Carga inicial de baterías Vormir — inversión real $3.961.000 COP.",
           items,
         }),
@@ -175,7 +175,7 @@ export default function BatteryPurchaseQuickLoad() {
             </div>
 
             <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-3">
-              <div className="text-sm"><span className="font-medium">Costo adicional:</span> {money(108000)} (flete/gastos)</div>
+              <div className="text-sm"><span className="font-medium">Costo adicional:</span> {money(16000)} (flete/gastos)</div>
               <label className="flex items-center gap-2 text-sm"><span>Pago</span><select className="h-9 rounded-md border bg-background px-3" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} disabled={loading}><option value="transfer">Transferencia</option><option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="other">Otro</option></select></label>
             </div>
 
