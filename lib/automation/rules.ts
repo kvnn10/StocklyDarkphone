@@ -38,7 +38,7 @@ export async function runAutomationRules(now = new Date()) {
   const staff = await recipients(database);
   const counts = { lowStock: 0, overdueAccounts: 0, warranties: 0, readyEquipment: 0, repairs: 0, paymentReminders: 0 };
 
-  const products = await database.collection("Product").find({ deletedAt: null, quantity: { $lte: LOW_STOCK_THRESHOLD } }, { projection: { _id: 1, name: 1, sku: 1, quantity: 1 } }).limit(500).toArray();
+  const products = await database.collection("Product").find({ deletedAt: null, quantity: { $lte: 20 } }, { projection: { _id: 1, name: 1, sku: 1, quantity: 1 } }).limit(500).toArray();
   for (const product of products) {
     const quantity = num(product.quantity);
     const type = quantity <= 0 ? "stock_out" : "stock_low";
@@ -47,7 +47,7 @@ export async function runAutomationRules(now = new Date()) {
       title: `${quantity <= 0 ? "Sin stock" : "Stock bajo"}: ${String(product.name ?? "Producto")}`,
       message: quantity <= 0 ? `El producto ${String(product.sku ?? product.name)} está agotado.` : `Quedan ${quantity} unidades de ${String(product.sku ?? product.name)}.`,
       priority: quantity <= 0 ? "critical" : "high",
-      channels: ["in_app"],
+      channels: ["in_app", "telegram"],
       data: { productId: id(product._id), quantity },
     }, `automation:${type}:${id(product._id)}:${today}`);
   }
@@ -58,7 +58,7 @@ export async function runAutomationRules(now = new Date()) {
     counts.overdueAccounts += await notifyMany(targets, {
       type: "account_overdue", title: `Cuenta vencida: ${String(invoice.invoiceNumber ?? invoice._id)}`,
       message: `La factura ${String(invoice.invoiceNumber ?? invoice._id)} tiene un saldo vencido de $${num(invoice.amountDue).toLocaleString("es-CO")}.`,
-      priority: "high", channels: ["in_app"], data: { invoiceId: id(invoice._id), amountDue: num(invoice.amountDue) },
+      priority: "high", channels: ["in_app", "telegram"], data: { invoiceId: id(invoice._id), amountDue: num(invoice.amountDue) },
     }, `automation:overdue:${id(invoice._id)}:${today}`);
   }
 
@@ -69,7 +69,7 @@ export async function runAutomationRules(now = new Date()) {
     counts.warranties += await notifyMany(targets, {
       type: "warranty_expiring", title: `Garantía por vencer: ${String(order.orderNumber ?? order._id)}`,
       message: `La garantía de la orden ${String(order.orderNumber ?? order._id)} vence el ${new Date(order.warrantyExpiresAt).toLocaleDateString("es-CO")}.`,
-      priority: "normal", channels: ["in_app"], data: { serviceOrderId: id(order._id) },
+      priority: "normal", channels: ["in_app", "telegram"], data: { serviceOrderId: id(order._id) },
     }, `automation:warranty:${id(order._id)}:${today}`);
   }
 
@@ -78,7 +78,7 @@ export async function runAutomationRules(now = new Date()) {
     const targets = order.userId ? [id(order.userId)] : staff;
     counts.readyEquipment += await notifyMany(targets, {
       type: "equipment_ready", title: `Equipo listo: ${String(order.orderNumber ?? order._id)}`,
-      message: `La orden de servicio ${String(order.orderNumber ?? order._id)} está lista para entrega.`, priority: "high", channels: ["in_app"],
+      message: `La orden de servicio ${String(order.orderNumber ?? order._id)} está lista para entrega.`, priority: "high", channels: ["in_app", "telegram"],
       data: { serviceOrderId: id(order._id), clientId: id(order.clientId) },
     }, `automation:ready:${id(order._id)}:${today}`);
   }
@@ -88,7 +88,7 @@ export async function runAutomationRules(now = new Date()) {
     const targets = order.userId ? [id(order.userId)] : staff;
     counts.repairs += await notifyMany(targets, {
       type: "repair_delayed", title: `Reparación pendiente: ${String(order.orderNumber ?? order._id)}`,
-      message: `La orden ${String(order.orderNumber ?? order._id)} lleva más de 48 horas en reparación.`, priority: "normal", channels: ["in_app"], data: { serviceOrderId: id(order._id) },
+      message: `La orden ${String(order.orderNumber ?? order._id)} lleva más de 48 horas en reparación.`, priority: "normal", channels: ["in_app", "telegram"], data: { serviceOrderId: id(order._id) },
     }, `automation:repair:${id(order._id)}:${today}`);
   }
 
@@ -97,7 +97,7 @@ export async function runAutomationRules(now = new Date()) {
     const targets = order.userId ? [id(order.userId)] : staff;
     counts.paymentReminders += await notifyMany(targets, {
       type: "payment_reminder", title: `Pago pendiente: ${String(order.orderNumber ?? order._id)}`,
-      message: `La orden ${String(order.orderNumber ?? order._id)} tiene un saldo pendiente de $${num(order.amountDue).toLocaleString("es-CO")}.`, priority: "normal", channels: ["in_app"],
+      message: `La orden ${String(order.orderNumber ?? order._id)} tiene un saldo pendiente de $${num(order.amountDue).toLocaleString("es-CO")}.`, priority: "normal", channels: ["in_app", "telegram"],
       data: { serviceOrderId: id(order._id), amountDue: num(order.amountDue) },
     }, `automation:payment:${id(order._id)}:${today}`);
   }
