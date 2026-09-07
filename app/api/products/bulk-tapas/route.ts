@@ -26,7 +26,29 @@ const CATEGORY = "Tapas";
 const WAREHOUSE = "Darkphone";
 
 function slug(value: string) {
-  return value.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+async function uniqueProductSku(base: string, userId: string, existingId?: string) {
+  const normalizedBase = base.toUpperCase();
+  let candidate = normalizedBase;
+  let suffix = 1;
+  while (true) {
+    const existing = await prisma.product.findUnique({ where: { sku: candidate }, select: { id: true, userId: true } });
+    if (!existing || existing.id === existingId || existing.userId === userId) return candidate;
+    candidate = `${normalizedBase}-${suffix++}`;
+  }
+}
+
+async function uniqueVariantSku(base: string, existingId?: string) {
+  const normalizedBase = base.toUpperCase();
+  let candidate = normalizedBase;
+  let suffix = 1;
+  while (true) {
+    const existing = await prisma.productVariant.findUnique({ where: { sku: candidate }, select: { id: true } });
+    if (!existing || existing.id === existingId) return candidate;
+    candidate = `${normalizedBase}-${suffix++}`;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -65,10 +87,16 @@ export async function POST(request: NextRequest) {
       const imported: Array<{ product: string; variant: string; quantity: number }> = [];
 
       for (const [model, items] of products) {
-        const productSku = `TAPA-${slug(model)}`.toUpperCase();
+        const productSkuBase = `TAPA-${slug(model)}`.toUpperCase();
         let product = await tx.product.findFirst({ where: { userId: session.id, name: model, categoryId: category.id, deletedAt: null } });
 
         if (!product) {
+          let productSku = productSkuBase;
+          let suffix = 1;
+          while (await tx.product.findUnique({ where: { sku: productSku }, select: { id: true } })) {
+            productSku = `${productSkuBase}-${suffix++}`;
+          }
+
           product = await tx.product.create({
             data: {
               name: model,
@@ -87,10 +115,16 @@ export async function POST(request: NextRequest) {
         }
 
         for (const item of items) {
-          const variantSku = `${productSku}-${slug(item.color)}`.toUpperCase();
+          const variantSkuBase = `${product.sku}-${slug(item.color)}`.toUpperCase();
           let variant = await tx.productVariant.findFirst({ where: { productId: product.id, name: item.color } });
 
           if (!variant) {
+            let variantSku = variantSkuBase;
+            let suffix = 1;
+            while (await tx.productVariant.findUnique({ where: { sku: variantSku }, select: { id: true } })) {
+              variantSku = `${variantSkuBase}-${suffix++}`;
+            }
+
             variant = await tx.productVariant.create({
               data: {
                 productId: product.id,
