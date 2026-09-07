@@ -19,6 +19,7 @@ export type AuditAction =
 
 export type AuditEntityType =
   | "product"
+  | "product_variant"
   | "order"
   | "invoice"
   | "sale_payment"
