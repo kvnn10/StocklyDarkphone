@@ -36,12 +36,20 @@ export default function ProductVariantsSection({ productId, initialVariants = []
   }, [productId, initialVariants.length]);
 
   useEffect(() => {
-    const header = document.querySelector("h1")?.closest<HTMLElement>(".pb-0");
-    if (!header?.parentElement) return;
+    const h1 = document.querySelector("h1");
+    if (!h1) return;
+
+    // The detail header is the h1's nearest PageSectionHeader wrapper.
+    // Keep a fallback to the immediate header parent so the variants never
+    // disappear if the shared header spacing class changes in the future.
+    const header = h1.closest<HTMLElement>(".pb-0") ?? h1.parentElement?.parentElement;
+    const shell = header?.parentElement;
+    if (!header || !shell) return;
 
     const target = document.createElement("div");
     target.setAttribute("data-product-variants-slot", productId);
-    header.parentElement.insertBefore(target, header.nextSibling);
+    target.className = "min-w-0 w-full";
+    shell.insertBefore(target, header.nextSibling);
     setPortalTarget(target);
 
     return () => {
