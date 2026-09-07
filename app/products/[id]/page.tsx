@@ -18,52 +18,16 @@ export default async function ProductDetailRoute({ params }: Props) {
   const user = await getSession();
   if (!user) redirect("/login");
   const { id } = await params;
-
-  const [initialProduct, initialReviews, initialEligibility, initialStockByProduct, initialForecasting, rawVariants] = await Promise.all([
+  const [initialProduct, initialReviews, initialEligibility, initialStockByProduct, initialForecasting] = await Promise.all([
     getProductDetailForPage({ id: user.id, role: user.role }, id),
     getReviewsForProductPage(id, "all"),
     getReviewEligibilityForProduct(user.id, id),
     getStockByProductForPage({ id: user.id, role: user.role }, id),
     user.role === "admin" ? getCachedForecastingSummary(user.id) : Promise.resolve(null),
-    prisma.productVariant.findMany({
-      where: { productId: id, userId: user.id },
-      include: { stocks: { include: { warehouse: { select: { id: true, name: true } } } } },
-      orderBy: { createdAt: "asc" },
-    }),
   ]);
   if (!initialProduct) notFound();
-
-  const initialVariants: ProductVariantView[] = rawVariants.map((variant) => ({
-    id: variant.id,
-    productId: variant.productId,
-    name: variant.name,
-    sku: variant.sku,
-    price: Number(variant.price),
-    purchasePrice: Number(variant.purchasePrice),
-    quantity: Number(variant.quantity),
-    reservedQuantity: Number(variant.reservedQuantity),
-    status: variant.status,
-    attributes: (variant.attributes && typeof variant.attributes === "object" && !Array.isArray(variant.attributes)) ? variant.attributes as Record<string, unknown> : null,
-    stocks: variant.stocks.map((stock) => ({ id: stock.id, warehouseId: stock.warehouseId, warehouseName: stock.warehouse?.name ?? "Bodega", quantity: Number(stock.quantity), reservedQuantity: Number(stock.reservedQuantity) })),
-  }));
-
-  const enrichedProduct = {
-    ...initialProduct,
-    productInsights: initialProduct.productInsights
-      ? enrichProductInsightsWithWarehouseStock(initialProduct.productInsights, initialStockByProduct ?? [], Number(initialProduct.quantity))
-      : initialProduct.productInsights,
-  };
-
-  return (
-    <>
-      <ProductVariantsSection productId={id} initialVariants={initialVariants} />
-      <ProductDetailPage
-        initialProduct={enrichedProduct as unknown as Product}
-        initialReviews={initialReviews}
-        initialEligibility={initialEligibility}
-        initialStockByProduct={initialStockByProduct ?? undefined}
-        initialForecasting={initialForecasting}
-      />
-    </>
-  );
+  const rawVariants = await prisma.productVariant.findMany({ where: { productId: id }, include: { stocks: { include: { warehouse: { select: { id: true, name: true } } } } }, orderBy: { createdAt: "asc" } });
+  const initialVariants: ProductVariantView[] = rawVariants.map((variant) => ({ id: variant.id, productId: variant.productId, name: variant.name, sku: variant.sku, price: Number(variant.price), purchasePrice: Number(variant.purchasePrice), quantity: Number(variant.quantity), reservedQuantity: Number(variant.reservedQuantity), status: variant.status, attributes: (variant.attributes && typeof variant.attributes === "object" && !Array.isArray(variant.attributes)) ? variant.attributes as Record<string, unknown> : null, stocks: variant.stocks.map((stock) => ({ id: stock.id, warehouseId: stock.warehouseId, warehouseName: stock.warehouse?.name ?? "Bodega", quantity: Number(stock.quantity), reservedQuantity: Number(stock.reservedQuantity) })) }));
+  const enrichedProduct = { ...initialProduct, productInsights: initialProduct.productInsights ? enrichProductInsightsWithWarehouseStock(initialProduct.productInsights, initialStockByProduct ?? [], Number(initialProduct.quantity)) : initialProduct.productInsights };
+  return <><ProductVariantsSection productId={id} initialVariants={initialVariants}/><ProductDetailPage initialProduct={enrichedProduct as unknown as Product} initialReviews={initialReviews} initialEligibility={initialEligibility} initialStockByProduct={initialStockByProduct ?? undefined} initialForecasting={initialForecasting}/></>;
 }
