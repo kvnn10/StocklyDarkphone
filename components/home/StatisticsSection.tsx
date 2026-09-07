@@ -5,7 +5,7 @@
 
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   Package,
   FolderTree,
@@ -45,17 +45,62 @@ export function StatisticsSection({
   const dashboardQuery = useDashboard(initialStats ?? undefined);
   const stats = dashboardQuery.data ?? initialStats ?? null;
   const dataLoading = isDataSlotUnsettled(dashboardQuery, initialStats);
+  const [inventoryCost, setInventoryCost] = useState(0);
+  const [inventoryCostLoading, setInventoryCostLoading] = useState(true);
 
   useSyncSsrQueryData(
     queryKeys.dashboard.overview(user?.id ?? ""),
     user?.id && initialStats != null ? initialStats : undefined,
   );
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadInventoryCost = async () => {
+      if (!user?.id) {
+        setInventoryCostLoading(false);
+        return;
+      }
+
+      setInventoryCostLoading(true);
+      try {
+        const response = await fetch("/api/products", { cache: "no-store" });
+        const products = await response.json();
+
+        if (!response.ok || !Array.isArray(products)) {
+          throw new Error("Failed to load products");
+        }
+
+        const cost = products.reduce(
+          (sum: number, product: { quantity?: number; purchasePrice?: number }) =>
+            sum +
+            Math.max(0, Number(product.quantity ?? 0)) *
+              Math.max(0, Number(product.purchasePrice ?? 0)),
+          0,
+        );
+
+        if (!cancelled) setInventoryCost(cost);
+      } catch {
+        if (!cancelled) setInventoryCost(0);
+      } finally {
+        if (!cancelled) setInventoryCostLoading(false);
+      }
+    };
+
+    loadInventoryCost();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   const revenueFromOrders =
     stats?.orderAnalytics?.totalRevenueExcludingCancelled ??
     stats?.revenue?.fromOrders ??
     0;
   const selfOthers = stats?.selfOthersBreakdown;
+  const inventorySaleValue = stats?.totalInventoryValue ?? 0;
+  const potentialProfit = Math.max(0, inventorySaleValue - inventoryCost);
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 items-stretch">
@@ -74,12 +119,28 @@ export function StatisticsSection({
         ]}
       />
       <StatisticsCard
-        title="Valor total"
-        value={formatCurrency(stats?.totalInventoryValue ?? 0)}
-        description="Valor total del inventario"
+        title="Costo del inventario"
+        value={formatCurrency(inventoryCost)}
+        description="Valor al costo de compra"
+        icon={DollarSign}
+        variant="blue"
+        valueLoading={dataLoading || inventoryCostLoading}
+      />
+      <StatisticsCard
+        title="Valor potencial de venta"
+        value={formatCurrency(inventorySaleValue)}
+        description="Al precio de venta actual"
         icon={DollarSign}
         variant="violet"
         valueLoading={dataLoading}
+      />
+      <StatisticsCard
+        title="Utilidad potencial"
+        value={formatCurrency(potentialProfit)}
+        description="Venta potencial menos costo"
+        icon={DollarSign}
+        variant="emerald"
+        valueLoading={dataLoading || inventoryCostLoading}
       />
       <StatisticsCard
         title="Ingresos totales"
