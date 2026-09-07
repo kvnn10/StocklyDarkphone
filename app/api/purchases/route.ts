@@ -50,9 +50,12 @@ export async function POST(request: NextRequest) {
     const products = await prisma.product.findMany({ where: mergeProductListWhere({ userId: session.id, id: { in: ids } }), select: { id: true, name: true, sku: true, quantity: true, purchasePrice: true } });
     if (products.length !== ids.length) return NextResponse.json({ error: "Uno o más productos no existen o no pertenecen a tu inventario" }, { status: 404 });
     const productMap = new Map(products.map(p => [p.id, p]));
+    const productVariantRows = await prisma.productVariant.findMany({ where: { productId: { in: ids }, userId: session.id }, select: { id: true, productId: true, name: true, sku: true, price: true, purchasePrice: true, quantity: true } });
+    const variantProductIds = new Set(productVariantRows.map(v => v.productId));
+    for (const item of items) if (variantProductIds.has(item.productId) && !item.variantId) return NextResponse.json({ error: `Selecciona una variante para ${productMap.get(item.productId)?.name ?? "el producto"}` }, { status: 400 });
     const variantIds = items.filter((i: any) => i.variantId).map((i: any) => i.variantId) as string[];
-    const variants = variantIds.length ? await prisma.productVariant.findMany({ where: { id: { in: variantIds }, userId: session.id }, select: { id: true, productId: true, name: true, sku: true, price: true, purchasePrice: true, quantity: true } }) : [];
-    if (variants.length !== variantIds.length) return NextResponse.json({ error: "Una o más variantes no existen o no pertenecen a tu inventario" }, { status: 404 });
+    if (variantIds.some(id => !productVariantRows.some(v => v.id === id))) return NextResponse.json({ error: "Una o más variantes no existen o no pertenecen a tu inventario" }, { status: 404 });
+    const variants = productVariantRows.filter(v => variantIds.includes(v.id));
     const variantMap = new Map(variants.map(v => [v.id, v]));
     for (const item of items) if (item.variantId && variantMap.get(item.variantId)?.productId !== item.productId) return NextResponse.json({ error: "La variante no pertenece al producto seleccionado" }, { status: 400 });
     const subtotal = items.reduce((sum: number, i: any) => sum + i.quantity * i.unitCost, 0);
