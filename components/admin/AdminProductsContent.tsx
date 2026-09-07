@@ -18,22 +18,34 @@ function parseText(text: string, warehouse: string, category: string): ImportRow
   for (const raw of text.split(/\n+/).map((x) => x.trim()).filter(Boolean)) {
     const saleMatch = raw.match(/(?:venta|vendo|vender(?:é)?|precio de venta)\s*(?:a|en|de)?\s*\$?\s*([\d.,]+)\s*(mil|k)?/i);
     const costMatch = raw.match(/(?:costo|coste|me cost(?:ó|o)|compr(?:é|e))\s*(?:a|de)?\s*\$?\s*([\d.,]+)\s*(mil|k)?(?:\s*(?:cada|c\/u|unidad))?/i) || raw.match(/\ba\s*\$?\s*([\d.,]+)\s*(mil|k)\s*(?:cada|c\/u|unidad)?/i);
-    const sale = saleMatch ? parseMoney(saleMatch[1] + (saleMatch[2] || "")) : 0, cost = costMatch ? parseMoney(costMatch[1] + (costMatch[2] || "")) : 0;
-    const cleaned = raw.replace(/(?:venta|vendo|vender(?:é)?|precio de venta)\s*(?:a|en|de)?\s*\$?\s*[\d.,]+\s*(?:mil|k)?/ig, "").replace(/(?:costo|coste|me cost(?:ó|o)|compr(?:é|e))\s*(?:a|de)?\s*\$?\s*[\d.,]+\s*(?:mil|k)?(?:\s*(?:cada|c\/u|unidad))?/ig, "");
-    const variantPattern = new RegExp(`(\\d+)\\s*(?:unidades?\\s*)?(?:de\\s*)?(${colors})\\b`, "gi"), variants = [...cleaned.matchAll(variantPattern)];
+    const sale = saleMatch ? parseMoney(saleMatch[1] + (saleMatch[2] || "")) : 0;
+    const cost = costMatch ? parseMoney(costMatch[1] + (costMatch[2] || "")) : 0;
+    const cleaned = raw.replace(/(?:venta|vendo|vender(?:é)?|precio de venta)\s*(?:a|en|de)?\s*\$?\s*[\d.,]+\s*(?:mil|k)?/ig, "").replace(/(?:costo|coste|me cost(?:ó|o)|compr(?:é|e))\s*(?:a|de)?\s*\$?\s*[\d.,]+\s*(?:mil|k)?(?:\s*(?:cada|c\/u|unidad))?/ig, "").replace(/\ba\s*\$?\s*[\d.,]+\s*(?:mil|k)\s*(?:cada|c\/u|unidad)?/ig, "");
+    const variantPattern = new RegExp(`(\\d+)\\s*(?:unidades?\\s*)?(?:de\\s*)?(${colors})\\b`, "gi");
+    const variants = [...cleaned.matchAll(variantPattern)];
     if (variants.length >= 2) {
       const first = variants[0];
       if (!first) continue;
-      const prefix = cleaned.slice(0, first.index ?? 0).replace(/[,;:]\s*$/, "").replace(/^(?:tengo|compr[eé]|llegaron|agreg[aá]r?)\s+/i, "").trim();
-      for (const match of variants) rows.push({ product: prefix || "Producto", variant: match[2], sku: "", quantity: Number(match[1]), purchasePrice: cost, price: sale, warehouse, category });
+      const firstIndex = first.index ?? 0;
+      const prefix = cleaned.slice(0, firstIndex).replace(/[,;:]\s*$/, "").replace(/^(?:tengo|compr[eé]|llegaron|agreg[aá]r?)\s+/i, "").trim();
+      for (const match of variants) {
+        const variant = match[2];
+        const quantity = match[1];
+        if (!variant || !quantity) continue;
+        rows.push({ product: prefix || "Producto", variant, sku: "", quantity: Number(quantity), purchasePrice: cost, price: sale, warehouse, category });
+      }
       continue;
     }
     const match = cleaned.match(/^(?:.*?)(\d+)\s*(?:unidades?\s*)?(?:de\s*)?(.+?)\s*$/i);
     if (!match) continue;
-    let product = match[2].replace(/[,;.]\s*$/, "").trim();
-    const variantMatch = product.match(new RegExp(`^(.*?)(?:\\s+)(${colors})$`, "i")), variant = variantMatch ? variantMatch[2] : "";
-    if (variantMatch) product = variantMatch[1].trim();
-    rows.push({ product, variant, sku: "", quantity: Number(match[1]), purchasePrice: cost, price: sale, warehouse, category });
+    const quantity = match[1];
+    const rawProduct = match[2];
+    if (!quantity || !rawProduct) continue;
+    let product = rawProduct.replace(/[,;.]\s*$/, "").trim();
+    const variantMatch = product.match(new RegExp(`^(.*?)(?:\\s+)(${colors})$`, "i"));
+    const variant = variantMatch?.[2] || "";
+    if (variantMatch?.[1]) product = variantMatch[1].trim();
+    rows.push({ product, variant, sku: "", quantity: Number(quantity), purchasePrice: cost, price: sale, warehouse, category });
   }
   return rows.filter((r) => r.product && r.quantity > 0);
 }
