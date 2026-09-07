@@ -163,6 +163,7 @@ model ProductVariant {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   stocks ProductVariantStock[]
   orderItems OrderItem[]
+  purchaseItems PurchaseOrderItem[]
   @@index([productId])
   @@index([userId])
 }
