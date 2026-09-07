@@ -68,8 +68,6 @@ model Order {
   shipping Float?
   discount Float?
   total Float @default(0)
-  amountPaid Float @default(0)
-  amountDue Float @default(0)
   shippingAddress Json?
   billingAddress Json?
   notes String?
@@ -510,7 +508,7 @@ model ServiceOrderItem {
 }
 
 model ServiceOrderPayment {
-  id String @id @default(auto()) @default(auto()) @map("_id") @db.ObjectId
+  id String @id @default(auto()) @map("_id") @db.ObjectId
   serviceOrderId String @db.ObjectId
   userId String @db.ObjectId
   recordedBy String @db.ObjectId
