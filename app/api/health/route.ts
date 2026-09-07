@@ -1,12 +1,3 @@
-/**
- * Health Check API Route
- * Provides comprehensive system health monitoring including:
- * - Database connection status
- * - External API health (ImageKit, Brevo, Redis)
- * - Uptime tracking
- * - Performance metrics
- */
-
 import { NextRequest } from "next/server";
 import { prisma } from "@/prisma/client";
 import { getRedis, isRedisConfigured } from "@/lib/cache/redis";
@@ -15,63 +6,46 @@ import { logger } from "@/lib/logger";
 import { successResponse, errorResponse } from "@/lib/api/response-helpers";
 import { trackDatabaseQuery } from "@/lib/monitoring/system-metrics";
 
-async function checkDatabaseHealth(): Promise<{
-  status: "OK" | "ERROR";
-  responseTime: number;
-  message: string;
-}> {
+async function checkDatabaseHealth() {
   const startTime = Date.now();
   try {
     await prisma.user.count();
     const responseTime = Date.now() - startTime;
     trackDatabaseQuery(responseTime).catch(() => {});
-    return { status: "OK", responseTime, message: "Database connection healthy" };
+    return { status: "OK" as const, responseTime, message: "Database connection healthy" };
   } catch (error) {
     const responseTime = Date.now() - startTime;
     logger.error("Database health check failed", { error });
     trackDatabaseQuery(responseTime).catch(() => {});
-    return { status: "ERROR", responseTime, message: "Database connection unavailable" };
+    return { status: "ERROR" as const, responseTime, message: "Database connection unavailable" };
   }
 }
 
-async function checkRedisHealth(): Promise<{
-  status: "OK" | "ERROR" | "NOT_CONFIGURED";
-  responseTime: number;
-  message: string;
-}> {
+async function checkRedisHealth() {
   const startTime = Date.now();
   if (!isRedisConfigured()) {
-    return { status: "NOT_CONFIGURED", responseTime: 0, message: "Redis not configured" };
+    return { status: "NOT_CONFIGURED" as const, responseTime: 0, message: "Redis not configured" };
   }
-
   try {
     const redis = getRedis();
-    if (!redis) {
-      return { status: "ERROR", responseTime: Date.now() - startTime, message: "Redis client unavailable" };
-    }
+    if (!redis) return { status: "ERROR" as const, responseTime: Date.now() - startTime, message: "Redis client unavailable" };
     await redis.ping();
-    return { status: "OK", responseTime: Date.now() - startTime, message: "Redis connection healthy" };
+    return { status: "OK" as const, responseTime: Date.now() - startTime, message: "Redis connection healthy" };
   } catch (error) {
     const responseTime = Date.now() - startTime;
     logger.error("Redis health check failed", { error });
-    return { status: "ERROR", responseTime, message: "Redis connection unavailable" };
+    return { status: "ERROR" as const, responseTime, message: "Redis connection unavailable" };
   }
 }
 
-async function checkImageKitHealth(): Promise<{
-  status: "OK" | "ERROR" | "NOT_CONFIGURED";
-  responseTime: number;
-  message: string;
-}> {
+async function checkImageKitHealth() {
   const startTime = Date.now();
   const publicKey = process.env.NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY;
   const privateKey = process.env.IMAGEKIT_PRIVATE_KEY;
   const urlEndpoint = process.env.NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT;
-
   if (!publicKey || !privateKey || !urlEndpoint) {
-    return { status: "NOT_CONFIGURED", responseTime: 0, message: "ImageKit not configured" };
+    return { status: "NOT_CONFIGURED" as const, responseTime: 0, message: "ImageKit not configured" };
   }
-
   try {
     const response = await fetch("https://api.imagekit.io/v1/files", {
       method: "GET",
@@ -80,31 +54,24 @@ async function checkImageKitHealth(): Promise<{
     });
     const responseTime = Date.now() - startTime;
     if (response.status === 200 || response.status === 401) {
-      return { status: "OK", responseTime, message: "ImageKit service accessible" };
+      return { status: "OK" as const, responseTime, message: "ImageKit service accessible" };
     }
-    return { status: "ERROR", responseTime, message: "ImageKit service unavailable" };
+    return { status: "ERROR" as const, responseTime, message: "ImageKit service unavailable" };
   } catch (error) {
     const responseTime = Date.now() - startTime;
     logger.error("ImageKit health check failed", { error });
-    return { status: "ERROR", responseTime, message: "ImageKit service unavailable" };
+    return { status: "ERROR" as const, responseTime, message: "ImageKit service unavailable" };
   }
 }
 
-async function checkBrevoHealth(): Promise<{
-  status: "OK" | "ERROR" | "NOT_CONFIGURED";
-  responseTime: number;
-  message: string;
-}> {
+async function checkBrevoHealth() {
   const startTime = Date.now();
   if (!isBrevoConfigured()) {
-    return { status: "NOT_CONFIGURED", responseTime: 0, message: "Brevo not configured" };
+    return { status: "NOT_CONFIGURED" as const, responseTime: 0, message: "Brevo not configured" };
   }
-
   try {
     const apiKey = process.env.BREVO_API_KEY;
-    if (!apiKey) {
-      return { status: "NOT_CONFIGURED", responseTime: 0, message: "Brevo API key not configured" };
-    }
+    if (!apiKey) return { status: "NOT_CONFIGURED" as const, responseTime: 0, message: "Brevo API key not configured" };
     const response = await fetch("https://api.brevo.com/v3/account", {
       method: "GET",
       headers: { "api-key": apiKey },
@@ -112,17 +79,17 @@ async function checkBrevoHealth(): Promise<{
     });
     const responseTime = Date.now() - startTime;
     if (response.status === 200 || response.status === 401) {
-      return { status: "OK", responseTime, message: "Brevo service accessible" };
+      return { status: "OK" as const, responseTime, message: "Brevo service accessible" };
     }
-    return { status: "ERROR", responseTime, message: "Brevo service unavailable" };
+    return { status: "ERROR" as const, responseTime, message: "Brevo service unavailable" };
   } catch (error) {
     const responseTime = Date.now() - startTime;
     logger.error("Brevo health check failed", { error });
-    return { status: "ERROR", responseTime, message: "Brevo service unavailable" };
+    return { status: "ERROR" as const, responseTime, message: "Brevo service unavailable" };
   }
 }
 
-async function getUptime(): Promise<{ uptime: string; startTime: string | null }> {
+async function getUptime() {
   try {
     if (isRedisConfigured()) {
       const redis = getRedis();
@@ -138,7 +105,6 @@ async function getUptime(): Promise<{ uptime: string; startTime: string | null }
         }
       }
     }
-
     const uptimeSeconds = Math.floor(process.uptime());
     const hours = Math.floor(uptimeSeconds / 3600);
     const minutes = Math.floor((uptimeSeconds % 3600) / 60);
@@ -150,7 +116,7 @@ async function getUptime(): Promise<{ uptime: string; startTime: string | null }
   }
 }
 
-async function initializeUptimeTracking(): Promise<void> {
+async function initializeUptimeTracking() {
   try {
     if (isRedisConfigured()) {
       const redis = getRedis();
@@ -183,19 +149,17 @@ export async function GET(_request: NextRequest) {
       ? optionalHealthy === optionalServices.length ? "HEALTHY" : "DEGRADED"
       : "DOWN";
 
-    const response = successResponse({
-      status: overallHealth,
-      timestamp: new Date().toISOString(),
-      uptime: uptime.uptime,
-      services: { database, redis, imagekit, brevo },
-      environment: process.env.NODE_ENV || "development",
-    });
-
-    // Make DOWN machine-detectable while keeping DEGRADED usable for deployments.
-    if (overallHealth === "DOWN") {
-      response.status = 503;
-    }
-    return response;
+    return successResponse(
+      {
+        status: overallHealth,
+        timestamp: new Date().toISOString(),
+        uptime: uptime.uptime,
+        services: { database, redis, imagekit, brevo },
+        environment: process.env.NODE_ENV || "development",
+      },
+      undefined,
+      overallHealth === "DOWN" ? 503 : 200,
+    );
   } catch (error) {
     logger.error("Health check failed", { error });
     return errorResponse("Health check unavailable", 500);
