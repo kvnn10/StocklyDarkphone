@@ -33,10 +33,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const price = Math.max(0, Number(body.price) || 0);
     const purchasePrice = Math.max(0, Number(body.purchasePrice) || 0);
     const attributes = body.attributes && typeof body.attributes === "object" ? body.attributes : null;
-    const variant = await prisma.productVariant.create({ data: { productId: product.id, name, attributes, sku, price, purchasePrice, quantity: 0n, reservedQuantity: 0n, status: typeof body.status === "string" && body.status ? body.status : "available", userId: session.id, createdBy: session.id, createdAt: new Date() } });
-    createAuditLog({ userId: session.id, action: "create", entityType: "product_variant", entityId: variant.id, details: { productId: product.id, productName: product.name, variantName: name, sku } }).catch(() => {});
+    const initialQuantity = Math.max(0, Math.floor(Number(body.initialQuantity) || 0));
+    const warehouseId = typeof body.warehouseId === "string" && validObjectId(body.warehouseId) ? body.warehouseId : null;
+    if (initialQuantity > 0 && !warehouseId) return NextResponse.json({ error: "Selecciona una bodega para el stock inicial de la variante" }, { status: 400 });
+    if (warehouseId) {
+      const warehouse = await prisma.warehouse.findFirst({ where: { id: warehouseId, userId: session.id }, select: { id: true } });
+      if (!warehouse) return NextResponse.json({ error: "Bodega no encontrada" }, { status: 404 });
+    }
+    const variant = await prisma.productVariant.create({ data: { productId: product.id, name, attributes, sku, price, purchasePrice, quantity: BigInt(initialQuantity), reservedQuantity: 0n, status: initialQuantity > 0 ? "available" : "stock_out", userId: session.id, createdBy: session.id, createdAt: new Date(), stocks: warehouseId && initialQuantity > 0 ? { create: { warehouseId, quantity: BigInt(initialQuantity), reservedQuantity: 0n, userId: session.id, createdAt: new Date(), updatedAt: new Date() } } : undefined } });
+    const aggregateQuantity = await prisma.productVariant.aggregate({ where: { productId: product.id, userId: session.id }, _sum: { quantity: true } });
+    const legacyStock = await prisma.stockAllocation.aggregate({ where: { productId: product.id, userId: session.id }, _sum: { quantity: true } });
+    const totalQuantity = BigInt(aggregateQuantity._sum.quantity ?? 0n) + BigInt(legacyStock._sum.quantity ?? 0n);
+    await prisma.product.update({ where: { id: product.id }, data: { quantity: totalQuantity, status: totalQuantity > 0n ? "available" : "stock_out", updatedAt: new Date(), updatedBy: session.id } });
+    createAuditLog({ userId: session.id, action: "create", entityType: "product_variant", entityId: variant.id, details: { productId: product.id, productName: product.name, variantName: name, sku, initialQuantity } }).catch(() => {});
     await invalidateOnProductChange();
-    return NextResponse.json({ ...variant, quantity: 0, reservedQuantity: 0, price: Number(variant.price), purchasePrice: Number(variant.purchasePrice), stocks: [] }, { status: 201 });
+    return NextResponse.json({ ...variant, quantity: initialQuantity, reservedQuantity: 0, price: Number(variant.price), purchasePrice: Number(variant.purchasePrice), stocks: [] }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo crear la variante";
     return NextResponse.json({ error: message.includes("Unique constraint") ? "El SKU ya está en uso" : message }, { status: 400 });
