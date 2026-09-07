@@ -1,20 +1,30 @@
 "use client";
-import React from "react";
+
 import { SafeImage } from "@/components/ui/safe-image";
 import Link from "next/link";
 import { Product } from "@/types";
 import { Column, ColumnDef } from "@tanstack/react-table";
-import { CopyableText, TABLE_CATALOG_LINK_CLASS } from "@/components/shared";
+import {
+  CopyableText,
+  AvatarInlineLink,
+  PersonNameEmailCell,
+  TABLE_CATALOG_LINK_CLASS,
+} from "@/components/shared";
 import ProductsDropDown from "@/components/products/ProductActions";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { QRCodeHover } from "@/components/ui/qr-code-hover";
-import { productStockAvailableTextClass } from "@/lib/ui/semantic-badges";
 import { getDisplayCommittedQuantity } from "@/lib/products/enrich-product-committed-quantity";
 import { useStockByProduct } from "@/hooks/queries";
 import type { ProductVariantView } from "@/hooks/queries/use-product-variants";
 import { cn } from "@/lib/utils";
 import { ArrowUpDown, MapPin, Package } from "lucide-react";
 import { IoMdArrowDown, IoMdArrowUp } from "react-icons/io";
+import { ProductAvailableQuantity } from "./ProductAvailableQuantity";
 
 function detailHref(base: string, segment: string, id: string): string {
   const prefix = base ? `${base}/` : "/";
@@ -23,20 +33,32 @@ function detailHref(base: string, segment: string, id: string): string {
 
 type SortableHeaderProps = { column: Column<Product, unknown>; label: string };
 
-const SortableHeader: React.FC<SortableHeaderProps> = ({ column, label }) => {
+const SortableHeader = ({ column, label }: SortableHeaderProps) => {
   const isSorted = column.getIsSorted();
-  const SortingIcon = isSorted === "asc" ? IoMdArrowUp : isSorted === "desc" ? IoMdArrowDown : ArrowUpDown;
+  const SortingIcon =
+    isSorted === "asc"
+      ? IoMdArrowUp
+      : isSorted === "desc"
+        ? IoMdArrowDown
+        : ArrowUpDown;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <div className={`flex items-center select-none cursor-pointer gap-1 py-2 text-sm font-normal text-gray-700 dark:text-white ${isSorted ? "text-primary" : ""}`}>
+        <div
+          className={`flex items-center select-none cursor-pointer gap-1 py-2 text-sm font-normal text-gray-700 dark:text-white ${isSorted && "text-primary"}`}
+        >
           {label}
           <SortingIcon className="h-4 w-4" />
         </div>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
-        <DropdownMenuItem onClick={() => column.toggleSorting(false)}>Ascendente</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => column.toggleSorting(true)}>Descendente</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => column.toggleSorting(false)}>
+          Ascendente
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => column.toggleSorting(true)}>
+          Descendente
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -44,69 +66,104 @@ const SortableHeader: React.FC<SortableHeaderProps> = ({ column, label }) => {
 
 type VariantMap = Record<string, ProductVariantView[]>;
 
-const COLOR_DOT_CLASSES: Array<{ keys: string[]; className: string; label: string }> = [
+const COLOR_DOT_CLASSES: Array<{
+  keys: string[];
+  className: string;
+  label: string;
+}> = [
   { keys: ["rojo", "red"], className: "bg-red-500", label: "Rojo" },
-  { keys: ["morado", "purple", "violeta"], className: "bg-purple-500", label: "Morado" },
+  {
+    keys: ["morado", "purple", "violeta"],
+    className: "bg-purple-500",
+    label: "Morado",
+  },
   { keys: ["azul", "blue"], className: "bg-blue-500", label: "Azul" },
   { keys: ["verde", "green"], className: "bg-green-500", label: "Verde" },
-  { keys: ["amarillo", "yellow"], className: "bg-yellow-400", label: "Amarillo" },
-  { keys: ["naranja", "orange"], className: "bg-orange-500", label: "Naranja" },
-  { keys: ["rosa", "rosado", "pink"], className: "bg-pink-500", label: "Rosa" },
-  { keys: ["dorado", "dorada", "gold"], className: "bg-yellow-500", label: "Dorado" },
-  { keys: ["plateado", "plateada", "silver"], className: "bg-slate-300", label: "Plateado" },
-  { keys: ["negro", "negra", "black"], className: "bg-black ring-1 ring-white/50", label: "Negro" },
-  { keys: ["blanco", "blanca", "white"], className: "bg-white ring-1 ring-black/30", label: "Blanco" },
+  {
+    keys: ["amarillo", "yellow"],
+    className: "bg-yellow-400",
+    label: "Amarillo",
+  },
+  {
+    keys: ["naranja", "orange"],
+    className: "bg-orange-500",
+    label: "Naranja",
+  },
+  {
+    keys: ["rosa", "rosado", "pink"],
+    className: "bg-pink-500",
+    label: "Rosa",
+  },
+  {
+    keys: ["dorado", "dorada", "gold"],
+    className: "bg-yellow-500",
+    label: "Dorado",
+  },
+  {
+    keys: ["plateado", "plateada", "silver"],
+    className: "bg-slate-300",
+    label: "Plateado",
+  },
+  {
+    keys: ["negro", "negra", "black"],
+    className: "bg-black ring-1 ring-white/50",
+    label: "Negro",
+  },
+  {
+    keys: ["blanco", "blanca", "white"],
+    className: "bg-white ring-1 ring-black/30",
+    label: "Blanco",
+  },
   { keys: ["gris", "gray", "grey"], className: "bg-gray-500", label: "Gris" },
-  { keys: ["natural", "transparente", "clear"], className: "bg-white/20 ring-1 ring-white/60", label: "Natural" },
+  {
+    keys: ["natural", "transparente", "clear"],
+    className: "bg-white/20 ring-1 ring-white/60",
+    label: "Natural",
+  },
 ];
 
 function variantColorDot(name: string) {
   const normalized = name.trim().toLowerCase();
-  return COLOR_DOT_CLASSES.find(({ keys }) => keys.some((key) => normalized.includes(key)));
-}
-
-function VariantBreakdown({ variants }: { variants: ProductVariantView[] }) {
-  if (variants.length === 0) return null;
-  return (
-    <div className="mt-1.5 flex min-w-0 flex-col gap-1">
-      {variants.map((variant) => {
-        const available = Math.max(0, variant.quantity - variant.reservedQuantity);
-        const color = variantColorDot(variant.name);
-        return (
-          <div
-            key={variant.id}
-            className="flex min-w-0 items-center gap-1.5 text-[11px] text-violet-100"
-            title={`${variant.name} · ${available} disponibles · SKU ${variant.sku}`}
-          >
-            {color ? (
-              <span aria-label={color.label} className={cn("h-2.5 w-2.5 shrink-0 rounded-full", color.className)} />
-            ) : (
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-violet-300/50 bg-violet-400/20" />
-            )}
-            <span className="truncate">{variant.name}</span>
-            <span className="font-semibold text-white/90">{available}</span>
-          </div>
-        );
-      })}
-    </div>
+  return COLOR_DOT_CLASSES.find(({ keys }) =>
+    keys.some((key) => normalized.includes(key)),
   );
 }
 
-function ProductWarehouseCell({ productId, variantsByProductId }: { productId: string; variantsByProductId?: VariantMap }) {
+function ProductWarehouseCell({
+  productId,
+  variantsByProductId,
+}: {
+  productId: string;
+  variantsByProductId?: VariantMap;
+}) {
   const { data: allocations = [], isLoading } = useStockByProduct(productId);
-  if (isLoading) return <span className="text-xs text-muted-foreground">Cargando…</span>;
 
-  const variantStocks = (variantsByProductId?.[productId] ?? []).flatMap((variant) =>
-    variant.stocks.map((stock) => ({
-      id: `variant-${variant.id}-${stock.id}`,
-      warehouseId: stock.warehouseId,
-      warehouseName: stock.warehouseName,
-      quantity: stock.quantity,
-      reservedQuantity: stock.reservedQuantity,
-    })),
+  if (isLoading) {
+    return <span className="text-xs text-muted-foreground">Cargando…</span>;
+  }
+
+  const variantStocks = (variantsByProductId?.[productId] ?? []).flatMap(
+    (variant) =>
+      variant.stocks.map((stock) => ({
+        id: `variant-${variant.id}-${stock.id}`,
+        warehouseId: stock.warehouseId,
+        warehouseName: stock.warehouseName,
+        quantity: stock.quantity,
+        reservedQuantity: stock.reservedQuantity,
+      })),
   );
 
-  const merged = new Map<string, { id: string; warehouseId: string; warehouseName: string; quantity: number; reservedQuantity: number }>();
+  const merged = new Map<
+    string,
+    {
+      id: string;
+      warehouseId: string;
+      warehouseName: string;
+      quantity: number;
+      reservedQuantity: number;
+    }
+  >();
+
   for (const allocation of allocations) {
     const warehouseId = allocation.warehouseId;
     merged.set(warehouseId, {
@@ -117,6 +174,7 @@ function ProductWarehouseCell({ productId, variantsByProductId }: { productId: s
       reservedQuantity: Number(allocation.reservedQuantity ?? 0),
     });
   }
+
   for (const stock of variantStocks) {
     const existing = merged.get(stock.warehouseId);
     if (existing) {
@@ -128,19 +186,36 @@ function ProductWarehouseCell({ productId, variantsByProductId }: { productId: s
   }
 
   const availableAllocations = [...merged.values()].filter(
-    (allocation) => Math.max(0, allocation.quantity - allocation.reservedQuantity) > 0,
+    (allocation) =>
+      Math.max(0, allocation.quantity - allocation.reservedQuantity) > 0,
   );
-  if (availableAllocations.length === 0) return <span className="text-xs text-muted-foreground">Sin stock</span>;
+
+  if (availableAllocations.length === 0) {
+    return <span className="text-xs text-muted-foreground">Sin stock</span>;
+  }
 
   return (
     <div className="flex min-w-[145px] flex-col gap-1">
       {availableAllocations.map((allocation) => {
-        const available = Math.max(0, allocation.quantity - allocation.reservedQuantity);
+        const available = Math.max(
+          0,
+          allocation.quantity - allocation.reservedQuantity,
+        );
         return (
-          <div key={allocation.id} className="flex items-center gap-1.5 text-xs">
+          <div
+            key={allocation.id}
+            className="flex items-center gap-1.5 text-xs"
+          >
             <MapPin className="h-3.5 w-3.5 shrink-0 text-rose-400" />
-            <span className="truncate" title={allocation.warehouseName}>{allocation.warehouseName}</span>
-            <span className="ml-auto whitespace-nowrap font-semibold text-white/80">{available}</span>
+            <span
+              className="truncate"
+              title={allocation.warehouseName}
+            >
+              {allocation.warehouseName}
+            </span>
+            <span className="ml-auto whitespace-nowrap font-semibold text-white/80">
+              {available}
+            </span>
           </div>
         );
       })}
@@ -151,20 +226,40 @@ function ProductWarehouseCell({ productId, variantsByProductId }: { productId: s
 function ProductMarginCell({ product }: { product: Product }) {
   const purchase = Number(product.purchasePrice ?? 0);
   const sale = Number(product.price ?? 0);
-  if (sale <= 0 || purchase <= 0) return <span className="text-xs text-muted-foreground">—</span>;
+  if (sale <= 0 || purchase <= 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+
   const profit = sale - purchase;
   const margin = (profit / sale) * 100;
   return (
     <div className="flex min-w-[105px] flex-col gap-0.5">
-      <span className={cn("text-xs font-semibold", profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>{margin.toFixed(1)}%</span>
-      <span className="text-[11px] text-muted-foreground">Utilidad: ${profit.toFixed(2)}</span>
+      <span
+        className={cn(
+          "text-xs font-semibold",
+          profit >= 0
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-red-600 dark:text-red-400",
+        )}
+      >
+        {margin.toFixed(1)}%
+      </span>
+      <span className="text-[11px] text-muted-foreground">
+        Utilidad: ${profit.toFixed(2)}
+      </span>
     </div>
   );
 }
 
-export type CreateProductColumnsOptions = { forSupplier?: boolean; variantsByProductId?: VariantMap };
+export type CreateProductColumnsOptions = {
+  forSupplier?: boolean;
+  variantsByProductId?: VariantMap;
+};
 
-export function createProductColumns(detailBase: string = "", options?: CreateProductColumnsOptions): ColumnDef<Product>[] {
+export function createProductColumns(
+  detailBase: string = "",
+  options?: CreateProductColumnsOptions,
+): ColumnDef<Product>[] {
   const forSupplier = options?.forSupplier === true;
   const variantsByProductId = options?.variantsByProductId;
 
@@ -172,23 +267,77 @@ export function createProductColumns(detailBase: string = "", options?: CreatePr
     {
       id: "product",
       accessorKey: "name",
-      header: ({ column }) => <SortableHeader column={column} label="Producto y SKU" />,
+      header: ({ column }) => (
+        <SortableHeader column={column} label="Producto y SKU" />
+      ),
       cell: ({ row }) => {
         const p = row.original;
+        const variants = variantsByProductId?.[p.id] ?? [];
         return (
           <div className="flex items-start gap-3 min-w-0 max-w-[290px]">
             {p.imageUrl ? (
-              <SafeImage src={p.imageUrl} alt={p.name} width={48} height={48} className="h-12 w-12 shrink-0 object-cover rounded-lg border border-rose-400/30" unoptimized={p.imageUrl.includes("ik.imagekit.io")} />
+              <SafeImage
+                src={p.imageUrl}
+                alt={p.name}
+                width={48}
+                height={48}
+                className="h-12 w-12 shrink-0 object-cover rounded-lg border border-rose-400/30"
+                unoptimized={p.imageUrl.includes("ik.imagekit.io")}
+              />
             ) : (
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 border">
                 <Package className="h-5 w-5 text-muted-foreground" />
               </div>
             )}
             <div className="flex min-w-0 flex-col gap-0.5">
-              <Link href={detailHref(detailBase, "products", p.id)} prefetch className={cn("truncate", TABLE_CATALOG_LINK_CLASS)} title={p.name}>
+              <Link
+                href={detailHref(detailBase, "products", p.id)}
+                prefetch
+                className={cn("truncate", TABLE_CATALOG_LINK_CLASS)}
+                title={p.name}
+              >
                 <CopyableText value={p.name}>{p.name}</CopyableText>
               </Link>
-              <CopyableText value={p.sku} className="truncate text-muted-foreground">{p.sku}</CopyableText>
+              <CopyableText
+                value={p.sku}
+                className="truncate text-muted-foreground"
+              >
+                {p.sku}
+              </CopyableText>
+              {variants.length > 0 && (
+                <div className="mt-0.5 flex min-w-0 flex-col gap-1">
+                  {variants.map((variant) => {
+                    const available = Math.max(
+                      0,
+                      variant.quantity - variant.reservedQuantity,
+                    );
+                    const color = variantColorDot(variant.name);
+                    return (
+                      <div
+                        key={variant.id}
+                        className="flex min-w-0 items-center gap-1.5 text-[11px] text-violet-100"
+                        title={`${variant.name} · ${available} disponibles · SKU ${variant.sku}`}
+                      >
+                        {color ? (
+                          <span
+                            aria-label={color.label}
+                            className={cn(
+                              "h-2.5 w-2.5 shrink-0 rounded-full",
+                              color.className,
+                            )}
+                          />
+                        ) : (
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-violet-300/50 bg-violet-400/20" />
+                        )}
+                        <span className="truncate">{variant.name}</span>
+                        <span className="font-semibold text-white/90">
+                          {available}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         );
@@ -199,29 +348,42 @@ export function createProductColumns(detailBase: string = "", options?: CreatePr
       header: ({ column }) => <SortableHeader column={column} label="Stock" />,
       cell: ({ row }) => {
         const p = row.original;
-        const variants = variantsByProductId?.[p.id] ?? [];
         const total = Number(p.quantity) || 0;
         const reserved = getDisplayCommittedQuantity(p);
         const available = Math.max(0, total - reserved);
         const sold = Math.max(0, Number(p.statistics?.totalQuantitySold) || 0);
         return (
-          <div className="flex min-w-[175px] flex-col gap-1">
-            <div className="flex items-start gap-2">
+          <div className="flex min-w-[155px] flex-col gap-1">
+            <div className="flex items-center gap-2">
               <QRCodeHover
-                data={JSON.stringify({ id: p.id, name: p.name, sku: p.sku, price: p.price, purchasePrice: p.purchasePrice, quantity: p.quantity, status: p.status, category: p.category })}
+                data={JSON.stringify({
+                  id: p.id,
+                  name: p.name,
+                  sku: p.sku,
+                  price: p.price,
+                  purchasePrice: p.purchasePrice,
+                  quantity: p.quantity,
+                  status: p.status,
+                  category: p.category,
+                  supplier: p.supplier,
+                })}
                 qrCodeUrl={p.qrCodeUrl}
                 title={p.name}
                 size={200}
                 iconOnly
               />
-              <div className="min-w-0 pt-0.5">
-                <div className={`text-xs font-semibold ${productStockAvailableTextClass(available)}`}>{available} disponibles</div>
-                <VariantBreakdown variants={variants} />
-              </div>
+              <ProductAvailableQuantity available={available} />
             </div>
-            <div className="text-[11px] text-muted-foreground">Total: {total}</div>
-            {reserved > 0 && <div className="text-[11px] text-amber-600 dark:text-amber-400">Reservado: {reserved}</div>}
-            {sold > 0 && <div className="text-[11px] text-muted-foreground">Vendido: {sold}</div>}
+            {reserved > 0 && (
+              <div className="text-[11px] text-amber-600 dark:text-amber-400">
+                Reservado: {reserved}
+              </div>
+            )}
+            {sold > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                Vendido: {sold}
+              </div>
+            )}
           </div>
         );
       },
@@ -229,21 +391,31 @@ export function createProductColumns(detailBase: string = "", options?: CreatePr
     {
       id: "warehouse",
       header: "Ubicación",
-      cell: ({ row }) => <ProductWarehouseCell productId={row.original.id} variantsByProductId={variantsByProductId} />,
+      cell: ({ row }) => (
+        <ProductWarehouseCell
+          productId={row.original.id}
+          variantsByProductId={variantsByProductId}
+        />
+      ),
     },
     ...(!forSupplier
       ? [
           {
             accessorKey: "purchasePrice",
-            header: ({ column }: { column: Column<Product, unknown> }) => <SortableHeader column={column} label="Precio compra" />,
-            cell: ({ getValue }: { getValue: () => unknown }) => `$${Number(getValue() ?? 0).toFixed(2)}`,
+            header: ({ column }) => (
+              <SortableHeader column={column} label="Precio compra" />
+            ),
+            cell: ({ getValue }) =>
+              `$${Number(getValue<number>() ?? 0).toFixed(2)}`,
           } as ColumnDef<Product>,
         ]
       : []),
     {
       accessorKey: "price",
-      header: ({ column }) => <SortableHeader column={column} label="Precio venta" />,
-      cell: ({ getValue }) => `$${Number(getValue<number>() ?? 0).toFixed(2)}`,
+      header: ({ column }) => (
+        <SortableHeader column={column} label="Precio venta" />
+      ),
+      cell: ({ getValue }) => `$${getValue<number>().toFixed(2)}`,
     },
     ...(!forSupplier
       ? [
@@ -253,7 +425,9 @@ export function createProductColumns(detailBase: string = "", options?: CreatePr
             accessorFn: (row) => {
               const purchase = Number(row.purchasePrice ?? 0);
               const sale = Number(row.price ?? 0);
-              return sale > 0 && purchase > 0 ? ((sale - purchase) / sale) * 100 : 0;
+              return sale > 0 && purchase > 0
+                ? ((sale - purchase) / sale) * 100
+                : 0;
             },
             cell: ({ row }) => <ProductMarginCell product={row.original} />,
           } as ColumnDef<Product>,
@@ -264,14 +438,48 @@ export function createProductColumns(detailBase: string = "", options?: CreatePr
       header: "Categoría",
       cell: ({ row }) => {
         const p = row.original;
-        const n = typeof p.category === "object" && p.category ? p.category.name : (p.category as string | undefined) || "Desconocida";
-        return p.categoryId ? <Link href={detailHref(detailBase, "categories", p.categoryId)} className={TABLE_CATALOG_LINK_CLASS}>{n}</Link> : <span>{n}</span>;
+        const n =
+          typeof p.category === "object" && p.category
+            ? p.category.name
+            : (p.category as string | undefined) || "Desconocida";
+        return p.categoryId ? (
+          <Link
+            href={detailHref(detailBase, "categories", p.categoryId)}
+            className={TABLE_CATALOG_LINK_CLASS}
+          >
+            {n}
+          </Link>
+        ) : (
+          <span>{n}</span>
+        );
       },
     },
+    ...(forSupplier
+      ? [
+          {
+            id: "productOwner",
+            header: "Propietario del producto",
+            cell: ({ row }: { row: { original: Product } }) => {
+              const p = row.original;
+              return (
+                <PersonNameEmailCell
+                  seed={p.userId}
+                  name={p.productOwnerName ?? p.userId ?? "—"}
+                  email={p.productOwnerEmail}
+                  image={p.productOwnerImage}
+                  avatarSize={28}
+                />
+              );
+            },
+          } as ColumnDef<Product>,
+        ]
+      : []),
     {
       id: "actions",
       header: "Acciones",
-      cell: ({ row }) => <ProductsDropDown row={row} detailBase={detailBase} />,
+      cell: ({ row }) => (
+        <ProductsDropDown row={row} detailBase={detailBase} />
+      ),
     },
   ];
 }
