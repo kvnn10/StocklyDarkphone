@@ -56,7 +56,13 @@ export async function setNotificationPreferences(userId: string, channels: Notif
 }
 export async function claimPendingNotifications(limit = 50) {
   const col = await collection();
-  return col.find({ status: "pending", $or: [{ "delivery.whatsapp": { $exists: false } }, { "delivery.telegram": { $exists: false } }] }).sort({ createdAt: 1 }).limit(Math.min(Math.max(limit, 1), 100)).toArray();
+  return col.find({
+    status: "pending",
+    $or: [
+      { channels: "telegram", "delivery.telegram": { $nin: ["sent", "skipped"] } },
+      { channels: "whatsapp", "delivery.whatsapp": { $nin: ["sent", "skipped"] } },
+    ],
+  }).sort({ createdAt: 1 }).limit(Math.min(Math.max(limit, 1), 100)).toArray();
 }
 export async function updateNotificationDelivery(idValue: string, delivery: NotificationDelivery) { const col = await collection(); const result = await col.findOneAndUpdate({ id: idValue }, { $set: { delivery } }, { returnDocument: "after", projection: { _id: 0 } }); return result?.value ?? null; }
 export function notificationObjectId(value: string) { return ObjectId.isValid(value) ? new ObjectId(value) : null; }
