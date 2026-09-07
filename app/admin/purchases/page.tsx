@@ -46,8 +46,26 @@ export default function PurchasesPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [p, s, w, c, h] = await Promise.all([fetch("/api/products").then(r => r.json()), fetch("/api/suppliers").then(r => r.json()), fetch("/api/warehouses").then(r => r.json()), fetch("/api/categories").then(r => r.json()), fetch("/api/purchases").then(r => r.json())]);
-      setProducts(Array.isArray(p) ? p : []); setSuppliers(Array.isArray(s) ? s.filter((x: Supplier) => x.status !== false) : []); setWarehouses(Array.isArray(w) ? w.filter((x: Warehouse) => x.status !== false) : []); setCategories(Array.isArray(c) ? c.filter((x: Category) => x.status !== false) : []); setPurchases(Array.isArray(h) ? h : []);
+      const [p, s, w, c, h, v] = await Promise.all([
+        fetch("/api/products").then(r => r.json()),
+        fetch("/api/suppliers").then(r => r.json()),
+        fetch("/api/warehouses").then(r => r.json()),
+        fetch("/api/categories").then(r => r.json()),
+        fetch("/api/purchases").then(r => r.json()),
+        fetch("/api/products/variants", { cache: "no-store" }).then(r => r.json()),
+      ]);
+      setProducts(Array.isArray(p) ? p : []);
+      setSuppliers(Array.isArray(s) ? s.filter((x: Supplier) => x.status !== false) : []);
+      setWarehouses(Array.isArray(w) ? w.filter((x: Warehouse) => x.status !== false) : []);
+      setCategories(Array.isArray(c) ? c.filter((x: Category) => x.status !== false) : []);
+      setPurchases(Array.isArray(h) ? h : []);
+      if (Array.isArray(v)) {
+        const grouped = v.reduce((acc: Record<string, Variant[]>, variant: Variant & { productId: string }) => {
+          (acc[variant.productId] ??= []).push(variant);
+          return acc;
+        }, {});
+        setVariantsByProduct(grouped);
+      }
       if (!supplierId && Array.isArray(s) && s.length) setSupplierId(s.find((x: Supplier) => x.status !== false)?.id ?? s[0].id);
       if (!warehouseId && Array.isArray(w) && w.length) setWarehouseId(w.find((x: Warehouse) => x.status !== false)?.id ?? w[0].id);
     } catch { setMessage("No se pudieron cargar los datos de compras."); } finally { setLoading(false); }
