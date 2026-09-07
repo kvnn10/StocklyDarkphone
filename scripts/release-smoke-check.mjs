@@ -18,6 +18,27 @@ for (const [name, path] of checks) {
   console.log(`PASS ${name}: ${response.status}`);
 }
 
+const health = await fetch(new URL("/api/health", baseUrl), {
+  headers: { accept: "application/json" },
+});
+
+if (!health.ok) {
+  throw new Error(`health endpoint failed: HTTP ${health.status}`);
+}
+
+const healthBody = await health.json();
+const healthStatus = healthBody?.data?.status ?? healthBody?.status;
+
+if (!["HEALTHY", "DEGRADED"].includes(healthStatus)) {
+  throw new Error(`health endpoint reported unexpected status: ${String(healthStatus)}`);
+}
+
+if (healthStatus === "DEGRADED") {
+  console.warn("WARN health endpoint is DEGRADED; review optional service configuration before release.");
+}
+
+console.log(`PASS health endpoint: ${healthStatus}`);
+
 const login = await fetch(new URL("/api/auth/login", baseUrl), {
   method: "POST",
   headers: { "content-type": "application/json" },
