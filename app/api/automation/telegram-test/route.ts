@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authorizeRequest } from "@/lib/security/authorize";
+import { prisma } from "@/prisma/client";
+import { setNotificationPreferences } from "@/lib/automation/notifications";
 
 export async function POST(request: NextRequest) {
   const auth = await authorizeRequest(request, "notifications", "create");
@@ -33,9 +35,13 @@ export async function POST(request: NextRequest) {
     if (!response.ok || !data?.ok) {
       return NextResponse.json({ error: data?.description ?? `Telegram HTTP ${response.status}` }, { status: 502 });
     }
+
+    await prisma.user.update({ where: { id: auth.session.id }, data: { telegramChatId: chatId } });
+    await setNotificationPreferences(auth.session.id, ["in_app", "telegram"]);
+
     return NextResponse.json({ ok: true, chatId });
   } catch (error) {
     console.error("telegram test failed", error);
-    return NextResponse.json({ error: "No se pudo conectar con Telegram." }, { status: 502 });
+    return NextResponse.json({ error: "No se pudo completar la configuración de Telegram." }, { status: 502 });
   }
 }
