@@ -7,7 +7,7 @@ import { invalidateOnProductChange } from "@/lib/cache";
 import { mergeProductListWhere } from "@/lib/products/product-query";
 import { getSupplierByUserId } from "@/prisma/supplier";
 
-async function getAccessibleVariant(session: { id: string; role: string }, productId: string, variantId: string) {
+async function getAccessibleVariant(session: { id: string; role: string | null }, productId: string, variantId: string) {
   let accessWhere = {};
   if (session.role === "supplier") { const supplier = await getSupplierByUserId(session.id); if (!supplier) return null; accessWhere = { supplierId: supplier.id }; }
   else if (session.role !== "admin" && session.role !== "client") accessWhere = { userId: session.id };
