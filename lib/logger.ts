@@ -7,14 +7,8 @@
 import { isAxiosError, isExpectedClientError } from "@/lib/api/errors";
 import { captureException, captureMessage } from "@/lib/monitoring/sentry";
 
-/**
- * Log levels
- */
 type LogLevel = "log" | "error" | "warn" | "info" | "debug";
 
-/**
- * Logger interface
- */
 interface Logger {
   log: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
@@ -23,120 +17,78 @@ interface Logger {
   debug: (...args: unknown[]) => void;
 }
 
-/**
- * Extract error from logger arguments
- */
 function extractError(args: unknown[]): Error | null {
-  if (args.length === 0) {
-    return null;
-  }
+  if (args.length === 0) return null;
 
   const firstArg = args[0];
-  if (firstArg instanceof Error) {
-    return firstArg;
-  }
+  if (firstArg instanceof Error) return firstArg;
 
-  // Try to create error from string or object
-  if (typeof firstArg === "string") {
-    return new Error(firstArg);
-  }
+  if (typeof firstArg === "string") return new Error(firstArg);
 
   if (typeof firstArg === "object" && firstArg !== null) {
-    if ("error" in firstArg && firstArg.error instanceof Error) {
-      return firstArg.error as Error;
-    }
+    if ("error" in firstArg && firstArg.error instanceof Error) return firstArg.error;
     if ("message" in firstArg && typeof firstArg.message === "string") {
-      return new Error(firstArg.message as string);
+      return new Error(firstArg.message);
     }
   }
 
   return null;
 }
 
-/**
- * Resolve the primary error/cause from logger.error arguments
- */
 function resolvePrimaryError(args: unknown[]): unknown {
   if (args.length > 1) {
-    if (args[1] instanceof Error) {
-      return args[1];
-    }
-    if (isAxiosError(args[1])) {
-      return args[1];
-    }
+    if (args[1] instanceof Error) return args[1];
+    if (isAxiosError(args[1])) return args[1];
   }
   return extractError(args);
 }
 
-/**
- * Create a logger function for a specific level
- */
-const createLogger = (level: LogLevel): (...args: unknown[]) => void => {
+function getContext(args: unknown[]): Record<string, unknown> | undefined {
+  const context: Record<string, unknown> = {};
+
+  if (typeof args[0] === "string") context.label = args[0];
+
+  for (const arg of args.slice(1)) {
+    if (arg && typeof arg === "object" && !(arg instanceof Error)) {
+      Object.assign(context, arg as Record<string, unknown>);
+    }
+  }
+
+  return Object.keys(context).length > 0 ? context : undefined;
+}
+
+const createLogger = (level: LogLevel): ((...args: unknown[]) => void) => {
   if (process.env.NODE_ENV === "production") {
-    // In production, send errors to Sentry and suppress console logs
     if (level === "error") {
       return (...args: unknown[]) => {
         const primary = resolvePrimaryError(args);
-        if (isExpectedClientError(primary)) {
-          return;
-        }
+        if (isExpectedClientError(primary)) return;
 
-        // Pattern: logger.error("label:", realError) — use the Error instance as primary exception
-        // so Sentry shows the real error message, not the label string
-        if (
-          args.length > 1 &&
-          args[1] instanceof Error &&
-          typeof args[0] === "string"
-        ) {
-          captureException(args[1], { label: args[0] });
-          return;
-        }
-        const error = extractError(args);
-        if (error) {
-          // Send to Sentry if configured
-          if (args.length > 1 && typeof args[1] === "object") {
-            captureException(error, args[1] as Record<string, unknown>);
-          } else {
-            captureException(error);
-          }
+        const context = getContext(args);
+
+        if (primary instanceof Error) {
+          captureException(primary, context);
         } else if (args.length > 0) {
-          // Try to send as message if not an error
-          const message = String(args[0]);
-          const context =
-            args.length > 1 && typeof args[1] === "object"
-              ? (args[1] as Record<string, unknown>)
-              : undefined;
-          captureMessage(message, "error", context);
+          captureMessage(String(args[0]), "error", context);
         }
       };
     }
+
     if (level === "warn") {
       return (...args: unknown[]) => {
-        if (args.length > 0) {
-          const message = String(args[0]);
-          const context =
-            args.length > 1 && typeof args[1] === "object"
-              ? (args[1] as Record<string, unknown>)
-              : undefined;
-          captureMessage(message, "warning", context);
-        }
+        if (args.length === 0) return;
+        captureMessage(String(args[0]), "warning", getContext(args));
       };
     }
-    // No-op for other levels in production
+
     return () => {};
   }
 
-  // Development mode: log to console
   return (...args: unknown[]) => {
     console[level](...args);
   };
 };
 
-/**
- * Logger instance
- * Only logs in development mode
- * Sends errors to Sentry in production when configured
- */
 export const logger: Logger = {
   log: createLogger("log"),
   error: createLogger("error"),
