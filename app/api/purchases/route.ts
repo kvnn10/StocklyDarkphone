@@ -42,13 +42,19 @@ export async function POST(request: NextRequest) {
     if (!warehouse) return NextResponse.json({ error: "Almacén no encontrado o inactivo" }, { status: 404 });
     const rawItems = Array.isArray(body.items) ? body.items : [];
     if (!rawItems.length) return NextResponse.json({ error: "La compra debe tener al menos un producto" }, { status: 400 });
-    const items = rawItems.map((item: any) => ({ productId: String(item.productId ?? ""), quantity: Math.floor(Number(item.quantity)), receivedQuantity: item.receivedQuantity === undefined ? Math.floor(Number(item.quantity)) : Math.floor(Number(item.receivedQuantity)), unitCost: Number(item.unitCost) })).filter((i: any) => i.productId && Number.isInteger(i.quantity) && i.quantity > 0 && Number.isInteger(i.receivedQuantity) && i.receivedQuantity >= 0 && i.receivedQuantity <= i.quantity && Number.isFinite(i.unitCost) && i.unitCost >= 0);
-    if (items.length !== rawItems.length) return NextResponse.json({ error: "Hay productos con cantidad, recepción o costo inválido" }, { status: 400 });
+    const items = rawItems.map((item: any) => ({ productId: String(item.productId ?? ""), variantId: item.variantId ? String(item.variantId) : null, quantity: Math.floor(Number(item.quantity)), receivedQuantity: item.receivedQuantity === undefined ? Math.floor(Number(item.quantity)) : Math.floor(Number(item.receivedQuantity)), unitCost: Number(item.unitCost) })).filter((i: any) => i.productId && (!i.variantId || validObjectId(i.variantId)) && Number.isInteger(i.quantity) && i.quantity > 0 && Number.isInteger(i.receivedQuantity) && i.receivedQuantity >= 0 && i.receivedQuantity <= i.quantity && Number.isFinite(i.unitCost) && i.unitCost >= 0);
+    if (items.length !== rawItems.length) return NextResponse.json({ error: "Hay productos con variante, cantidad, recepción o costo inválido" }, { status: 400 });
+    const keys = items.map((i: any) => `${i.productId}:${i.variantId ?? "base"}`);
+    if (new Set(keys).size !== keys.length) return NextResponse.json({ error: "No repitas la misma combinación de producto y variante" }, { status: 400 });
     const ids: string[] = Array.from(new Set<string>(items.map((i: any) => i.productId)));
-    if (ids.length !== items.length) return NextResponse.json({ error: "No repitas el mismo producto; ajusta su cantidad" }, { status: 400 });
     const products = await prisma.product.findMany({ where: mergeProductListWhere({ userId: session.id, id: { in: ids } }), select: { id: true, name: true, sku: true, quantity: true, purchasePrice: true } });
     if (products.length !== ids.length) return NextResponse.json({ error: "Uno o más productos no existen o no pertenecen a tu inventario" }, { status: 404 });
     const productMap = new Map(products.map(p => [p.id, p]));
+    const variantIds = items.filter((i: any) => i.variantId).map((i: any) => i.variantId) as string[];
+    const variants = variantIds.length ? await prisma.productVariant.findMany({ where: { id: { in: variantIds }, userId: session.id }, select: { id: true, productId: true, name: true, sku: true, price: true, purchasePrice: true, quantity: true } }) : [];
+    if (variants.length !== variantIds.length) return NextResponse.json({ error: "Una o más variantes no existen o no pertenecen a tu inventario" }, { status: 404 });
+    const variantMap = new Map(variants.map(v => [v.id, v]));
+    for (const item of items) if (item.variantId && variantMap.get(item.variantId)?.productId !== item.productId) return NextResponse.json({ error: "La variante no pertenece al producto seleccionado" }, { status: 400 });
     const subtotal = items.reduce((sum: number, i: any) => sum + i.quantity * i.unitCost, 0);
     const discount = Math.min(subtotal, Math.max(0, Number(body.discount) || 0));
     const tax = Math.max(0, Number(body.tax) || 0);
@@ -65,19 +71,37 @@ export async function POST(request: NextRequest) {
     const allReceived = items.every((i: any) => i.receivedQuantity === i.quantity);
     const anyReceived = items.some((i: any) => i.receivedQuantity > 0);
     const purchase = await prisma.$transaction(async tx => {
-      const created = await tx.purchaseOrder.create({ data: { purchaseNumber, supplierId: supplier.id, warehouseId: warehouse.id, userId: session.id, status: allReceived ? "received" : anyReceived ? "partial" : "pending", subtotal, discount, tax, shipping, total, supplierInvoice, paymentMode, paymentMethod: paymentMode === "paid" ? paymentMethod : null, dueDate: paymentMode === "credit" ? dueDate : null, notes, orderedAt: now, receivedAt: allReceived ? now : null, createdAt: now, createdBy: session.id, items: { create: items.map((i: any) => { const p = productMap.get(i.productId)!; return { productId: p.id, productName: p.name, sku: p.sku, orderedQuantity: i.quantity, receivedQuantity: i.receivedQuantity, unitCost: i.unitCost, subtotal: i.quantity * i.unitCost }; }) } } });
+      const created = await tx.purchaseOrder.create({ data: { purchaseNumber, supplierId: supplier.id, warehouseId: warehouse.id, userId: session.id, status: allReceived ? "received" : anyReceived ? "partial" : "pending", subtotal, discount, tax, shipping, total, supplierInvoice, paymentMode, paymentMethod: paymentMode === "paid" ? paymentMethod : null, dueDate: paymentMode === "credit" ? dueDate : null, notes, orderedAt: now, receivedAt: allReceived ? now : null, createdAt: now, createdBy: session.id, items: { create: items.map((i: any) => { const p = productMap.get(i.productId)!; const v = i.variantId ? variantMap.get(i.variantId) : null; return { productId: p.id, variantId: v?.id ?? null, productName: p.name, variantName: v?.name ?? null, sku: v?.sku ?? p.sku, orderedQuantity: i.quantity, receivedQuantity: i.receivedQuantity, unitCost: i.unitCost, subtotal: i.quantity * i.unitCost }; }) } } });
       for (const item of items) {
         if (item.receivedQuantity <= 0) continue;
         const product = productMap.get(item.productId)!;
-        const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: product.id, warehouseId: warehouse.id } } });
-        const previousAllocation = allocation ? Number(allocation.quantity) : 0;
-        const previousProductStock = Number(product.quantity);
-        if (allocation) await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: BigInt(previousAllocation + item.receivedQuantity), updatedAt: now } });
-        else await tx.stockAllocation.create({ data: { productId: product.id, warehouseId: warehouse.id, quantity: BigInt(item.receivedQuantity), reservedQuantity: 0n, userId: session.id, createdAt: now, updatedAt: now } });
-        const allocations = await tx.stockAllocation.findMany({ where: { productId: product.id }, select: { quantity: true } });
-        const newStock = allocations.reduce((sum, a) => sum + Number(a.quantity), 0);
-        await tx.product.update({ where: { id: product.id }, data: { quantity: BigInt(newStock), purchasePrice: item.unitCost, updatedBy: session.id, updatedAt: now } });
-        await tx.inventoryMovement.create({ data: { productId: product.id, warehouseId: warehouse.id, userId: session.id, type: "purchase", quantity: BigInt(item.receivedQuantity), previousStock: BigInt(previousProductStock), newStock: BigInt(newStock), reason: "Compra de inventario", referenceId: created.id, notes: `Compra ${purchaseNumber}`, createdAt: now } });
+        if (item.variantId) {
+          const variant = variantMap.get(item.variantId)!;
+          const stock = await tx.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: variant.id, warehouseId: warehouse.id } } });
+          const previousVariantStock = stock ? Number(stock.quantity) : 0;
+          if (stock) await tx.productVariantStock.update({ where: { id: stock.id }, data: { quantity: BigInt(previousVariantStock + item.receivedQuantity), updatedAt: now } });
+          else await tx.productVariantStock.create({ data: { variantId: variant.id, warehouseId: warehouse.id, quantity: BigInt(item.receivedQuantity), reservedQuantity: 0n, userId: session.id, createdAt: now, updatedAt: now } });
+          const variantStocks = await tx.productVariantStock.findMany({ where: { variantId: variant.id }, select: { quantity: true } });
+          const newVariantStock = variantStocks.reduce((sum, a) => sum + Number(a.quantity), 0);
+          await tx.productVariant.update({ where: { id: variant.id }, data: { quantity: BigInt(newVariantStock), purchasePrice: item.unitCost, updatedBy: session.id, updatedAt: now } });
+          const legacyAllocations = await tx.stockAllocation.findMany({ where: { productId: product.id }, select: { quantity: true } });
+          const allVariants = await tx.productVariant.findMany({ where: { productId: product.id }, select: { quantity: true } });
+          const newProductStock = legacyAllocations.reduce((sum, a) => sum + Number(a.quantity), 0) + allVariants.reduce((sum, v) => sum + Number(v.quantity), 0);
+          const previousProductStock = Number(product.quantity);
+          await tx.product.update({ where: { id: product.id }, data: { quantity: BigInt(newProductStock), updatedBy: session.id, updatedAt: now } });
+          await tx.inventoryMovement.create({ data: { productId: product.id, variantId: variant.id, warehouseId: warehouse.id, userId: session.id, type: "purchase", quantity: BigInt(item.receivedQuantity), previousStock: BigInt(previousProductStock), newStock: BigInt(newProductStock), reason: "Compra de inventario", referenceId: created.id, notes: `Compra ${purchaseNumber} · ${variant.name}`, createdAt: now } });
+        } else {
+          const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: product.id, warehouseId: warehouse.id } } });
+          const previousAllocation = allocation ? Number(allocation.quantity) : 0;
+          const previousProductStock = Number(product.quantity);
+          if (allocation) await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: BigInt(previousAllocation + item.receivedQuantity), updatedAt: now } });
+          else await tx.stockAllocation.create({ data: { productId: product.id, warehouseId: warehouse.id, quantity: BigInt(item.receivedQuantity), reservedQuantity: 0n, userId: session.id, createdAt: now, updatedAt: now } });
+          const allocations = await tx.stockAllocation.findMany({ where: { productId: product.id }, select: { quantity: true } });
+          const variantRows = await tx.productVariant.findMany({ where: { productId: product.id }, select: { quantity: true } });
+          const newStock = allocations.reduce((sum, a) => sum + Number(a.quantity), 0) + variantRows.reduce((sum, v) => sum + Number(v.quantity), 0);
+          await tx.product.update({ where: { id: product.id }, data: { quantity: BigInt(newStock), purchasePrice: item.unitCost, updatedBy: session.id, updatedAt: now } });
+          await tx.inventoryMovement.create({ data: { productId: product.id, variantId: null, warehouseId: warehouse.id, userId: session.id, type: "purchase", quantity: BigInt(item.receivedQuantity), previousStock: BigInt(previousProductStock), newStock: BigInt(newStock), reason: "Compra de inventario", referenceId: created.id, notes: `Compra ${purchaseNumber}`, createdAt: now } });
+        }
       }
       return created;
     });
