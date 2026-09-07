@@ -27,6 +27,33 @@ const lines: BatteryLine[] = [
 
 const money = (n: number) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
 
+async function fetchJsonWithRetry(url: string, init?: RequestInit, retries = 2): Promise<{ response: Response; data: any }> {
+  let lastResponse: Response | null = null;
+  let lastData: any = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const response = await fetch(url, { ...init, cache: "no-store" });
+    const text = await response.text();
+    let data: any = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = null;
+    }
+
+    lastResponse = response;
+    lastData = data;
+
+    if (response.ok || ![429, 500, 502, 503, 504].includes(response.status) || attempt === retries) {
+      return { response, data };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+  }
+
+  return { response: lastResponse!, data: lastData };
+}
+
 export default function BatteryPurchaseQuickLoad() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -52,24 +79,20 @@ export default function BatteryPurchaseQuickLoad() {
     setError("");
 
     try {
-      const [productsResponse, suppliersResponse, warehousesResponse, categoriesResponse] = await Promise.all([
-        fetch("/api/products", { cache: "no-store" }),
-        fetch("/api/suppliers", { cache: "no-store" }),
-        fetch("/api/warehouses", { cache: "no-store" }),
-        fetch("/api/categories", { cache: "no-store" }),
-      ]);
+      const productsResult = await fetchJsonWithRetry("/api/products");
+      const suppliersResult = await fetchJsonWithRetry("/api/suppliers");
+      const warehousesResult = await fetchJsonWithRetry("/api/warehouses");
+      const categoriesResult = await fetchJsonWithRetry("/api/categories");
 
-      const [products, suppliers, warehouses, categories] = await Promise.all([
-        productsResponse.json(),
-        suppliersResponse.json(),
-        warehousesResponse.json(),
-        categoriesResponse.json(),
-      ]);
+      const { response: productsResponse, data: products } = productsResult;
+      const { response: suppliersResponse, data: suppliers } = suppliersResult;
+      const { response: warehousesResponse, data: warehouses } = warehousesResult;
+      const { response: categoriesResponse, data: categories } = categoriesResult;
 
-      if (!productsResponse.ok || !Array.isArray(products)) throw new Error("No se pudieron cargar los productos.");
-      if (!suppliersResponse.ok || !Array.isArray(suppliers)) throw new Error("No se pudieron cargar los proveedores.");
-      if (!warehousesResponse.ok || !Array.isArray(warehouses)) throw new Error("No se pudieron cargar las bodegas.");
-      if (!categoriesResponse.ok || !Array.isArray(categories)) throw new Error("No se pudieron cargar las categorías.");
+      if (!productsResponse.ok || !Array.isArray(products)) throw new Error(`No se pudieron cargar los productos (${productsResponse.status}). Intenta nuevamente en unos segundos.`);
+      if (!suppliersResponse.ok || !Array.isArray(suppliers)) throw new Error(`No se pudieron cargar los proveedores (${suppliersResponse.status}).`);
+      if (!warehousesResponse.ok || !Array.isArray(warehouses)) throw new Error(`No se pudieron cargar las bodegas (${warehousesResponse.status}).`);
+      if (!categoriesResponse.ok || !Array.isArray(categories)) throw new Error(`No se pudieron cargar las categorías (${categoriesResponse.status}).`);
 
       const supplier: Supplier | undefined = suppliers.find((item: Supplier) => item.status !== false && item.name.trim().toLowerCase() === "aliexpress") ?? suppliers.find((item: Supplier) => item.status !== false);
       const warehouse: Warehouse | undefined = warehouses.find((item: Warehouse) => item.status !== false && item.name.trim().toLowerCase() === "darkphone") ?? warehouses.find((item: Warehouse) => item.status !== false);
@@ -87,7 +110,7 @@ export default function BatteryPurchaseQuickLoad() {
           continue;
         }
 
-        const response = await fetch("/api/products", {
+        const { response, data: created } = await fetchJsonWithRetry("/api/products", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -101,7 +124,6 @@ export default function BatteryPurchaseQuickLoad() {
             supplierId: supplier.id,
           }),
         });
-        const created = await response.json();
         if (!response.ok) throw new Error(created?.error || `No se pudo crear ${line.name}.`);
         productMap.set(line.sku, created);
       }
@@ -113,7 +135,7 @@ export default function BatteryPurchaseQuickLoad() {
         unitCost: line.unitCost,
       }));
 
-      const purchaseResponse = await fetch("/api/purchases", {
+      const { response: purchaseResponse, data: purchase } = await fetchJsonWithRetry("/api/purchases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -127,9 +149,8 @@ export default function BatteryPurchaseQuickLoad() {
           notes: "Carga inicial de baterías Vormir — inversión real $3.961.000 COP.",
           items,
         }),
-      });
+      }, 1);
 
-      const purchase = await purchaseResponse.json();
       if (!purchaseResponse.ok) throw new Error(purchase?.error || "No se pudo registrar la compra.");
 
       setMessage(`Compra ${purchase.purchaseNumber} registrada. ${quantity} unidades agregadas al inventario por ${money(total)}.`);
