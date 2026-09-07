@@ -5,6 +5,14 @@ import { writeAuditLog } from "@/lib/audit/log";
 import { scheduleInvalidateProductCaches, scheduleInvalidateStockAllocationCaches } from "@/lib/cache";
 import { validObjectId } from "@/lib/finance/financial-ledger";
 
+async function calculateProductStock(tx: any, productId: string) {
+  const [allocations, variants] = await Promise.all([
+    tx.stockAllocation.findMany({ where: { productId }, select: { quantity: true } }),
+    tx.productVariant.findMany({ where: { productId }, select: { quantity: true } }),
+  ]);
+  return allocations.reduce((sum: number, row: any) => sum + Number(row.quantity), 0) + variants.reduce((sum: number, row: any) => sum + Number(row.quantity), 0);
+}
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await authorizeRequest(request, "finance", "read");
   if (auth.response) return auth.response;
@@ -39,33 +47,57 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       for (const item of purchase.items) {
         const q = requested.get(item.id) ?? 0;
         if (!Number.isInteger(q) || q <= 0) continue;
-        const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: purchase.warehouseId! } } });
         const previousProduct = await tx.product.findUnique({ where: { id: item.productId }, select: { quantity: true } });
         if (!previousProduct) throw new Error(`Producto no encontrado: ${item.productName}`);
         if (action === "receive") {
           const pending = item.orderedQuantity - item.receivedQuantity;
-          if (q > pending) throw new Error(`No puedes recibir más de lo pendiente para ${item.productName}`);
-          const previousAllocation = allocation ? Number(allocation.quantity) : 0;
-          if (allocation) await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: BigInt(previousAllocation + q), updatedAt: now } });
-          else await tx.stockAllocation.create({ data: { productId: item.productId, warehouseId: purchase.warehouseId!, quantity: BigInt(q), reservedQuantity: 0n, userId: session.id, createdAt: now, updatedAt: now } });
-          const allocations = await tx.stockAllocation.findMany({ where: { productId: item.productId }, select: { quantity: true } });
-          const newStock = allocations.reduce((sum, a) => sum + Number(a.quantity), 0);
-          await tx.product.update({ where: { id: item.productId }, data: { quantity: BigInt(newStock), purchasePrice: item.unitCost, updatedBy: session.id, updatedAt: now } });
+          if (q > pending) throw new Error(`No puedes recibir más de lo pendiente para ${item.productName}${item.variantName ? ` · ${item.variantName}` : ""}`);
+          if (item.variantId) {
+            const variant = await tx.productVariant.findFirst({ where: { id: item.variantId, productId: item.productId, userId: session.id } });
+            if (!variant) throw new Error(`Variante no encontrada: ${item.variantName ?? item.productName}`);
+            const stock = await tx.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: variant.id, warehouseId: purchase.warehouseId! } } });
+            const previousVariantStock = stock ? Number(stock.quantity) : 0;
+            if (stock) await tx.productVariantStock.update({ where: { id: stock.id }, data: { quantity: BigInt(previousVariantStock + q), updatedAt: now } });
+            else await tx.productVariantStock.create({ data: { variantId: variant.id, warehouseId: purchase.warehouseId!, quantity: BigInt(q), reservedQuantity: 0n, userId: session.id, createdAt: now, updatedAt: now } });
+            const variantStocks = await tx.productVariantStock.findMany({ where: { variantId: variant.id }, select: { quantity: true } });
+            const variantStock = variantStocks.reduce((sum: number, row: any) => sum + Number(row.quantity), 0);
+            await tx.productVariant.update({ where: { id: variant.id }, data: { quantity: BigInt(variantStock), purchasePrice: item.unitCost, updatedBy: session.id, updatedAt: now } });
+          } else {
+            const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: purchase.warehouseId! } } });
+            const previousAllocation = allocation ? Number(allocation.quantity) : 0;
+            if (allocation) await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: BigInt(previousAllocation + q), updatedAt: now } });
+            else await tx.stockAllocation.create({ data: { productId: item.productId, warehouseId: purchase.warehouseId!, quantity: BigInt(q), reservedQuantity: 0n, userId: session.id, createdAt: now, updatedAt: now } });
+            await tx.product.update({ where: { id: item.productId }, data: { purchasePrice: item.unitCost, updatedBy: session.id, updatedAt: now } });
+          }
+          const newStock = await calculateProductStock(tx, item.productId);
+          await tx.product.update({ where: { id: item.productId }, data: { quantity: BigInt(newStock), updatedBy: session.id, updatedAt: now } });
           await tx.purchaseOrderItem.update({ where: { id: item.id }, data: { receivedQuantity: item.receivedQuantity + q } });
-          await tx.inventoryMovement.create({ data: { productId: item.productId, warehouseId: purchase.warehouseId!, userId: session.id, type: "purchase_receipt", quantity: BigInt(q), previousStock: previousProduct.quantity, newStock: BigInt(newStock), reason: "Recepción de compra", referenceId: purchase.id, notes: `Compra ${purchase.purchaseNumber}`, createdAt: now } });
+          await tx.inventoryMovement.create({ data: { productId: item.productId, variantId: item.variantId ?? null, warehouseId: purchase.warehouseId!, userId: session.id, type: "purchase_receipt", quantity: BigInt(q), previousStock: previousProduct.quantity, newStock: BigInt(newStock), reason: "Recepción de compra", referenceId: purchase.id, notes: `Compra ${purchase.purchaseNumber}${item.variantName ? ` · ${item.variantName}` : ""}`, createdAt: now } });
         } else {
           const returnable = item.receivedQuantity - item.returnedQuantity;
-          if (q > returnable) throw new Error(`No puedes devolver más de lo recibido para ${item.productName}`);
-          const previousAllocation = allocation ? Number(allocation.quantity) : 0;
-          if (previousAllocation < q) throw new Error(`Stock insuficiente para devolver ${item.productName}`);
-          const nextAllocation = previousAllocation - q;
-          if (allocation && nextAllocation === 0) await tx.stockAllocation.delete({ where: { id: allocation.id } });
-          else if (allocation) await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: BigInt(nextAllocation), updatedAt: now } });
-          const allocations = await tx.stockAllocation.findMany({ where: { productId: item.productId }, select: { quantity: true } });
-          const newStock = allocations.reduce((sum, a) => sum + Number(a.quantity), 0);
+          if (q > returnable) throw new Error(`No puedes devolver más de lo recibido para ${item.productName}${item.variantName ? ` · ${item.variantName}` : ""}`);
+          if (item.variantId) {
+            const stock = await tx.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: item.variantId, warehouseId: purchase.warehouseId! } } });
+            const previousAllocation = stock ? Number(stock.quantity) : 0;
+            if (!stock || previousAllocation < q) throw new Error(`Stock insuficiente para devolver ${item.productName}${item.variantName ? ` · ${item.variantName}` : ""}`);
+            const nextAllocation = previousAllocation - q;
+            if (nextAllocation === 0) await tx.productVariantStock.delete({ where: { id: stock.id } });
+            else await tx.productVariantStock.update({ where: { id: stock.id }, data: { quantity: BigInt(nextAllocation), updatedAt: now } });
+            const stocks = await tx.productVariantStock.findMany({ where: { variantId: item.variantId }, select: { quantity: true } });
+            const nextVariantStock = stocks.reduce((sum: number, row: any) => sum + Number(row.quantity), 0);
+            await tx.productVariant.update({ where: { id: item.variantId }, data: { quantity: BigInt(nextVariantStock), updatedBy: session.id, updatedAt: now } });
+          } else {
+            const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: purchase.warehouseId! } } });
+            const previousAllocation = allocation ? Number(allocation.quantity) : 0;
+            if (!allocation || previousAllocation < q) throw new Error(`Stock insuficiente para devolver ${item.productName}`);
+            const nextAllocation = previousAllocation - q;
+            if (nextAllocation === 0) await tx.stockAllocation.delete({ where: { id: allocation.id } });
+            else await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: BigInt(nextAllocation), updatedAt: now } });
+          }
+          const newStock = await calculateProductStock(tx, item.productId);
           await tx.product.update({ where: { id: item.productId }, data: { quantity: BigInt(newStock), updatedBy: session.id, updatedAt: now } });
           await tx.purchaseOrderItem.update({ where: { id: item.id }, data: { returnedQuantity: item.returnedQuantity + q } });
-          await tx.inventoryMovement.create({ data: { productId: item.productId, warehouseId: purchase.warehouseId!, userId: session.id, type: "purchase_return", quantity: BigInt(-q), previousStock: previousProduct.quantity, newStock: BigInt(newStock), reason: "Devolución a proveedor", referenceId: purchase.id, notes: `Compra ${purchase.purchaseNumber}`, createdAt: now } });
+          await tx.inventoryMovement.create({ data: { productId: item.productId, variantId: item.variantId ?? null, warehouseId: purchase.warehouseId!, userId: session.id, type: "purchase_return", quantity: BigInt(-q), previousStock: previousProduct.quantity, newStock: BigInt(newStock), reason: "Devolución a proveedor", referenceId: purchase.id, notes: `Compra ${purchase.purchaseNumber}${item.variantName ? ` · ${item.variantName}` : ""}`, createdAt: now } });
         }
       }
       const updatedItems = await tx.purchaseOrderItem.findMany({ where: { purchaseOrderId: purchase.id } });
