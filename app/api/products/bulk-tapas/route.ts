@@ -29,28 +29,6 @@ function slug(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-async function uniqueProductSku(base: string, userId: string, existingId?: string) {
-  const normalizedBase = base.toUpperCase();
-  let candidate = normalizedBase;
-  let suffix = 1;
-  while (true) {
-    const existing = await prisma.product.findUnique({ where: { sku: candidate }, select: { id: true, userId: true } });
-    if (!existing || existing.id === existingId || existing.userId === userId) return candidate;
-    candidate = `${normalizedBase}-${suffix++}`;
-  }
-}
-
-async function uniqueVariantSku(base: string, existingId?: string) {
-  const normalizedBase = base.toUpperCase();
-  let candidate = normalizedBase;
-  let suffix = 1;
-  while (true) {
-    const existing = await prisma.productVariant.findUnique({ where: { sku: candidate }, select: { id: true } });
-    if (!existing || existing.id === existingId) return candidate;
-    candidate = `${normalizedBase}-${suffix++}`;
-  }
-}
-
 export async function POST(request: NextRequest) {
   try {
     const authorization = await authorizeRequest(request, "products", "adjust_stock");
