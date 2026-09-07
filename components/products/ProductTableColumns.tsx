@@ -46,7 +46,7 @@ const SortableHeader = ({ column, label }: SortableHeaderProps) => {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <div
-          className={`flex items-center select-none cursor-pointer gap-1 py-2 text-sm font-normal text-gray-700 dark:text-white ${isSorted && "text-primary"}`}
+          className={`flex items-center select-none cursor-pointer gap-1 py-2 text-sm font-normal text-gray-700 dark:text-white ${isSorted ? "text-primary" : ""}`}
         >
           {label}
           <SortingIcon className="h-4 w-4" />
