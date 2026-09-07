@@ -36,13 +36,11 @@ export default function ProductVariantsSection({ productId, initialVariants = []
   }, [productId, initialVariants.length]);
 
   useEffect(() => {
-    const h1 = document.querySelector("h1");
-    if (!h1) return;
-
-    // The detail header is the h1's nearest PageSectionHeader wrapper.
-    // Keep a fallback to the immediate header parent so the variants never
-    // disappear if the shared header spacing class changes in the future.
-    const header = h1.closest<HTMLElement>(".pb-0") ?? h1.parentElement?.parentElement;
+    // PageSectionHeader exposes a stable semantic hook specifically for
+    // detail-page extensions. Do not infer layout from utility classes.
+    const header = document.querySelector<HTMLElement>(
+      '[data-page-section-header="true"]',
+    );
     const shell = header?.parentElement;
     if (!header || !shell) return;
 
@@ -62,7 +60,7 @@ export default function ProductVariantsSection({ productId, initialVariants = []
 
   const content = (
     <PageContentWrapper>
-      <div className="mx-auto w-full max-w-6xl pb-6">
+      <div className="w-full pb-6">
         <GlassCard variant="violet">
           <GlassCardBody className="p-4 sm:p-5">
             <SectionTitleRow

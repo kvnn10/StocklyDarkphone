@@ -40,6 +40,7 @@ export function PageSectionHeader({
 
   return (
     <div
+      data-page-section-header="true"
       className={cn(
         "flex items-stretch gap-2 sm:gap-3 text-left",
         PAGE_SECTION_HEADER_SPACING_CLASS,
