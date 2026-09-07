@@ -5,18 +5,18 @@
 
 /** DialogContent base — pair with feature-specific border/shadow classes */
 export const DIALOG_EDGE_SCROLL_SHELL =
-  "flex max-h-[90vh] flex-col overflow-hidden min-w-0 pl-4 sm:pl-8 pt-4 sm:pt-7 pb-4 sm:pb-7 pr-0";
+  "flex w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] sm:w-auto sm:max-w-3xl max-h-[calc(100dvh-1rem)] sm:max-h-[90vh] flex-col overflow-hidden min-w-0 pl-3 sm:pl-8 pt-4 sm:pt-7 pb-3 sm:pb-7 pr-0";
 
 /** DialogHeader — inset content, not the scroll track */
-export const DIALOG_EDGE_SCROLL_HEADER = "flex-shrink-0 pb-0.5 pr-4 sm:pr-8";
+export const DIALOG_EDGE_SCROLL_HEADER = "flex-shrink-0 min-w-0 pb-0.5 pr-3 sm:pr-8";
 
-/** Full-width scroll region; y-scrollbar flush to the shell right edge (no overflow-x-hidden — avoids clipping input/table shadows) */
+/** Full-width scroll region; y-scrollbar flush to the shell right edge */
 export const DIALOG_EDGE_SCROLL_BODY =
-  "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto w-full";
+  "flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden w-full overscroll-contain";
 
 /** Padded content inside the scroll region */
 /** pl-2 gives rose input shadow room on the left inside the scroll area */
-export const DIALOG_EDGE_SCROLL_INNER = "flex flex-col pr-4 sm:pr-8 pl-2 pb-4";
+export const DIALOG_EDGE_SCROLL_INNER = "flex min-w-0 max-w-full flex-col pr-3 sm:pr-8 pl-2 pb-4";
 
 /** Wrapper around dialog embedded list tables */
 export const DIALOG_TABLE_SECTION = "mt-6 min-w-0";
