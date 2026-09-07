@@ -35,7 +35,7 @@ export default function ProductVariantsSection({ productId }: Props) {
         <GlassCard variant="violet">
           <GlassCardBody>
             <SectionTitleRow
-              as="h2"
+              as="h3"
               icon={Layers}
               iconClassName="text-violet-600 dark:text-violet-400"
               iconTile
