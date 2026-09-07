@@ -147,8 +147,8 @@ export async function POST(request: NextRequest) {
 
     await createAuditLog({
       userId: session.id,
-      action: "create",
-      entityType: "inventory_bulk_import",
+      action: "import",
+      entityType: "product",
       details: { type: "tapas_lot", warehouse: WAREHOUSE, category: CATEGORY, units: result.reduce((sum, x) => sum + x.quantity, 0), cost: COST, price: PRICE, items: result },
     });
 
