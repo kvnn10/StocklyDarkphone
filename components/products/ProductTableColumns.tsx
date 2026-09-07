@@ -129,6 +129,43 @@ function variantColorDot(name: string) {
   );
 }
 
+function VariantBreakdown({ variants }: { variants: ProductVariantView[] }) {
+  if (variants.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex min-w-0 flex-col gap-1">
+      {variants.map((variant) => {
+        const available = Math.max(
+          0,
+          variant.quantity - variant.reservedQuantity,
+        );
+        const color = variantColorDot(variant.name);
+        return (
+          <div
+            key={variant.id}
+            className="flex min-w-0 items-center gap-1.5 text-[11px] text-violet-100"
+            title={`${variant.name} · ${available} disponibles · SKU ${variant.sku}`}
+          >
+            {color ? (
+              <span
+                aria-label={color.label}
+                className={cn(
+                  "h-2.5 w-2.5 shrink-0 rounded-full",
+                  color.className,
+                )}
+              />
+            ) : (
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-violet-300/50 bg-violet-400/20" />
+            )}
+            <span className="truncate">{variant.name}</span>
+            <span className="font-semibold text-white/90">{available}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProductWarehouseCell({
   productId,
   variantsByProductId,
@@ -195,30 +232,17 @@ function ProductWarehouseCell({
   }
 
   return (
-    <div className="flex min-w-[145px] flex-col gap-1">
-      {availableAllocations.map((allocation) => {
-        const available = Math.max(
-          0,
-          allocation.quantity - allocation.reservedQuantity,
-        );
-        return (
-          <div
-            key={allocation.id}
-            className="flex items-center gap-1.5 text-xs"
-          >
-            <MapPin className="h-3.5 w-3.5 shrink-0 text-rose-400" />
-            <span
-              className="truncate"
-              title={allocation.warehouseName}
-            >
-              {allocation.warehouseName}
-            </span>
-            <span className="ml-auto whitespace-nowrap font-semibold text-white/80">
-              {available}
-            </span>
-          </div>
-        );
-      })}
+    <div className="flex min-w-[120px] flex-col gap-1">
+      {availableAllocations.map((allocation) => (
+        <div
+          key={allocation.id}
+          className="flex items-center gap-1.5 text-xs"
+          title={allocation.warehouseName}
+        >
+          <MapPin className="h-3.5 w-3.5 shrink-0 text-rose-400" />
+          <span className="truncate">{allocation.warehouseName}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -272,7 +296,6 @@ export function createProductColumns(
       ),
       cell: ({ row }) => {
         const p = row.original;
-        const variants = variantsByProductId?.[p.id] ?? [];
         return (
           <div className="flex items-start gap-3 min-w-0 max-w-[290px]">
             {p.imageUrl ? (
@@ -304,40 +327,6 @@ export function createProductColumns(
               >
                 {p.sku}
               </CopyableText>
-              {variants.length > 0 && (
-                <div className="mt-0.5 flex min-w-0 flex-col gap-1">
-                  {variants.map((variant) => {
-                    const available = Math.max(
-                      0,
-                      variant.quantity - variant.reservedQuantity,
-                    );
-                    const color = variantColorDot(variant.name);
-                    return (
-                      <div
-                        key={variant.id}
-                        className="flex min-w-0 items-center gap-1.5 text-[11px] text-violet-100"
-                        title={`${variant.name} · ${available} disponibles · SKU ${variant.sku}`}
-                      >
-                        {color ? (
-                          <span
-                            aria-label={color.label}
-                            className={cn(
-                              "h-2.5 w-2.5 shrink-0 rounded-full",
-                              color.className,
-                            )}
-                          />
-                        ) : (
-                          <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-violet-300/50 bg-violet-400/20" />
-                        )}
-                        <span className="truncate">{variant.name}</span>
-                        <span className="font-semibold text-white/90">
-                          {available}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           </div>
         );
@@ -352,8 +341,9 @@ export function createProductColumns(
         const reserved = getDisplayCommittedQuantity(p);
         const available = Math.max(0, total - reserved);
         const sold = Math.max(0, Number(p.statistics?.totalQuantitySold) || 0);
+        const variants = variantsByProductId?.[p.id] ?? [];
         return (
-          <div className="flex min-w-[155px] flex-col gap-1">
+          <div className="flex min-w-[170px] flex-col gap-1">
             <div className="flex items-center gap-2">
               <QRCodeHover
                 data={JSON.stringify({
@@ -374,6 +364,7 @@ export function createProductColumns(
               />
               <ProductAvailableQuantity available={available} />
             </div>
+            <VariantBreakdown variants={variants} />
             {reserved > 0 && (
               <div className="text-[11px] text-amber-600 dark:text-amber-400">
                 Reservado: {reserved}
