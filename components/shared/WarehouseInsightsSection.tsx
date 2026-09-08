@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  DollarSign,
   Package,
   PieChart as PieChartIcon,
   TrendingUp,
@@ -51,6 +52,13 @@ export type WarehouseInsightsSectionProps = {
   className?: string;
 };
 
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+  }).format(value);
+
 export function WarehouseInsightsSection({
   insights,
   dataLoading,
@@ -62,8 +70,8 @@ export function WarehouseInsightsSection({
   className,
 }: WarehouseInsightsSectionProps) {
   const stockChartData = [
-    { name: "Available", value: insights.stockBreakdown.available },
-    { name: "Reserved", value: insights.stockBreakdown.reserved },
+    { name: "Disponibles", value: insights.stockBreakdown.available },
+    { name: "Reservadas", value: insights.stockBreakdown.reserved },
   ].filter((row) => row.value > 0);
 
   const categoryChartData = insights.categoryMix.map((row) => ({
@@ -90,16 +98,16 @@ export function WarehouseInsightsSection({
             <Boxes className="h-4 w-4 text-gray-700 dark:text-white" />
           </div>
           <div>
-            <h3 className={TYPO_CARD_TITLE}>Warehouse Insights</h3>
+            <h3 className={TYPO_CARD_TITLE}>Resumen de bodega</h3>
             <p className={TYPO_SUBTITLE}>
-              Stock allocation signals for this warehouse
+              Indicadores de stock asignado a esta bodega
             </p>
           </div>
         </div>
         <div className="space-y-2 mt-4">
           <DetailInfoRow
             icon={Package}
-            label="SKUs in warehouse:"
+            label="SKUs en bodega:"
             tone="sky"
             loading={dataLoading}
           >
@@ -107,7 +115,7 @@ export function WarehouseInsightsSection({
           </DetailInfoRow>
           <DetailInfoRow
             icon={TrendingUp}
-            label="Total units:"
+            label="Unidades totales:"
             tone="violet"
             loading={dataLoading}
           >
@@ -115,15 +123,23 @@ export function WarehouseInsightsSection({
           </DetailInfoRow>
           <DetailInfoRow
             icon={Boxes}
-            label="Available units:"
+            label="Unidades disponibles:"
             tone="emerald"
             loading={dataLoading}
           >
             {!dataLoading && insights.availableUnits}
           </DetailInfoRow>
           <DetailInfoRow
+            icon={DollarSign}
+            label="Valor del inventario:"
+            tone="teal"
+            loading={dataLoading}
+          >
+            {!dataLoading && formatCurrency(insights.inventoryValue)}
+          </DetailInfoRow>
+          <DetailInfoRow
             icon={AlertTriangle}
-            label="Low-stock SKUs:"
+            label="SKUs con stock bajo:"
             tone="amber"
             loading={dataLoading}
           >
@@ -133,8 +149,8 @@ export function WarehouseInsightsSection({
       </GlassCard>
 
       <ChartCard
-        title="Stock Allocation"
-        description="Available vs reserved units"
+        title="Distribución del stock"
+        description="Unidades disponibles frente a reservadas"
         icon={PieChartIcon}
         variant="amber"
       >
@@ -172,8 +188,8 @@ export function WarehouseInsightsSection({
 
       {categoryChartData.length > 0 && (
         <ChartCard
-          title="Category Mix"
-          description="SKU count by product category"
+          title="Distribución por categoría"
+          description="Cantidad de SKUs por categoría de producto"
           icon={BarChart3}
           variant="sky"
           className="lg:col-span-2"
