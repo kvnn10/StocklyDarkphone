@@ -13,6 +13,8 @@ export type WarehouseInsights = {
   availableUnits: number;
   reservedUnits: number;
   lowStockSkuCount: number;
+  /** Inventory value at current sale price for stock allocated to this warehouse. */
+  inventoryValue: number;
   stockBreakdown: { available: number; reserved: number };
   categoryMix: WarehouseCategoryMixPoint[];
 };
@@ -23,4 +25,6 @@ export type WarehouseStockSummary = {
   totalQuantity: number;
   availableQuantity: number;
   reservedQuantity: number;
+  /** Inventory value at current sale price for stock allocated to this warehouse. */
+  totalValue: number;
 };
