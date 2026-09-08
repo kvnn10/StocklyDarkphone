@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
   const auth = await authorizeRequest(request, "finance", "read");
   if (auth.response) return auth.response;
   const session = auth.session!;
-  const rows = await prisma.purchaseOrder.findMany({ where: { userId: session.id }, include: { items: true }, orderBy: { createdAt: "desc" }, take: 200 });
+  const rows = await prisma.purchaseOrder.findMany({ where: { userId: session.id, status: { not: "cancelled" } }, include: { items: true }, orderBy: { createdAt: "desc" }, take: 200 });
   const supplierIds = [...new Set(rows.map(r => r.supplierId))];
   const suppliers = supplierIds.length ? await prisma.supplier.findMany({ where: { id: { in: supplierIds }, userId: session.id }, select: { id: true, name: true } }) : [];
   const warehouses = [...new Set(rows.map(r => r.warehouseId).filter(Boolean) as string[])];
