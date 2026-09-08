@@ -1,5 +1,5 @@
 /**
- * REQ-0085 — warehouse KPIs, stock pie, and category mix from allocation rows (no DB).
+ * REQ-0085 — warehouse KPIs, stock pie, category mix, and inventory value from allocation rows (no DB).
  * Client-safe: imported by WarehouseDetailPage for live stock CRUD updates.
  */
 
@@ -8,7 +8,7 @@ import { aggregateWarehouseStockFromAllocations } from "@/lib/insights/warehouse
 import type { WarehouseInsights, WarehouseStockSummary } from "@/types/warehouse-insights";
 import type { StockAllocation } from "@/types";
 
-/** Aggregate warehouse KPIs, stock pie, and category mix from enriched allocation rows. */
+/** Aggregate warehouse KPIs, stock pie, category mix, and inventory value from enriched allocation rows. */
 export function computeWarehouseInsights(
   allocations: StockAllocation[],
 ): WarehouseInsights {
@@ -17,6 +17,7 @@ export function computeWarehouseInsights(
   let availableUnits = 0;
   let reservedUnits = 0;
   let lowStockSkuCount = 0;
+  let inventoryValue = 0;
   const categoryCounts = new Map<string, number>();
 
   for (const row of allocations) {
@@ -27,6 +28,10 @@ export function computeWarehouseInsights(
     totalUnits += qty;
     availableUnits += available;
     reservedUnits += reserved;
+
+    // Warehouse inventory value follows the product detail convention:
+    // sale price × units physically allocated to this warehouse.
+    inventoryValue += Math.max(0, Number(row.product?.price ?? 0)) * qty;
 
     if (available > 0 && available <= CATALOG_LOW_STOCK_THRESHOLD) {
       lowStockSkuCount += 1;
@@ -52,6 +57,7 @@ export function computeWarehouseInsights(
     availableUnits,
     reservedUnits,
     lowStockSkuCount,
+    inventoryValue,
     stockBreakdown,
     categoryMix,
   };
@@ -70,5 +76,6 @@ export function mapWarehouseStockSummary(
     totalQuantity: insights.totalUnits,
     availableQuantity: insights.availableUnits,
     reservedQuantity: insights.reservedUnits,
+    totalValue: insights.inventoryValue,
   };
 }
