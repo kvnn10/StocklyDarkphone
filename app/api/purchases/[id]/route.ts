@@ -36,6 +36,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!validObjectId(id)) return NextResponse.json({ error: "Compra inválida" }, { status: 400 });
   const purchase = await prisma.purchaseOrder.findFirst({ where: { id, userId: session.id }, include: { items: true } });
   if (!purchase) return NextResponse.json({ error: "Compra no encontrada" }, { status: 404 });
+  if (purchase.status === "cancelled") return NextResponse.json({ error: "La compra está anulada y no puede modificarse" }, { status: 400 });
   if (!purchase.warehouseId) return NextResponse.json({ error: "La compra no tiene almacén asignado" }, { status: 400 });
   const body = await request.json();
   const action = body.action;
@@ -138,27 +139,34 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
         if (!purchase.warehouseId) throw new Error("La compra no tiene almacén asignado");
         const previousProduct = await tx.product.findUnique({ where: { id: item.productId }, select: { quantity: true } });
         if (!previousProduct) throw new Error(`Producto no encontrado: ${item.productName}`);
+        let reversed = 0;
         if (item.variantId) {
           const stock = await tx.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: item.variantId, warehouseId: purchase.warehouseId } } });
           const previous = stock ? Number(stock.quantity) : 0;
-          if (!stock || previous < quantity) throw new Error(`No hay stock suficiente de ${item.productName}${item.variantName ? ` · ${item.variantName}` : ""} para anular esta compra.`);
-          const next = previous - quantity;
-          if (next === 0) await tx.productVariantStock.delete({ where: { id: stock.id } });
-          else await tx.productVariantStock.update({ where: { id: stock.id }, data: { quantity: BigInt(next), updatedAt: now } });
+          reversed = Math.min(previous, quantity);
+          if (stock && reversed > 0) {
+            const next = previous - reversed;
+            if (next === 0) await tx.productVariantStock.delete({ where: { id: stock.id } });
+            else await tx.productVariantStock.update({ where: { id: stock.id }, data: { quantity: BigInt(next), updatedAt: now } });
+          }
           const stocks = await tx.productVariantStock.findMany({ where: { variantId: item.variantId }, select: { quantity: true } });
           const variantStock = stocks.reduce((sum: number, row: any) => sum + Number(row.quantity), 0);
           await tx.productVariant.update({ where: { id: item.variantId }, data: { quantity: BigInt(variantStock), updatedBy: session.id, updatedAt: now } });
         } else {
           const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: purchase.warehouseId } } });
           const previous = allocation ? Number(allocation.quantity) : 0;
-          if (!allocation || previous < quantity) throw new Error(`No hay stock suficiente de ${item.productName} para anular esta compra.`);
-          const next = previous - quantity;
-          if (next === 0) await tx.stockAllocation.delete({ where: { id: allocation.id } });
-          else await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: BigInt(next), updatedAt: now } });
+          reversed = Math.min(previous, quantity);
+          if (allocation && reversed > 0) {
+            const next = previous - reversed;
+            if (next === 0) await tx.stockAllocation.delete({ where: { id: allocation.id } });
+            else await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: BigInt(next), updatedAt: now } });
+          }
         }
         const newStock = await calculateProductStock(tx, item.productId);
         await tx.product.update({ where: { id: item.productId }, data: { quantity: BigInt(newStock), updatedBy: session.id, updatedAt: now } });
-        await tx.inventoryMovement.create({ data: { productId: item.productId, variantId: item.variantId ?? null, warehouseId: purchase.warehouseId, userId: session.id, type: "purchase_void", quantity: BigInt(-quantity), previousStock: previousProduct.quantity, newStock: BigInt(newStock), reason: "Anulación de compra", referenceId: purchase.id, notes: `${purchase.purchaseNumber} · ${reason}`, createdAt: now } });
+        if (reversed > 0) {
+          await tx.inventoryMovement.create({ data: { productId: item.productId, variantId: item.variantId ?? null, warehouseId: purchase.warehouseId, userId: session.id, type: "purchase_void", quantity: BigInt(-reversed), previousStock: previousProduct.quantity, newStock: BigInt(newStock), reason: "Anulación de compra", referenceId: purchase.id, notes: `${purchase.purchaseNumber} · ${reason}` + (reversed < quantity ? ` · Se revirtieron ${reversed} de ${quantity} unidades disponibles` : ""), createdAt: now } });
+        }
       }
       await tx.purchaseOrder.update({ where: { id: purchase.id }, data: { status: "cancelled", updatedAt: now, updatedBy: session.id, notes: purchase.notes ? `${purchase.notes}\nAnulada: ${reason}`.slice(0, 500) : `Anulada: ${reason}` } });
     });
