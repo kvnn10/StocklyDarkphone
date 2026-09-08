@@ -107,8 +107,7 @@ export interface UpdateStockAllocationInput {
  */
 export interface CreateStockTransferInput {
   productId: string;
-  fromWarehouseId: string;
-  toWarehouseId: string;
+  warehouseId: string;
   quantity: number;
   notes?: string;
 }
@@ -124,5 +123,6 @@ export interface WarehouseStockSummary {
   totalProducts: number;
   totalQuantity: number;
   totalReserved: number;
+  /** Current sale value of stock allocated to the warehouse. */
   totalValue: number;
 }
