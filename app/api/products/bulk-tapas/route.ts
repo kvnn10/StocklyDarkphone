@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
         imported.push({ product: productName, variant: variantName || null, quantity, purchasePrice, price, warehouse: warehouseName, action }); totalCost += quantity * purchasePrice; potentialSales += quantity * price;
       }
       return { imported, totalCost, potentialSales };
-    });
+    }, { timeout: 30000, maxWait: 10000 });
     await createAuditLog({ userId: session.id, action: "import", entityType: "product", details: { type: customRows.length ? "text_bulk_import" : "tapas_lot", units: result.imported.reduce((s, r) => s + r.quantity, 0), totalCost: result.totalCost, potentialSales: result.potentialSales, items: result.imported } });
     return NextResponse.json({ ok: true, ...result, units: result.imported.reduce((s, r) => s + r.quantity, 0) }, { status: 201 });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo cargar el lote." }, { status: 400 }); }
