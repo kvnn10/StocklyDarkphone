@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { authorizeRequest } from "@/lib/security/authorize";
 import { prisma } from "@/prisma/client";
 import { writeAuditLog } from "@/lib/audit/log";
+import { financeDb, oid, validObjectId } from "@/lib/finance/financial-ledger";
 import { scheduleInvalidateProductCaches, scheduleInvalidateStockAllocationCaches } from "@/lib/cache";
-import { validObjectId } from "@/lib/finance/financial-ledger";
 
 async function calculateProductStock(tx: any, productId: string) {
   const [allocations, variants] = await Promise.all([
@@ -111,5 +111,69 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo actualizar la compra" }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await authorizeRequest(request, "finance", "manage_expenses");
+  if (auth.response) return auth.response;
+  const session = auth.session!;
+  const { id } = await params;
+  if (!validObjectId(id)) return NextResponse.json({ error: "Compra inválida" }, { status: 400 });
+  const purchase = await prisma.purchaseOrder.findFirst({ where: { id, userId: session.id }, include: { items: true } });
+  if (!purchase) return NextResponse.json({ error: "Compra no encontrada" }, { status: 404 });
+  if (purchase.status === "cancelled") return NextResponse.json({ error: "La compra ya está anulada" }, { status: 400 });
+  const body = await request.json().catch(() => ({}));
+  const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
+  if (reason.length < 5) return NextResponse.json({ error: "Indica una observación de al menos 5 caracteres para anular la compra" }, { status: 400 });
+  const remainingByItem = purchase.items.map(item => ({ item, quantity: Math.max(0, item.receivedQuantity - item.returnedQuantity) })).filter(x => x.quantity > 0);
+  const now = new Date();
+  try {
+    const db = await financeDb();
+    const payable = purchase.paymentMode === "credit" ? await db.collection("SupplierAccountPayable").findOne({ userId: oid(session.id), purchaseOrderId: oid(purchase.id) }) : null;
+    if (payable && Number(payable.amountPaid ?? 0) > 0.0001) return NextResponse.json({ error: "No puedes anular esta compra porque la cuenta por pagar ya tiene pagos registrados. Primero revierte esos pagos." }, { status: 409 });
+
+    await prisma.$transaction(async tx => {
+      for (const { item, quantity } of remainingByItem) {
+        if (!purchase.warehouseId) throw new Error("La compra no tiene almacén asignado");
+        const previousProduct = await tx.product.findUnique({ where: { id: item.productId }, select: { quantity: true } });
+        if (!previousProduct) throw new Error(`Producto no encontrado: ${item.productName}`);
+        if (item.variantId) {
+          const stock = await tx.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: item.variantId, warehouseId: purchase.warehouseId } } });
+          const previous = stock ? Number(stock.quantity) : 0;
+          if (!stock || previous < quantity) throw new Error(`No hay stock suficiente de ${item.productName}${item.variantName ? ` · ${item.variantName}` : ""} para anular esta compra.`);
+          const next = previous - quantity;
+          if (next === 0) await tx.productVariantStock.delete({ where: { id: stock.id } });
+          else await tx.productVariantStock.update({ where: { id: stock.id }, data: { quantity: BigInt(next), updatedAt: now } });
+          const stocks = await tx.productVariantStock.findMany({ where: { variantId: item.variantId }, select: { quantity: true } });
+          const variantStock = stocks.reduce((sum: number, row: any) => sum + Number(row.quantity), 0);
+          await tx.productVariant.update({ where: { id: item.variantId }, data: { quantity: BigInt(variantStock), updatedBy: session.id, updatedAt: now } });
+        } else {
+          const allocation = await tx.stockAllocation.findUnique({ where: { productId_warehouseId: { productId: item.productId, warehouseId: purchase.warehouseId } } });
+          const previous = allocation ? Number(allocation.quantity) : 0;
+          if (!allocation || previous < quantity) throw new Error(`No hay stock suficiente de ${item.productName} para anular esta compra.`);
+          const next = previous - quantity;
+          if (next === 0) await tx.stockAllocation.delete({ where: { id: allocation.id } });
+          else await tx.stockAllocation.update({ where: { id: allocation.id }, data: { quantity: BigInt(next), updatedAt: now } });
+        }
+        const newStock = await calculateProductStock(tx, item.productId);
+        await tx.product.update({ where: { id: item.productId }, data: { quantity: BigInt(newStock), updatedBy: session.id, updatedAt: now } });
+        await tx.inventoryMovement.create({ data: { productId: item.productId, variantId: item.variantId ?? null, warehouseId: purchase.warehouseId, userId: session.id, type: "purchase_void", quantity: BigInt(-quantity), previousStock: previousProduct.quantity, newStock: BigInt(newStock), reason: "Anulación de compra", referenceId: purchase.id, notes: `${purchase.purchaseNumber} · ${reason}`, createdAt: now } });
+      }
+      await tx.purchaseOrder.update({ where: { id: purchase.id }, data: { status: "cancelled", updatedAt: now, updatedBy: session.id, notes: purchase.notes ? `${purchase.notes}\nAnulada: ${reason}`.slice(0, 500) : `Anulada: ${reason}` } });
+    });
+
+    const expense = await db.collection("Expense").findOne({ userId: oid(session.id), purchaseOrderId: oid(purchase.id) });
+    if (expense) await db.collection("Expense").updateOne({ _id: expense._id, userId: oid(session.id) }, { $set: { status: "voided", voidedAt: now, voidedBy: oid(session.id), voidReason: reason, updatedAt: now } });
+    if (purchase.paymentMode === "paid") {
+      await prisma.cashMovement.updateMany({ where: { userId: session.id, source: "purchase", type: "expense", status: "active", description: { contains: `Compra ${purchase.purchaseNumber}` } }, data: { status: "voided", voidedAt: now, voidedBy: session.id, voidReason: reason } });
+    } else if (payable) {
+      await db.collection("SupplierAccountPayable").updateOne({ _id: payable._id, userId: oid(session.id) }, { $set: { status: "voided", amountDue: 0, voidedAt: now, voidedBy: oid(session.id), voidReason: reason, updatedAt: now } });
+    }
+    await writeAuditLog({ userId: session.id, action: "PURCHASE_VOIDED", entityType: "PurchaseOrder", entityId: purchase.id, details: { purchaseNumber: purchase.purchaseNumber, reason, reversedItems: remainingByItem.map(x => ({ itemId: x.item.id, quantity: x.quantity })), paymentMode: purchase.paymentMode } });
+    await Promise.all([scheduleInvalidateProductCaches(), scheduleInvalidateStockAllocationCaches()]);
+    return NextResponse.json({ success: true, status: "cancelled" });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo anular la compra" }, { status: 400 });
   }
 }
