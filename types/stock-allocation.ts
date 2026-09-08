@@ -107,7 +107,8 @@ export interface UpdateStockAllocationInput {
  */
 export interface CreateStockTransferInput {
   productId: string;
-  warehouseId: string;
+  fromWarehouseId: string;
+  toWarehouseId: string;
   quantity: number;
   notes?: string;
 }
