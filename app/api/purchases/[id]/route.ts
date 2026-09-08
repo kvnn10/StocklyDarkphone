@@ -134,11 +134,15 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const payable = purchase.paymentMode === "credit" ? await db.collection("SupplierAccountPayable").findOne({ userId: oid(session.id), purchaseOrderId: oid(purchase.id) }) : null;
     if (payable && Number(payable.amountPaid ?? 0) > 0.0001) return NextResponse.json({ error: "No puedes anular esta compra porque la cuenta por pagar ya tiene pagos registrados. Primero revierte esos pagos." }, { status: 409 });
 
+    const reversedItems: Array<{ itemId: string; productName: string; requested: number; reversed: number }> = [];
     await prisma.$transaction(async tx => {
       for (const { item, quantity } of remainingByItem) {
         if (!purchase.warehouseId) throw new Error("La compra no tiene almacén asignado");
         const previousProduct = await tx.product.findUnique({ where: { id: item.productId }, select: { quantity: true } });
-        if (!previousProduct) throw new Error(`Producto no encontrado: ${item.productName}`);
+        if (!previousProduct) {
+          reversedItems.push({ itemId: item.id, productName: item.productName, requested: quantity, reversed: 0 });
+          continue;
+        }
         let reversed = 0;
         if (item.variantId) {
           const stock = await tx.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: item.variantId, warehouseId: purchase.warehouseId } } });
@@ -167,6 +171,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
         if (reversed > 0) {
           await tx.inventoryMovement.create({ data: { productId: item.productId, variantId: item.variantId ?? null, warehouseId: purchase.warehouseId, userId: session.id, type: "purchase_void", quantity: BigInt(-reversed), previousStock: previousProduct.quantity, newStock: BigInt(newStock), reason: "Anulación de compra", referenceId: purchase.id, notes: `${purchase.purchaseNumber} · ${reason}` + (reversed < quantity ? ` · Se revirtieron ${reversed} de ${quantity} unidades disponibles` : ""), createdAt: now } });
         }
+        reversedItems.push({ itemId: item.id, productName: item.productName, requested: quantity, reversed });
       }
       await tx.purchaseOrder.update({ where: { id: purchase.id }, data: { status: "cancelled", updatedAt: now, updatedBy: session.id, notes: purchase.notes ? `${purchase.notes}\nAnulada: ${reason}`.slice(0, 500) : `Anulada: ${reason}` } });
     });
@@ -178,9 +183,9 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     } else if (payable) {
       await db.collection("SupplierAccountPayable").updateOne({ _id: payable._id, userId: oid(session.id) }, { $set: { status: "voided", amountDue: 0, voidedAt: now, voidedBy: oid(session.id), voidReason: reason, updatedAt: now } });
     }
-    await writeAuditLog({ userId: session.id, action: "PURCHASE_VOIDED", entityType: "PurchaseOrder", entityId: purchase.id, details: { purchaseNumber: purchase.purchaseNumber, reason, reversedItems: remainingByItem.map(x => ({ itemId: x.item.id, quantity: x.quantity })), paymentMode: purchase.paymentMode } });
+    await writeAuditLog({ userId: session.id, action: "PURCHASE_VOIDED", entityType: "PurchaseOrder", entityId: purchase.id, details: { purchaseNumber: purchase.purchaseNumber, reason, reversedItems, paymentMode: purchase.paymentMode } });
     await Promise.all([scheduleInvalidateProductCaches(), scheduleInvalidateStockAllocationCaches()]);
-    return NextResponse.json({ success: true, status: "cancelled" });
+    return NextResponse.json({ success: true, status: "cancelled", reversedItems });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo anular la compra" }, { status: 400 });
   }
