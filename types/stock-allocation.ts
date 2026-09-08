@@ -104,10 +104,12 @@ export interface UpdateStockAllocationInput {
 
 /**
  * Create stock transfer input
+ * Uses source/destination warehouse IDs because transfers move stock between two warehouses.
  */
 export interface CreateStockTransferInput {
   productId: string;
-  warehouseId: string;
+  fromWarehouseId: string;
+  toWarehouseId: string;
   quantity: number;
   notes?: string;
 }
