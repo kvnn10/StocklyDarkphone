@@ -27,6 +27,8 @@ export interface StockAllocation {
     /** Product image for allocation row thumbnails (REQ-0059) */
     imageUrl?: string | null;
     price?: number;
+    /** Internal acquisition cost per unit for warehouse inventory valuation. */
+    purchasePrice?: number;
     /** Global product stock (not warehouse allocation qty) */
     quantity?: number;
     categoryId?: string | null;
