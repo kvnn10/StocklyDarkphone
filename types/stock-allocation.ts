@@ -124,8 +124,5 @@ export interface WarehouseStockSummary {
   totalProducts: number;
   totalQuantity: number;
   totalReserved: number;
-  /** Current sale value of stock allocated to the warehouse. */
   totalValue: number;
-  /** Acquisition-cost value of stock allocated to the warehouse. */
-  totalCost: number;
 }
