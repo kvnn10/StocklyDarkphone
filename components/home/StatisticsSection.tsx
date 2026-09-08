@@ -5,7 +5,7 @@
 
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Package,
   FolderTree,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { StatisticsCard } from "./StatisticsCard";
 import { useDashboard } from "@/hooks/queries/use-dashboard";
+import { useProducts, useStockAllocations, useWarehouses } from "@/hooks/queries";
 import {
   isDataSlotUnsettled,
   queryKeys,
@@ -43,6 +44,9 @@ export function StatisticsSection({
 }: StatisticsSectionProps = {}) {
   const { user } = useAuth();
   const dashboardQuery = useDashboard(initialStats ?? undefined);
+  const productsQuery = useProducts();
+  const stockAllocationsQuery = useStockAllocations();
+  const warehousesQuery = useWarehouses();
   const stats = dashboardQuery.data ?? initialStats ?? null;
   const dataLoading = isDataSlotUnsettled(dashboardQuery, initialStats);
   const [inventoryCost, setInventoryCost] = useState(0);
@@ -94,6 +98,47 @@ export function StatisticsSection({
     };
   }, [user?.id]);
 
+  const warehouseCostBadges = useMemo(() => {
+    const products = productsQuery.data ?? [];
+    const allocations = stockAllocationsQuery.data ?? [];
+    const warehouses = warehousesQuery.data ?? [];
+
+    const purchasePriceByProduct = new Map(
+      products.map((product) => [
+        product.id,
+        Math.max(0, Number(product.purchasePrice ?? 0)),
+      ]),
+    );
+
+    const costByWarehouse = new Map<string, number>();
+    for (const allocation of allocations) {
+      const unitCost = purchasePriceByProduct.get(allocation.productId) ?? 0;
+      const quantity = Math.max(0, Number(allocation.quantity ?? 0));
+      if (unitCost > 0 && quantity > 0) {
+        costByWarehouse.set(
+          allocation.warehouseId,
+          (costByWarehouse.get(allocation.warehouseId) ?? 0) +
+            quantity * unitCost,
+        );
+      }
+    }
+
+    return warehouses
+      .map((warehouse) => ({
+        label: warehouse.name,
+        value: formatCurrency(costByWarehouse.get(warehouse.id) ?? 0),
+        rawValue: costByWarehouse.get(warehouse.id) ?? 0,
+      }))
+      .filter((warehouse) => warehouse.rawValue > 0)
+      .sort((a, b) => b.rawValue - a.rawValue)
+      .map(({ label, value }) => ({ label, value }));
+  }, [productsQuery.data, stockAllocationsQuery.data, warehousesQuery.data]);
+
+  const warehouseCostLoading =
+    productsQuery.isPending ||
+    stockAllocationsQuery.isPending ||
+    warehousesQuery.isPending;
+
   const revenueFromOrders =
     stats?.orderAnalytics?.totalRevenueExcludingCancelled ??
     stats?.revenue?.fromOrders ??
@@ -125,6 +170,8 @@ export function StatisticsSection({
         icon={DollarSign}
         variant="blue"
         valueLoading={dataLoading || inventoryCostLoading}
+        badgeValuesLoading={warehouseCostLoading}
+        badges={warehouseCostBadges}
       />
       <StatisticsCard
         title="Valor potencial de venta"
