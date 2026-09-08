@@ -29,9 +29,9 @@ export function computeWarehouseInsights(
     availableUnits += available;
     reservedUnits += reserved;
 
-    // Warehouse inventory value follows the product detail convention:
-    // sale price × units physically allocated to this warehouse.
-    inventoryValue += Math.max(0, Number(row.product?.price ?? 0)) * qty;
+    // Warehouse inventory value is the capital invested in stock physically allocated to this warehouse.
+    // Use the product acquisition cost, not the sale price.
+    inventoryValue += Math.max(0, Number(row.product?.purchasePrice ?? 0)) * qty;
 
     if (available > 0 && available <= CATALOG_LOW_STOCK_THRESHOLD) {
       lowStockSkuCount += 1;
