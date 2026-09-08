@@ -30,7 +30,7 @@ function parseText(text: string, defaultWarehouse: string, defaultCategory: stri
   let currentProduct = "";
   for (const raw of lines) {
     const cleanLine = raw.replace(/^[📱📲\s]*/, "").trim();
-    if (/^(?:lista|categor[ií]a|bodega)\s*:/i.test(cleanLine)) continue;
+    if (/^(?:lista|categor[ií]a|bodega|costo|coste|venta|precio de venta)\s*:/i.test(cleanLine)) continue;
     if (/\bde\s+cada\s+uno\b/i.test(cleanLine)) continue;
     const header = cleanLine.match(modelPattern);
     const candidate = header?.[1]?.trim();
