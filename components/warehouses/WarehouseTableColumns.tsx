@@ -78,6 +78,13 @@ const truncateText = (
   return `${text.substring(0, maxLength)}...`;
 };
 
+const formatWarehouseValue = (value: number): string =>
+  new Intl.NumberFormat("es-CO", {
+    style: "currency",
+    currency: "COP",
+    maximumFractionDigits: 0,
+  }).format(value);
+
 export const createWarehouseColumns = (
   onEdit: (warehouse: Warehouse) => void,
   detailBase: string = "",
@@ -161,6 +168,25 @@ export const createWarehouseColumns = (
       );
     },
     size: 10,
+  },
+  {
+    id: "inventoryValue",
+    header: ({ column }) => (
+      <SortableHeader column={column} label="Inventory value" />
+    ),
+    cell: ({ row }) => {
+      const summary = summaryById?.get(row.original.id);
+      const value = Number(summary?.totalValue ?? 0);
+      return (
+        <span
+          className="font-medium text-gray-700 dark:text-white"
+          title="Current sale value of stock allocated to this warehouse"
+        >
+          {value > 0 ? formatWarehouseValue(value) : "—"}
+        </span>
+      );
+    },
+    size: 15,
   },
   {
     accessorKey: "createdAt",
