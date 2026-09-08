@@ -48,11 +48,11 @@ export default function PurchasesPage() {
     setLoading(true);
     try {
       const [p, s, w, c, h, v] = await Promise.all([
-        fetch("/api/products").then(r => r.json()),
-        fetch("/api/suppliers").then(r => r.json()),
-        fetch("/api/warehouses").then(r => r.json()),
-        fetch("/api/categories").then(r => r.json()),
-        fetch("/api/purchases").then(r => r.json()),
+        fetch("/api/products", { cache: "no-store" }).then(r => r.json()),
+        fetch("/api/suppliers", { cache: "no-store" }).then(r => r.json()),
+        fetch("/api/warehouses", { cache: "no-store" }).then(r => r.json()),
+        fetch("/api/categories", { cache: "no-store" }).then(r => r.json()),
+        fetch(`/api/purchases?refresh=${Date.now()}`, { cache: "no-store" }).then(r => r.json()),
         fetch("/api/products/variants", { cache: "no-store" }).then(r => r.json()),
       ]);
       setProducts(Array.isArray(p) ? p : []);
@@ -99,7 +99,7 @@ export default function PurchasesPage() {
     if (missingVariant) return setMessage("Selecciona la variante de cada producto que tenga variantes.");
     setSaving(true); try { const r = await fetch("/api/purchases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supplierId, warehouseId, paymentMode, paymentMethod, dueDate: dueDate || undefined, supplierInvoice, discount: discountValue, tax: Number(tax) || 0, shipping: Number(shipping) || 0, notes, items: lines }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "No se pudo registrar la compra"); setMessage(`Compra ${d.purchaseNumber} registrada correctamente.`); setLines([{ productId: "", variantId: null, quantity: 1, unitCost: 0 }]); setTax(""); setShipping(""); setDiscount(""); setNotes(""); setSupplierInvoice(""); setDueDate(""); await load(); } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo registrar la compra"); } finally { setSaving(false); }
   };
-  const openDetail = async (id: string) => { try { const r = await fetch(`/api/purchases/${id}`); const d = await r.json(); if (!r.ok) throw new Error(d.error); setDetail(d); const q: Record<string, number> = {}; d.items.forEach((i: Purchase["items"][number]) => { q[i.id!] = 0; }); setDetailQty(q); } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo abrir la compra"); } };
+  const openDetail = async (id: string) => { try { const r = await fetch(`/api/purchases/${id}?refresh=${Date.now()}`, { cache: "no-store" }); const d = await r.json(); if (!r.ok) throw new Error(d.error); setDetail(d); const q: Record<string, number> = {}; d.items.forEach((i: Purchase["items"][number]) => { q[i.id!] = 0; }); setDetailQty(q); } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo abrir la compra"); } };
   const runDetailAction = async (action: "receive" | "return") => {
     if (!detail) return; const items = detail.items.map(i => ({ itemId: i.id, quantity: Math.max(0, Math.floor(Number(detailQty[i.id!] || 0))) })).filter(i => i.quantity > 0); if (!items.length) return setMessage("Indica al menos una cantidad.");
     setDetailAction(action); try { const r = await fetch(`/api/purchases/${detail.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, items }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "No se pudo actualizar la compra"); setMessage(action === "receive" ? "Recepción registrada y stock actualizado." : "Devolución registrada y stock actualizado."); await openDetail(detail.id); await load(); } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo actualizar la compra"); } finally { setDetailAction(null); }
@@ -109,13 +109,17 @@ export default function PurchasesPage() {
     if (!cancelTarget) return;
     const reason = cancelReason.trim();
     if (reason.length < 5) return setMessage("Indica una observación de al menos 5 caracteres para anular la compra.");
+    const targetId = cancelTarget.id;
+    const targetNumber = cancelTarget.purchaseNumber;
     setCanceling(true); setMessage("");
     try {
-      const r = await fetch(`/api/purchases/${cancelTarget.id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+      const r = await fetch(`/api/purchases/${targetId}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "No se pudo anular la compra");
-      setMessage(`Compra ${cancelTarget.purchaseNumber} anulada correctamente. ${reason}`);
-      setCancelTarget(null); setCancelReason(""); setDetail(null); await load();
+      setPurchases(cur => cur.filter(p => p.id !== targetId));
+      setCancelTarget(null); setCancelReason(""); setDetail(null);
+      setMessage(`Compra ${targetNumber} anulada correctamente.`);
+      await load();
     } catch (e) { setMessage(e instanceof Error ? e.message : "No se pudo anular la compra"); }
     finally { setCanceling(false); }
   };
