@@ -8,12 +8,13 @@ const ROLES = new Set(["admin", "user", "retailer"]);
 const validId = (value: unknown) => typeof value === "string" && ObjectId.isValid(value);
 const text = (value: unknown, max = 200) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const money = (value: unknown) => { const n = Number(value ?? 0); return Number.isFinite(n) && n >= 0 ? n : null; };
+const normalizeFmi = (value: unknown) => { const v = text(value, 40).toUpperCase(); if (["ON", "ACTIVADO", "ACTIVATED", "1", "TRUE"].includes(v)) return "ON"; if (["OFF", "DESACTIVADO", "DEACTIVATED", "0", "FALSE"].includes(v)) return "OFF"; return ""; };
 
 function safeDevice(doc: any) {
   return {
     id: doc._id.toHexString(), name: doc.name, brand: doc.brand, model: doc.model,
     imei1: doc.imei1 ?? "", imei2: doc.imei2 ?? "", serial: doc.serial ?? "",
-    clientName: doc.clientName ?? "", contact: doc.contact ?? "", fmi: doc.fmi ?? "", status: doc.status,
+    clientName: doc.clientName ?? "", contact: doc.contact ?? "", fmi: normalizeFmi(doc.fmi), status: doc.status,
     color: doc.color ?? "", storage: doc.storage ?? "", purchasePrice: doc.purchasePrice ?? 0,
     repairCost: doc.repairCost ?? 0, salePrice: doc.salePrice ?? 0, investment: doc.investment ?? 0,
     profit: doc.profit ?? 0, margin: doc.margin ?? 0, warrantyDays: doc.warrantyDays ?? 0,
@@ -37,7 +38,7 @@ async function buildDevice(row: any, sessionId: string) {
   const brand = text(row.brand, 80), model = text(row.model, 120);
   const clientName = text(row.clientName ?? row.cliente, 160), contact = text(row.contact ?? row.contacto, 80), notes = text(row.notes, 1000);
   const imei1 = normalizeImei(row.imei1 ?? row.imei), imei2 = normalizeImei(row.imei2), serial = normalizeSerial(row.serial);
-  const phonePasscode = text(row.phonePasscode ?? row.clave, 8), fmi = text(row.fmi, 40);
+  const phonePasscode = text(row.phonePasscode ?? row.clave, 8), fmi = normalizeFmi(row.fmi);
   const identityError = validateDeviceIdentity({ imei1, imei2, serial, phonePasscode });
   if (identityError) throw new Error(identityError);
   if (!name || !model) throw new Error("Nombre/modelo son obligatorios");
@@ -124,7 +125,7 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const id = text(body.id, 40);
     if (!validId(id)) return NextResponse.json({ error: "Equipo inválido" }, { status: 400 });
-    const imei1 = normalizeImei(body.imei1), imei2 = normalizeImei(body.imei2), serial = normalizeSerial(body.serial);
+    const imei1 = normalizeImei(body.imei1 ?? body.imei), imei2 = normalizeImei(body.imei2), serial = normalizeSerial(body.serial);
     const identityError = validateDeviceIdentity({ imei1, imei2, serial, phonePasscode: body.phonePasscode ?? "" });
     if (identityError) return NextResponse.json({ error: identityError }, { status: 400 });
     const purchasePrice = money(body.purchasePrice), repairCost = money(body.repairCost), salePrice = money(body.salePrice);
@@ -139,7 +140,7 @@ export async function PUT(request: NextRequest) {
     if (!current) return NextResponse.json({ error: "Equipo no encontrado" }, { status: 404 });
     const margin = calculateDeviceMargin(purchasePrice, repairCost, salePrice);
     const warrantyExpiresAt = warrantyDays > 0 ? new Date((current.warrantyStartedAt ?? current.createdAt ?? new Date()).getTime() + warrantyDays * 86400000) : null;
-    const update: any = { name: text(body.name, 120), brand: text(body.brand, 80), model: text(body.model, 120), clientName: text(body.clientName, 160), contact: text(body.contact ?? body.contacto, 80), fmi: text(body.fmi, 40), imei1, imei2, serial, status, purchasePrice, repairCost, salePrice, ...margin, warrantyDays, warrantyExpiresAt, serviceOrderId: validId(body.serviceOrderId) ? body.serviceOrderId : null, saleOrderId: validId(body.saleOrderId) ? body.saleOrderId : null, notes: text(body.notes, 1000), color: text(body.color, 80), storage: text(body.storage, 60), updatedAt: new Date(), updatedBy: session.id };
+    const update: any = { name: text(body.name, 120), brand: text(body.brand, 80), model: text(body.model, 120), clientName: text(body.clientName, 160), contact: text(body.contact ?? body.contacto, 80), fmi: normalizeFmi(body.fmi), imei1, imei2, serial, status, purchasePrice, repairCost, salePrice, ...margin, warrantyDays, warrantyExpiresAt, serviceOrderId: validId(body.serviceOrderId) ? body.serviceOrderId : null, saleOrderId: validId(body.saleOrderId) ? body.saleOrderId : null, notes: text(body.notes, 1000), color: text(body.color, 80), storage: text(body.storage, 60), updatedAt: new Date(), updatedBy: session.id };
     if (body.phonePasscode !== undefined) update.phonePasscode = text(body.phonePasscode, 8) || null;
     try { await collection.updateOne({ _id: new ObjectId(id), userId: session.id }, { $set: update }); }
     catch (error: any) { if (error?.code === 11000) return NextResponse.json({ error: "El IMEI o serial ya está registrado en otro equipo" }, { status: 409 }); throw error; }
