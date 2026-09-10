@@ -10,7 +10,7 @@ import { Product } from "@/types";
 import { TableBodyPulseRows } from "@/components/ui/table-data-skeleton";
 import PaginationSelector, { type PaginationType } from "@/components/shared/PaginationSelector";
 import { useClampPaginationIndex } from "@/hooks/use-clamp-pagination-index";
-import { useStockAllocations } from "@/hooks/queries";
+import { useStockAllocations, useProductVariants } from "@/hooks/queries";
 import { Button } from "@/components/ui/button";
 import { GrFormPrevious, GrFormNext } from "react-icons/gr";
 import { LuGitPullRequestDraft } from "react-icons/lu";
@@ -40,6 +40,8 @@ export const ProductTable = React.memo(function ProductTable({
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const allocationsQuery = useStockAllocations();
   const allocations = allocationsQuery.data ?? [];
+  const variantsQuery = useProductVariants();
+  const variants = variantsQuery.data ?? [];
 
   useEffect(() => {
     const readFilter = () => setWarehouseFilter(new URLSearchParams(window.location.search).get("warehouse") ?? "");
@@ -57,9 +59,11 @@ export const ProductTable = React.memo(function ProductTable({
     const categoryMatch = selectedCategory.length === 0 || selectedCategory.includes(product.categoryId ?? "");
     const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(product.supplierId ?? "");
     const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(product.status ?? "");
-    const warehouseMatch = !warehouseFilter || allocations.some((a) => a.productId === product.id && a.warehouseId === warehouseFilter && Number(a.quantity ?? 0) > 0);
+    const productStockMatch = allocations.some((a) => a.productId === product.id && a.warehouseId === warehouseFilter && Number(a.quantity ?? 0) > 0);
+    const variantStockMatch = variants.some((variant) => variant.productId === product.id && variant.stocks.some((stock) => stock.warehouseId === warehouseFilter && Number(stock.quantity ?? 0) > 0));
+    const warehouseMatch = !warehouseFilter || productStockMatch || variantStockMatch;
     return searchMatch && categoryMatch && supplierMatch && statusMatch && warehouseMatch;
-  }), [data, searchTerm, selectedCategory, selectedSuppliers, selectedStatuses, warehouseFilter, allocations]);
+  }), [data, searchTerm, selectedCategory, selectedSuppliers, selectedStatuses, warehouseFilter, allocations, variants]);
 
   useClampPaginationIndex(filteredData.length, pagination, setPagination);
 
