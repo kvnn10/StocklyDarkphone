@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { StatisticsCard } from "./StatisticsCard";
 import { useDashboard } from "@/hooks/queries/use-dashboard";
-import { useProducts, useStockAllocations, useWarehouses } from "@/hooks/queries";
+import { useProducts, useProductVariants, useStockAllocations, useWarehouses } from "@/hooks/queries";
 import {
   isDataSlotUnsettled,
   queryKeys,
@@ -45,6 +45,7 @@ export function StatisticsSection({
   const { user } = useAuth();
   const dashboardQuery = useDashboard(initialStats ?? undefined);
   const productsQuery = useProducts();
+  const productVariantsQuery = useProductVariants();
   const stockAllocationsQuery = useStockAllocations();
   const warehousesQuery = useWarehouses();
   const stats = dashboardQuery.data ?? initialStats ?? null;
@@ -57,6 +58,7 @@ export function StatisticsSection({
 
   const warehouseCostData = useMemo(() => {
     const products = productsQuery.data ?? [];
+    const variants = productVariantsQuery.data ?? [];
     const allocations = stockAllocationsQuery.data ?? [];
     const warehouses = warehousesQuery.data ?? [];
 
@@ -73,6 +75,7 @@ export function StatisticsSection({
       warehouses.map((warehouse) => [warehouse.id, 0]),
     );
 
+    // Product-level stock allocations.
     for (const allocation of allocations) {
       const allocationCost = Math.max(
         0,
@@ -86,6 +89,25 @@ export function StatisticsSection({
         costByWarehouse.set(
           allocation.warehouseId,
           (costByWarehouse.get(allocation.warehouseId) ?? 0) +
+            quantity * unitCost,
+        );
+      }
+    }
+
+    // Variant stock is stored independently from product-level allocations.
+    // Include it here so stock shown under a warehouse (e.g. Abdul) is also
+    // reflected in the inventory cost without creating duplicate allocations.
+    for (const variant of variants) {
+      const unitCost = Math.max(0, Number(variant.purchasePrice ?? 0));
+      if (unitCost <= 0) continue;
+
+      for (const stock of variant.stocks ?? []) {
+        const quantity = Math.max(0, Number(stock.quantity ?? 0));
+        if (quantity <= 0) continue;
+
+        costByWarehouse.set(
+          stock.warehouseId,
+          (costByWarehouse.get(stock.warehouseId) ?? 0) +
             quantity * unitCost,
         );
       }
@@ -107,11 +129,12 @@ export function StatisticsSection({
       breakdown,
       total: breakdown.reduce((sum, warehouse) => sum + warehouse.rawValue, 0),
     };
-  }, [productsQuery.data, stockAllocationsQuery.data, warehousesQuery.data]);
+  }, [productsQuery.data, productVariantsQuery.data, stockAllocationsQuery.data, warehousesQuery.data]);
 
   const inventoryCost = warehouseCostData.total;
   const inventoryCostLoading =
     productsQuery.isPending ||
+    productVariantsQuery.isPending ||
     stockAllocationsQuery.isPending ||
     warehousesQuery.isPending;
 
