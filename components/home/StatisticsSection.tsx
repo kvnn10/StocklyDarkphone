@@ -69,8 +69,6 @@ export function StatisticsSection({
       ]),
     );
 
-    // Start with every warehouse so newly-created warehouses are represented
-    // even when they do not have stock yet (for example, "Abdul" at $0.00).
     const costByWarehouse = new Map<string, number>(
       warehouses.map((warehouse) => [warehouse.id, 0]),
     );
@@ -88,17 +86,20 @@ export function StatisticsSection({
       if (unitCost > 0 && quantity > 0) {
         costByWarehouse.set(
           allocation.warehouseId,
-          (costByWarehouse.get(allocation.warehouseId) ?? 0) +
-            quantity * unitCost,
+          (costByWarehouse.get(allocation.warehouseId) ?? 0) + quantity * unitCost,
         );
       }
     }
 
-    // Variant stock is stored independently from product-level allocations.
-    // Include it here so stock shown under a warehouse (e.g. Abdul) is also
-    // reflected in the inventory cost without creating duplicate allocations.
+    // Variant stock is stored separately from product allocations. Include it
+    // so warehouse cost reflects the same stock that appears in the products
+    // table, including variants located in Abdul.
     for (const variant of variants) {
-      const unitCost = Math.max(0, Number(variant.purchasePrice ?? 0));
+      const fallbackProductCost = purchasePriceByProduct.get(variant.productId) ?? 0;
+      const unitCost = Math.max(
+        0,
+        Number(variant.purchasePrice ?? fallbackProductCost),
+      );
       if (unitCost <= 0) continue;
 
       for (const stock of variant.stocks ?? []) {
@@ -107,8 +108,7 @@ export function StatisticsSection({
 
         costByWarehouse.set(
           stock.warehouseId,
-          (costByWarehouse.get(stock.warehouseId) ?? 0) +
-            quantity * unitCost,
+          (costByWarehouse.get(stock.warehouseId) ?? 0) + quantity * unitCost,
         );
       }
     }
@@ -138,8 +138,6 @@ export function StatisticsSection({
     stockAllocationsQuery.isPending ||
     warehousesQuery.isPending;
 
-  // Show all active warehouses, including those currently at $0.00, so the
-  // inventory-cost breakdown always reflects the complete warehouse setup.
   const warehouseCostBadges = warehouseCostData.breakdown.map(
     ({ label, value }) => ({ label, value }),
   );
