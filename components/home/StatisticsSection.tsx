@@ -81,7 +81,10 @@ export function StatisticsSection({
       );
       const productCost = purchasePriceByProduct.get(allocation.productId) ?? 0;
       const unitCost = allocationCost > 0 ? allocationCost : productCost;
-      const quantity = Math.max(0, Number(allocation.quantity ?? 0));
+      const quantity = Math.max(
+        0,
+        Number(allocation.quantity ?? 0) - Number(allocation.reservedQuantity ?? 0),
+      );
 
       if (unitCost > 0 && quantity > 0) {
         costByWarehouse.set(
@@ -101,7 +104,10 @@ export function StatisticsSection({
       if (unitCost <= 0) continue;
 
       for (const stock of variant.stocks ?? []) {
-        const quantity = Math.max(0, Number(stock.quantity ?? 0));
+        const quantity = Math.max(
+          0,
+          Number(stock.quantity ?? 0) - Number(stock.reservedQuantity ?? 0),
+        );
         if (quantity <= 0) continue;
 
         costByWarehouse.set(
@@ -129,11 +135,11 @@ export function StatisticsSection({
     };
   }, [productsQuery.data, productVariantsQuery.data, stockAllocationsQuery.data, warehousesQuery.data]);
 
-  // Calculate sale value from the same inventory model used by the products
-  // screen. Products with variants are valued from their variants, while
-  // products without variants use the product-level available quantity.
-  // This prevents the catalog quantity and variant quantities from being
-  // counted twice.
+  // Calculate sale value from the exact warehouse inventory model used by the
+  // products screen. For products with variants, use each variant's actual
+  // warehouse stock and sale price. For products without variants, use the
+  // product-level available quantity. This keeps dashboard totals consistent
+  // with the stock actually visible in the catalog and avoids double-counting.
   const inventorySaleValue = useMemo(() => {
     const products = productsQuery.data ?? [];
     const variants = productVariantsQuery.data ?? [];
@@ -152,11 +158,29 @@ export function StatisticsSection({
         return (
           sum +
           productVariants.reduce((variantSum, variant) => {
-            const quantity = Math.max(
+            const variantSalePrice = Math.max(0, Number(variant.price ?? 0));
+            if (variantSalePrice <= 0) return variantSum;
+
+            const warehouseQuantity = (variant.stocks ?? []).reduce(
+              (stockSum, stock) =>
+                stockSum +
+                Math.max(
+                  0,
+                  Number(stock.quantity ?? 0) - Number(stock.reservedQuantity ?? 0),
+                ),
+              0,
+            );
+
+            // A variant can exist without a warehouse allocation in legacy data.
+            // In that case, fall back to its aggregate available quantity rather
+            // than making its inventory disappear from the dashboard.
+            const fallbackQuantity = Math.max(
               0,
               Number(variant.quantity ?? 0) - Number(variant.reservedQuantity ?? 0),
             );
-            return variantSum + Math.max(0, Number(variant.price ?? 0)) * quantity;
+            const quantity = warehouseQuantity > 0 ? warehouseQuantity : fallbackQuantity;
+
+            return variantSum + variantSalePrice * quantity;
           }, 0)
         );
       }
@@ -279,7 +303,7 @@ export function StatisticsSection({
         badges={buildStoreInvoiceStatusBadges({
           paidCount: stats?.invoiceAnalytics?.statusDistribution?.paid,
           partialCount: stats?.invoiceAnalytics?.partialCount,
-          pendingCount: stats?.invoiceAnalytics?.pendingCount ?? (stats?.invoiceAnalytics?.statusDistribution?.draft ?? 0) + (stats?.invoiceAnalytics?.statusDistribution?.sent ?? 0),
+          pendingCount: stats?.invoiceAnalytics?.statusDistribution?.pending,
           overdueCount: stats?.invoiceAnalytics?.statusDistribution?.overdue,
           cancelledCount: stats?.invoiceAnalytics?.statusDistribution?.cancelled,
           refundedCount: stats?.orderAnalytics?.refundedCount,
