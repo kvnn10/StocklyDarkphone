@@ -26,7 +26,9 @@ function parseCsvLine(line: string) {
 function parseBulkDevices(csv: string) {
   const lines = csv.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   if (lines.length < 2) return [];
-  const headers = parseCsvLine(lines[0]).map(h => h.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim());
+  const headerLine = lines[0];
+  if (!headerLine) return [];
+  const headers = parseCsvLine(headerLine).map(h => h.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim());
   const aliases: Record<string, string> = { cliente: "clientName", contacto: "contact", marca: "brand", modelo: "model", nombre: "name", imei: "imei1", imei1: "imei1", imei2: "imei2", serial: "serial", clave: "phonePasscode", "clave del telefono": "phonePasscode", color: "color", capacidad: "storage", almacenamiento: "storage", fmi: "fmi", notas: "notes" };
   return lines.slice(1).map(line => {
     const values = parseCsvLine(line);
