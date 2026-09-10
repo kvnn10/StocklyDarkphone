@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useForm, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useProductStore } from "@/stores";
-import { useCreateProduct, useUpdateProduct, useCategories, useSuppliers, useStockByProduct, useWarehouses, useCreateStockAllocation } from "@/hooks/queries";
+import { useCreateProduct, useUpdateProduct, useCategories, useSuppliers, useStockByProduct, useWarehouses, useCreateStockAllocation, useProductVariants } from "@/hooks/queries";
 import { useSyncDialogOpenState } from "@/hooks/use-sync-dialog-open-state";
 import { planCatalogQuantityReconcile } from "@/lib/stock-allocation/catalog-quantity-reconcile";
 import { formatCatalogAllocationSummary } from "@/lib/stock-allocation/catalog-allocation-copy";
@@ -76,6 +76,7 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
   const { data: categories = [], isLoading: categoriesLoading } = useCategories();
   const { data: suppliers = [], isLoading: suppliersLoading } = useSuppliers();
   const { data: warehouses = [], isLoading: warehousesLoading } = useWarehouses();
+  const { data: allVariants = [] } = useProductVariants();
   const activeCategories = categories.filter((category) => category.status !== false || category.id === selectedCategory);
   const activeSuppliers = suppliers.filter((supplier) => supplier.status !== false || supplier.id === selectedSupplier);
   const activeWarehouses = warehouses.filter((warehouse) => warehouse.status !== false || warehouse.id === selectedWarehouse);
@@ -87,6 +88,35 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
   const updateProductMutation = useUpdateProduct();
   const createStockAllocationMutation = useCreateStockAllocation();
   const { data: productAllocations = [] } = useStockByProduct(selectedProduct?.id ?? "", undefined, { enabled: !!selectedProduct?.id });
+
+  const variantWarehouseStock = useMemo(() => {
+    if (!selectedProduct?.id) return [];
+    const totals = new Map<string, { warehouseName: string; quantity: number; reservedQuantity: number }>();
+    for (const variant of allVariants) {
+      if (variant.productId !== selectedProduct.id) continue;
+      for (const stock of variant.stocks ?? []) {
+        if (Number(stock.quantity ?? 0) <= 0) continue;
+        const current = totals.get(stock.warehouseId) ?? { warehouseName: stock.warehouseName, quantity: 0, reservedQuantity: 0 };
+        current.quantity += Number(stock.quantity ?? 0);
+        current.reservedQuantity += Number(stock.reservedQuantity ?? 0);
+        totals.set(stock.warehouseId, current);
+      }
+    }
+    return Array.from(totals.entries()).map(([warehouseId, value]) => ({ warehouseId, ...value }));
+  }, [allVariants, selectedProduct?.id]);
+
+  const visibleWarehouseLocations = useMemo(() => {
+    const locations = productAllocations
+      .filter((allocation) => Number(allocation.quantity ?? 0) > 0)
+      .map((allocation) => ({ warehouseId: allocation.warehouseId, warehouseName: allocation.warehouse?.name ?? "Bodega", quantity: Number(allocation.quantity ?? 0), source: "product" as const }));
+    const existing = new Set(locations.map((location) => location.warehouseId));
+    for (const location of variantWarehouseStock) {
+      if (!existing.has(location.warehouseId)) {
+        locations.push({ warehouseId: location.warehouseId, warehouseName: location.warehouseName, quantity: location.quantity, source: "variant" as const });
+      }
+    }
+    return locations;
+  }, [productAllocations, variantWarehouseStock]);
 
   useSyncDialogOpenState(openProductDialog, () => {
     if (selectedProduct) {
@@ -340,10 +370,20 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
                   <div className="mt-5 flex flex-col gap-2 sm:col-span-2">
                     <DialogFormLabel icon={WarehouseIcon}>Ubicación actual</DialogFormLabel>
                     <div className={cn("min-h-11 w-full rounded-md px-3 py-2", DIALOG_FORM_FIELD_ROSE)}>
-                      {productAllocations.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">{productAllocations.map((allocation) => <span key={allocation.id} className="inline-flex items-center gap-1.5 rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-sm text-white/90"><WarehouseIcon className="h-3.5 w-3.5 text-rose-300" />{allocation.warehouse?.name ?? "Bodega"}: {Number(allocation.quantity ?? 0)}</span>)}</div>
+                      {visibleWarehouseLocations.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {visibleWarehouseLocations.map((location) => (
+                            <span key={`${location.source}-${location.warehouseId}`} className="inline-flex items-center gap-1.5 rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1.5 text-sm text-white/90">
+                              <WarehouseIcon className="h-3.5 w-3.5 text-rose-300" />
+                              {location.warehouseName}: {location.quantity}
+                            </span>
+                          ))}
+                        </div>
                       ) : <span className="text-sm text-white/55">Sin bodega asignada</span>}
                     </div>
+                    {variantWarehouseStock.length > 0 && productAllocations.length === 0 ? (
+                      <p className={DIALOG_FORM_HINT_TEXT}>Estas existencias provienen de las variantes del producto y no requieren una asignación adicional a nivel de producto.</p>
+                    ) : null}
                     <p className={DIALOG_FORM_HINT_TEXT}>Para mover existencias entre bodegas utiliza la sección Movimientos.</p>
 
                     <div className="mt-2 flex flex-col gap-2">
