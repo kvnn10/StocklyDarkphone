@@ -13,7 +13,8 @@ function safeDevice(doc: any) {
   return {
     id: doc._id.toHexString(), name: doc.name, brand: doc.brand, model: doc.model,
     imei1: doc.imei1 ?? "", imei2: doc.imei2 ?? "", serial: doc.serial ?? "",
-    clientName: doc.clientName ?? "", contact: doc.contact ?? "", fmi: doc.fmi ?? "", status: doc.status, purchasePrice: doc.purchasePrice ?? 0,
+    clientName: doc.clientName ?? "", contact: doc.contact ?? "", fmi: doc.fmi ?? "", status: doc.status,
+    color: doc.color ?? "", storage: doc.storage ?? "", purchasePrice: doc.purchasePrice ?? 0,
     repairCost: doc.repairCost ?? 0, salePrice: doc.salePrice ?? 0, investment: doc.investment ?? 0,
     profit: doc.profit ?? 0, margin: doc.margin ?? 0, warrantyDays: doc.warrantyDays ?? 0,
     warrantyExpiresAt: doc.warrantyExpiresAt ?? null, serviceOrderId: doc.serviceOrderId ?? null,
@@ -50,7 +51,7 @@ async function buildDevice(row: any, sessionId: string) {
   const margin = calculateDeviceMargin(purchasePrice, repairCost, salePrice);
   const now = new Date();
   const warrantyExpiresAt = warrantyDays > 0 ? new Date(now.getTime() + warrantyDays * 86400000) : null;
-  return { userId: sessionId, name, brand, model, imei1, imei2, serial, clientName, contact, fmi, phonePasscode: phonePasscode || null, status, purchasePrice, repairCost, salePrice, ...margin, warrantyDays, warrantyExpiresAt, serviceOrderId, saleOrderId, notes, createdAt: now, updatedAt: now, createdBy: sessionId };
+  return { userId: sessionId, name, brand, model, imei1, imei2, serial, clientName, contact, fmi, phonePasscode: phonePasscode || null, status, purchasePrice, repairCost, salePrice, ...margin, warrantyDays, warrantyExpiresAt, serviceOrderId, saleOrderId, notes, color: text(row.color, 80), storage: text(row.storage, 60), createdAt: now, updatedAt: now, createdBy: sessionId };
 }
 
 export async function GET(request: NextRequest) {
@@ -85,7 +86,6 @@ export async function POST(request: NextRequest) {
     await client.connect();
     const collection = client.db().collection("CustomerDevice");
     await ensureIndexes(collection);
-
     if (Array.isArray(body.devices)) {
       const rows = body.devices.slice(0, 500);
       const results = await Promise.all(rows.map(async (row: any, index: number) => {
@@ -101,7 +101,6 @@ export async function POST(request: NextRequest) {
       }));
       return NextResponse.json({ created: results.filter(r => r.ok).length, duplicates: results.filter(r => r.duplicate).length, errors: results.filter(r => !r.ok && !r.duplicate).length, details: results.map((r, index) => r.ok ? null : { row: index + 2, type: r.duplicate ? "duplicate" : "error", message: r.duplicate ? "El IMEI o serial ya está registrado" : r.error }).filter(Boolean) });
     }
-
     const doc = await buildDevice(body, session.id);
     try {
       const result = await collection.insertOne(doc);
@@ -140,14 +139,10 @@ export async function PUT(request: NextRequest) {
     if (!current) return NextResponse.json({ error: "Equipo no encontrado" }, { status: 404 });
     const margin = calculateDeviceMargin(purchasePrice, repairCost, salePrice);
     const warrantyExpiresAt = warrantyDays > 0 ? new Date((current.warrantyStartedAt ?? current.createdAt ?? new Date()).getTime() + warrantyDays * 86400000) : null;
-    const update: any = { name: text(body.name, 120), brand: text(body.brand, 80), model: text(body.model, 120), clientName: text(body.clientName, 160), contact: text(body.contact ?? body.contacto, 80), fmi: text(body.fmi, 40), imei1, imei2, serial, status, purchasePrice, repairCost, salePrice, ...margin, warrantyDays, warrantyExpiresAt, serviceOrderId: validId(body.serviceOrderId) ? body.serviceOrderId : null, saleOrderId: validId(body.saleOrderId) ? body.saleOrderId : null, notes: text(body.notes, 1000), updatedAt: new Date(), updatedBy: session.id };
+    const update: any = { name: text(body.name, 120), brand: text(body.brand, 80), model: text(body.model, 120), clientName: text(body.clientName, 160), contact: text(body.contact ?? body.contacto, 80), fmi: text(body.fmi, 40), imei1, imei2, serial, status, purchasePrice, repairCost, salePrice, ...margin, warrantyDays, warrantyExpiresAt, serviceOrderId: validId(body.serviceOrderId) ? body.serviceOrderId : null, saleOrderId: validId(body.saleOrderId) ? body.saleOrderId : null, notes: text(body.notes, 1000), color: text(body.color, 80), storage: text(body.storage, 60), updatedAt: new Date(), updatedBy: session.id };
     if (body.phonePasscode !== undefined) update.phonePasscode = text(body.phonePasscode, 8) || null;
-    try {
-      await collection.updateOne({ _id: new ObjectId(id), userId: session.id }, { $set: update });
-    } catch (error: any) {
-      if (error?.code === 11000) return NextResponse.json({ error: "El IMEI o serial ya está registrado en otro equipo" }, { status: 409 });
-      throw error;
-    }
+    try { await collection.updateOne({ _id: new ObjectId(id), userId: session.id }, { $set: update }); }
+    catch (error: any) { if (error?.code === 11000) return NextResponse.json({ error: "El IMEI o serial ya está registrado en otro equipo" }, { status: 409 }); throw error; }
     await writeAuditLog({ userId: session.id, action: "DEVICE_UPDATED", entityType: "CustomerDevice", entityId: id, details: { fields: Object.keys(update), passcodeChanged: body.phonePasscode !== undefined } });
     const saved = await collection.findOne({ _id: new ObjectId(id), userId: session.id }, { projection: { phonePasscode: 0 } });
     return NextResponse.json(safeDevice(saved));
