@@ -8,8 +8,6 @@
 import React, { useMemo } from "react";
 import {
   Package,
-  FolderTree,
-  Truck,
   DollarSign,
   ShoppingCart,
   FileText,
@@ -56,7 +54,7 @@ export function StatisticsSection({
     user?.id && initialStats != null ? initialStats : undefined,
   );
 
-  const warehouseCostData = useMemo(() => {
+  const warehouseInventoryData = useMemo(() => {
     const products = productsQuery.data ?? [];
     const variants = productVariantsQuery.data ?? [];
     const allocations = stockAllocationsQuery.data ?? [];
@@ -72,8 +70,19 @@ export function StatisticsSection({
     const costByWarehouse = new Map<string, number>(
       warehouses.map((warehouse) => [warehouse.id, 0]),
     );
+    const saleByWarehouse = new Map<string, number>(
+      warehouses.map((warehouse) => [warehouse.id, 0]),
+    );
 
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const variantProductIds = new Set(variants.map((variant) => variant.productId));
+
+    // Product-level stock is used only for products without variants. Variant
+    // stock is its own inventory source and must not be added a second time.
     for (const allocation of allocations) {
+      if (variantProductIds.has(allocation.productId)) continue;
+
+      const product = productById.get(allocation.productId);
       const allocationCost = Math.max(
         0,
         Number(allocation.product?.purchasePrice ?? 0),
@@ -91,13 +100,21 @@ export function StatisticsSection({
           (costByWarehouse.get(allocation.warehouseId) ?? 0) + quantity * unitCost,
         );
       }
+
+      const unitSalePrice = Math.max(0, Number(product?.price ?? 0));
+      if (unitSalePrice > 0 && quantity > 0) {
+        saleByWarehouse.set(
+          allocation.warehouseId,
+          (saleByWarehouse.get(allocation.warehouseId) ?? 0) + quantity * unitSalePrice,
+        );
+      }
     }
 
     for (const variant of variants) {
       const fallbackProductCost = purchasePriceByProduct.get(variant.productId) ?? 0;
       const variantCost = Math.max(0, Number(variant.purchasePrice ?? 0));
       const unitCost = variantCost > 0 ? variantCost : fallbackProductCost;
-      if (unitCost <= 0) continue;
+      const unitSalePrice = Math.max(0, Number(variant.price ?? 0));
 
       for (const stock of variant.stocks ?? []) {
         const quantity = Math.max(
@@ -106,14 +123,23 @@ export function StatisticsSection({
         );
         if (quantity <= 0) continue;
 
-        costByWarehouse.set(
-          stock.warehouseId,
-          (costByWarehouse.get(stock.warehouseId) ?? 0) + quantity * unitCost,
-        );
+        if (unitCost > 0) {
+          costByWarehouse.set(
+            stock.warehouseId,
+            (costByWarehouse.get(stock.warehouseId) ?? 0) + quantity * unitCost,
+          );
+        }
+
+        if (unitSalePrice > 0) {
+          saleByWarehouse.set(
+            stock.warehouseId,
+            (saleByWarehouse.get(stock.warehouseId) ?? 0) + quantity * unitSalePrice,
+          );
+        }
       }
     }
 
-    const breakdown = warehouses
+    const costBreakdown = warehouses
       .map((warehouse) => ({
         label: warehouse.name,
         rawValue: costByWarehouse.get(warehouse.id) ?? 0,
@@ -125,73 +151,40 @@ export function StatisticsSection({
         rawValue,
       }));
 
+    const saleBreakdown = warehouses
+      .map((warehouse) => ({
+        label: warehouse.name,
+        rawValue: saleByWarehouse.get(warehouse.id) ?? 0,
+      }))
+      .sort((a, b) => b.rawValue - a.rawValue)
+      .map(({ label, rawValue }) => ({
+        label,
+        value: formatCurrency(rawValue),
+        rawValue,
+      }));
+
     return {
-      breakdown,
-      total: breakdown.reduce((sum, warehouse) => sum + warehouse.rawValue, 0),
+      costBreakdown,
+      saleBreakdown,
+      costTotal: costBreakdown.reduce((sum, warehouse) => sum + warehouse.rawValue, 0),
+      saleTotal: saleBreakdown.reduce((sum, warehouse) => sum + warehouse.rawValue, 0),
     };
   }, [productsQuery.data, productVariantsQuery.data, stockAllocationsQuery.data, warehousesQuery.data]);
 
-  const inventorySaleValue = useMemo(() => {
-    const products = productsQuery.data ?? [];
-    const variants = productVariantsQuery.data ?? [];
-    const variantsByProduct = new Map<string, typeof variants>();
-
-    for (const variant of variants) {
-      const list = variantsByProduct.get(variant.productId) ?? [];
-      list.push(variant);
-      variantsByProduct.set(variant.productId, list);
-    }
-
-    return products.reduce((sum, product) => {
-      const productVariants = variantsByProduct.get(product.id) ?? [];
-
-      if (productVariants.length > 0) {
-        return (
-          sum +
-          productVariants.reduce((variantSum, variant) => {
-            const variantSalePrice = Math.max(0, Number(variant.price ?? 0));
-            if (variantSalePrice <= 0) return variantSum;
-
-            const warehouseQuantity = (variant.stocks ?? []).reduce(
-              (stockSum, stock) =>
-                stockSum +
-                Math.max(
-                  0,
-                  Number(stock.quantity ?? 0) - Number(stock.reservedQuantity ?? 0),
-                ),
-              0,
-            );
-
-            const fallbackQuantity = Math.max(
-              0,
-              Number(variant.quantity ?? 0) - Number(variant.reservedQuantity ?? 0),
-            );
-            const quantity = warehouseQuantity > 0 ? warehouseQuantity : fallbackQuantity;
-
-            return variantSum + variantSalePrice * quantity;
-          }, 0)
-        );
-      }
-
-      const quantity = Math.max(
-        0,
-        Number(product.quantity ?? 0) - Number(product.reservedQuantity ?? 0),
-      );
-      return sum + Math.max(0, Number(product.price ?? 0)) * quantity;
-    }, 0);
-  }, [productsQuery.data, productVariantsQuery.data]);
-
-  const inventoryCost = warehouseCostData.total;
+  const inventoryCost = warehouseInventoryData.costTotal;
+  const inventorySaleValue = warehouseInventoryData.saleTotal;
   const inventoryCostLoading =
     productsQuery.isPending ||
     productVariantsQuery.isPending ||
     stockAllocationsQuery.isPending ||
     warehousesQuery.isPending;
 
-  const inventorySaleValueLoading =
-    productsQuery.isPending || productVariantsQuery.isPending;
+  const inventorySaleValueLoading = inventoryCostLoading;
 
-  const warehouseCostBadges = warehouseCostData.breakdown.map(
+  const warehouseCostBadges = warehouseInventoryData.costBreakdown.map(
+    ({ label, value }) => ({ label, value }),
+  );
+  const warehouseSaleBadges = warehouseInventoryData.saleBreakdown.map(
     ({ label, value }) => ({ label, value }),
   );
 
@@ -205,9 +198,9 @@ export function StatisticsSection({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 items-stretch">
       <StatisticsCard title="Total de productos" value={stats?.counts?.products ?? 0} description="Disponibilidad de productos" icon={Package} variant="rose" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={[{ label: "Disponibles", value: stats?.productStatusBreakdown?.available ?? 0 }, { label: "Stock bajo", value: stats?.productStatusBreakdown?.stockLow ?? 0 }, { label: "Agotados", value: stats?.productStatusBreakdown?.stockOut ?? 0 }]} />
-      <StatisticsCard title="Costo del inventario" value={formatCurrency(inventoryCost)} description="Valor al costo de compra" icon={DollarSign} variant="blue" valueLoading={dataLoading || inventoryCostLoading} badgeValuesLoading={inventoryCostLoading} badges={warehouseCostBadges} />
-      <StatisticsCard title="Valor potencial de venta" value={formatCurrency(inventorySaleValue)} description="Al precio de venta actual" icon={DollarSign} variant="violet" valueLoading={dataLoading || inventorySaleValueLoading} />
-      <StatisticsCard title="Utilidad potencial" value={formatCurrency(potentialProfit)} description="Venta potencial menos costo" icon={DollarSign} variant="emerald" valueLoading={dataLoading || inventoryCostLoading || inventorySaleValueLoading} />
+      <StatisticsCard title="Valor estimado de venta" value={formatCurrency(inventorySaleValue)} description="Valor de venta al precio actual" icon={DollarSign} variant="violet" valueLoading={dataLoading || inventorySaleValueLoading} badgeValuesLoading={inventorySaleValueLoading} badges={warehouseSaleBadges} />
+      <StatisticsCard title="Valor de inventario (costo)" value={formatCurrency(inventoryCost)} description="Valor total al costo de compra" icon={DollarSign} variant="blue" valueLoading={dataLoading || inventoryCostLoading} badgeValuesLoading={inventoryCostLoading} badges={warehouseCostBadges} />
+      <StatisticsCard title="Categorías" value={stats?.counts?.categories ?? 0} description="Categorías de productos" icon={Warehouse} variant="amber" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={[{ label: "Activas", value: stats?.categoryAnalytics?.activeCategories ?? 0 }, { label: "Inactivas", value: stats?.categoryAnalytics?.inactiveCategories ?? 0 }]} />
       <StatisticsCard title="Ingresos totales" value={formatCurrency(revenueFromOrders)} description="Ventas netas (sin pedidos cancelados)" icon={DollarSign} variant="emerald" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={[{ label: "Pagado", value: formatCurrency(stats?.orderAnalytics?.paidOrderAmount ?? 0) }, { label: "Parcial", value: formatCurrency(stats?.orderAnalytics?.partialOrderAmount ?? 0) }, { label: "Pendiente", value: formatCurrency(stats?.orderAnalytics?.pendingOrderAmount ?? 0) }, ...(selfOthers ? [{ label: "Propios", value: formatCurrency(selfOthers.revenueSelf) }, { label: "Otros", value: formatCurrency(selfOthers.revenueOthers) }] : [])]} />
       <StatisticsCard title="Total de pedidos" value={stats?.counts?.orders ?? 0} description="Pedidos realizados (propios y de clientes)" icon={ShoppingCart} variant="blue" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={buildStoreOrderStatusBadges({ statusDistribution: stats?.orderAnalytics?.statusDistribution, refundedCount: stats?.orderAnalytics?.refundedCount, selfOthers: selfOthers ? { orderSelfCount: selfOthers.orderSelfCount, orderOthersCount: selfOthers.orderOthersCount } : null })} />
       <StatisticsCard title="Facturas" value={stats?.counts?.invoices ?? 0} description="Total de facturas de la tienda" icon={FileText} variant="sky" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={buildStoreInvoiceStatusBadges({ paidCount: stats?.invoiceAnalytics?.statusDistribution?.paid, partialCount: stats?.invoiceAnalytics?.partialCount, pendingCount: stats?.invoiceAnalytics?.pendingCount ?? (stats?.invoiceAnalytics?.statusDistribution?.draft ?? 0) + (stats?.invoiceAnalytics?.statusDistribution?.sent ?? 0), overdueCount: stats?.invoiceAnalytics?.statusDistribution?.overdue, cancelledCount: stats?.invoiceAnalytics?.statusDistribution?.cancelled, refundedCount: stats?.orderAnalytics?.refundedCount, selfOthers: selfOthers ? { invoiceSelfCount: selfOthers.invoiceSelfCount, invoiceOthersCount: selfOthers.invoiceOthersCount } : null })} />
