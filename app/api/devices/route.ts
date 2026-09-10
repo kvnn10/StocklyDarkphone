@@ -58,13 +58,22 @@ async function buildDevice(row: any, sessionId: string) {
 export async function GET(request: NextRequest) {
   const session = await getSessionFromRequest(request);
   if (!session || !ROLES.has(session.role ?? "")) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-  const q = text(new URL(request.url).searchParams.get("search"), 80);
+  const params = new URL(request.url).searchParams;
+  const q = text(params.get("search"), 80);
+  const setFmiOn = params.get("setFmiOn") === "1";
   const client = new MongoClient(process.env.DATABASE_URL!);
   try {
     await client.connect();
     const collection = client.db().collection("CustomerDevice");
     await ensureIndexes(collection);
     const filter: any = { userId: session.id, archivedAt: { $exists: false } };
+    if (setFmiOn) {
+      const result = await collection.updateMany(filter, { $set: { fmi: "ON", updatedAt: new Date(), updatedBy: session.id } });
+      if (result.modifiedCount > 0) {
+        await writeAuditLog({ userId: session.id, action: "DEVICES_FMI_SET_ON", entityType: "CustomerDevice", details: { modifiedCount: result.modifiedCount } });
+      }
+      return NextResponse.json({ success: true, modifiedCount: result.modifiedCount, message: result.modifiedCount ? `${result.modifiedCount} equipos quedaron con FMI ON.` : "Todos los equipos ya tenían FMI ON." });
+    }
     if (q) {
       const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const regex = new RegExp(escaped, "i");
