@@ -23,6 +23,20 @@ import { FILTER_CHIP_COLLAPSED_CLASS } from "@/lib/ui/filter-chip-styles";
 import { cn } from "@/lib/utils";
 import { formatStableDate } from "@/lib/format";
 import { useWarehouses, useStockAllocations, useProductVariants } from "@/hooks/queries";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandList,
+} from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { FilterCommandCheckboxItem } from "@/lib/ui/filter-command-item";
+import { Separator } from "@/components/ui/separator";
+import {
+  filterCommandPopoverClass,
+  FILTER_COMMAND_INPUT_WRAPPER_CLASS,
+} from "@/lib/ui/popover-readability-styles";
 
 type FiltersAndActionsProps = {
   allProducts: Product[];
@@ -66,6 +80,7 @@ export default function FiltersAndActions({
   const stockAllocations = allocationProp.length ? allocationProp : (allocationsQuery.data ?? []);
   const variants = variantsQuery.data ?? [];
   const [selectedWarehouse, setSelectedWarehouse] = useState("");
+  const [warehouseOpen, setWarehouseOpen] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -74,6 +89,7 @@ export default function FiltersAndActions({
 
   const updateWarehouse = useCallback((warehouseId: string) => {
     setSelectedWarehouse(warehouseId);
+    setWarehouseOpen(false);
     const url = new URL(window.location.href);
     if (warehouseId) url.searchParams.set("warehouse", warehouseId);
     else url.searchParams.delete("warehouse");
@@ -138,12 +154,62 @@ export default function FiltersAndActions({
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-shrink-0 order-2 sm:order-1 w-full sm:w-auto">
         <SuppliersDropDown selectedSuppliers={selectedSuppliers} setSelectedSuppliers={setSelectedSuppliers} suppliersOverride={suppliersOverride} />
         <CategoryDropDown selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} categoriesOverride={categoriesOverride} />
-        <div className="relative w-full sm:w-auto">
-          <WarehouseIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 z-10" />
-          <select aria-label="Filtrar por bodega" value={selectedWarehouse} onChange={(e) => updateWarehouse(e.target.value)} className="h-10 w-full sm:w-auto min-w-[150px] appearance-none rounded-[28px] border border-teal-400/30 bg-gradient-to-r from-teal-500/25 via-teal-500/15 to-teal-500/10 pl-9 pr-8 text-sm text-gray-700 dark:text-white outline-none shadow-[0_10px_30px_rgba(20,184,166,0.2)] backdrop-blur-md">
-            <option value="">Todas las bodegas</option>
-            {allWarehouses.filter((w) => w.status !== false).map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
-          </select>
+        <div className="flex items-center poppins w-full sm:w-auto">
+          <Popover open={warehouseOpen} onOpenChange={setWarehouseOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="secondary"
+                className="h-10 w-full sm:w-auto min-w-[150px] rounded-[28px] border border-teal-400/30 dark:border-teal-400/30 bg-gradient-to-r from-teal-500/25 via-teal-500/15 to-teal-500/10 dark:from-teal-500/25 dark:via-teal-500/15 dark:to-teal-500/10 text-gray-700 dark:text-white shadow-[0_10px_30px_rgba(20,184,166,0.2)] backdrop-blur-md transition duration-200 hover:border-teal-300/40 hover:from-teal-500/35 hover:via-teal-500/25 hover:to-teal-500/15 dark:hover:border-teal-300/40 dark:hover:from-teal-500/35 dark:hover:via-teal-500/25 dark:hover:to-teal-500/15 justify-start"
+              >
+                <WarehouseIcon className="h-4 w-4 mr-1" aria-hidden />
+                <span className="truncate">{selectedWarehouse ? (allWarehouses.find((w) => w.id === selectedWarehouse)?.name ?? "Bodega") : "Bodega"}</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              className={cn("p-0 w-56 poppins", filterCommandPopoverClass("teal"), FILTER_COMMAND_INPUT_WRAPPER_CLASS)}
+              side="bottom"
+              align="end"
+            >
+              <Command className="p-1 bg-transparent">
+                <CommandInput
+                  placeholder="Buscar bodega..."
+                  className="bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-700 dark:text-white/80 placeholder:text-gray-500 dark:placeholder:text-white/40"
+                />
+                <CommandList>
+                  <CommandEmpty className="text-gray-600 dark:text-white/80 text-sm text-center p-5">No se encontró ninguna bodega.</CommandEmpty>
+                  <CommandGroup>
+                    <FilterCommandCheckboxItem
+                      value="Todas las bodegas"
+                      toggleValue=""
+                      checked={!selectedWarehouse}
+                      onToggle={() => updateWarehouse("")}
+                      className="h-9 focus:bg-teal-100 dark:focus:bg-white/10"
+                      checkboxClassName="focus:ring-teal-500/50"
+                    >
+                      <div className="flex items-center gap-1 p-1 rounded-lg px-2 text-[14px]">Todas las bodegas</div>
+                    </FilterCommandCheckboxItem>
+                    {allWarehouses.filter((w) => w.status !== false).map((warehouse) => (
+                      <FilterCommandCheckboxItem
+                        key={warehouse.id}
+                        value={warehouse.name}
+                        toggleValue={warehouse.id}
+                        checked={selectedWarehouse === warehouse.id}
+                        onToggle={() => updateWarehouse(warehouse.id)}
+                        className="h-9 focus:bg-teal-100 dark:focus:bg-white/10"
+                        checkboxClassName="focus:ring-teal-500/50"
+                      >
+                        <div className="flex items-center gap-1 p-1 rounded-lg px-2 text-[14px]">{warehouse.name}</div>
+                      </FilterCommandCheckboxItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+                <div className="flex flex-col gap-2 text-[23px]">
+                  <Separator className="bg-gray-300/50 dark:bg-white/10" />
+                  <Button onClick={() => updateWarehouse("")} variant="ghost" className="text-[12px] mb-1 text-gray-700 dark:text-white/80 hover:text-gray-700 dark:hover:text-white hover:bg-teal-100 dark:hover:bg-white/10">Limpiar filtros</Button>
+                </div>
+              </Command>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
       <div className="relative flex-1 min-w-[120px] sm:min-w-[200px] sm:max-w-md w-full order-1 sm:order-2 sm:flex sm:justify-center"><div className="relative w-full sm:max-w-md"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600 dark:text-white/80 z-10" /><Input placeholder="Search by Name or SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className={FILTER_SEARCH_INPUT_SKY_CLASS} />{searchTerm && <Button variant="ghost" size="sm" onClick={() => setSearchTerm("")} className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 text-white/60 hover:text-white hover:bg-white/10 backdrop-blur-md"><IoClose className="h-4 w-4 text-gray-700 dark:text-white/80" /></Button>}</div></div>
