@@ -96,10 +96,8 @@ export function StatisticsSection({
     // table, including variants located in Abdul.
     for (const variant of variants) {
       const fallbackProductCost = purchasePriceByProduct.get(variant.productId) ?? 0;
-      const unitCost = Math.max(
-        0,
-        Number(variant.purchasePrice ?? fallbackProductCost),
-      );
+      const variantCost = Math.max(0, Number(variant.purchasePrice ?? 0));
+      const unitCost = variantCost > 0 ? variantCost : fallbackProductCost;
       if (unitCost <= 0) continue;
 
       for (const stock of variant.stocks ?? []) {
@@ -131,12 +129,55 @@ export function StatisticsSection({
     };
   }, [productsQuery.data, productVariantsQuery.data, stockAllocationsQuery.data, warehousesQuery.data]);
 
+  // Calculate sale value from the same inventory model used by the products
+  // screen. Products with variants are valued from their variants, while
+  // products without variants use the product-level available quantity.
+  // This prevents the catalog quantity and variant quantities from being
+  // counted twice.
+  const inventorySaleValue = useMemo(() => {
+    const products = productsQuery.data ?? [];
+    const variants = productVariantsQuery.data ?? [];
+    const variantsByProduct = new Map<string, typeof variants>();
+
+    for (const variant of variants) {
+      const list = variantsByProduct.get(variant.productId) ?? [];
+      list.push(variant);
+      variantsByProduct.set(variant.productId, list);
+    }
+
+    return products.reduce((sum, product) => {
+      const productVariants = variantsByProduct.get(product.id) ?? [];
+
+      if (productVariants.length > 0) {
+        return (
+          sum +
+          productVariants.reduce((variantSum, variant) => {
+            const quantity = Math.max(
+              0,
+              Number(variant.quantity ?? 0) - Number(variant.reservedQuantity ?? 0),
+            );
+            return variantSum + Math.max(0, Number(variant.price ?? 0)) * quantity;
+          }, 0)
+        );
+      }
+
+      const quantity = Math.max(
+        0,
+        Number(product.quantity ?? 0) - Number(product.reservedQuantity ?? 0),
+      );
+      return sum + Math.max(0, Number(product.price ?? 0)) * quantity;
+    }, 0);
+  }, [productsQuery.data, productVariantsQuery.data]);
+
   const inventoryCost = warehouseCostData.total;
   const inventoryCostLoading =
     productsQuery.isPending ||
     productVariantsQuery.isPending ||
     stockAllocationsQuery.isPending ||
     warehousesQuery.isPending;
+
+  const inventorySaleValueLoading =
+    productsQuery.isPending || productVariantsQuery.isPending;
 
   const warehouseCostBadges = warehouseCostData.breakdown.map(
     ({ label, value }) => ({ label, value }),
@@ -147,7 +188,6 @@ export function StatisticsSection({
     stats?.revenue?.fromOrders ??
     0;
   const selfOthers = stats?.selfOthersBreakdown;
-  const inventorySaleValue = stats?.totalInventoryValue ?? 0;
   const potentialProfit = Math.max(0, inventorySaleValue - inventoryCost);
 
   return (
@@ -182,7 +222,7 @@ export function StatisticsSection({
         description="Al precio de venta actual"
         icon={DollarSign}
         variant="violet"
-        valueLoading={dataLoading}
+        valueLoading={dataLoading || inventorySaleValueLoading}
       />
       <StatisticsCard
         title="Utilidad potencial"
@@ -190,7 +230,7 @@ export function StatisticsSection({
         description="Venta potencial menos costo"
         icon={DollarSign}
         variant="emerald"
-        valueLoading={dataLoading || inventoryCostLoading}
+        valueLoading={dataLoading || inventoryCostLoading || inventorySaleValueLoading}
       />
       <StatisticsCard
         title="Ingresos totales"
