@@ -67,7 +67,12 @@ export function StatisticsSection({
       ]),
     );
 
-    const costByWarehouse = new Map<string, number>();
+    // Start with every warehouse so newly-created warehouses are represented
+    // even when they do not have stock yet (for example, "Abdul" at $0.00).
+    const costByWarehouse = new Map<string, number>(
+      warehouses.map((warehouse) => [warehouse.id, 0]),
+    );
+
     for (const allocation of allocations) {
       const allocationCost = Math.max(
         0,
@@ -110,12 +115,11 @@ export function StatisticsSection({
     stockAllocationsQuery.isPending ||
     warehousesQuery.isPending;
 
-  // Only show warehouses that currently carry inventory. This keeps the KPI
-  // breakdown aligned with the live allocation data after purchases are
-  // received, transferred, returned, or cancelled.
-  const warehouseCostBadges = warehouseCostData.breakdown
-    .filter(({ rawValue }) => rawValue > 0)
-    .map(({ label, value }) => ({ label, value }));
+  // Show all active warehouses, including those currently at $0.00, so the
+  // inventory-cost breakdown always reflects the complete warehouse setup.
+  const warehouseCostBadges = warehouseCostData.breakdown.map(
+    ({ label, value }) => ({ label, value }),
+  );
 
   const revenueFromOrders =
     stats?.orderAnalytics?.totalRevenueExcludingCancelled ??
