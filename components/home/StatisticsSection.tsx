@@ -110,9 +110,12 @@ export function StatisticsSection({
     stockAllocationsQuery.isPending ||
     warehousesQuery.isPending;
 
-  const warehouseCostBadges = warehouseCostData.breakdown.map(
-    ({ label, value }) => ({ label, value }),
-  );
+  // Only show warehouses that currently carry inventory. This keeps the KPI
+  // breakdown aligned with the live allocation data after purchases are
+  // received, transferred, returned, or cancelled.
+  const warehouseCostBadges = warehouseCostData.breakdown
+    .filter(({ rawValue }) => rawValue > 0)
+    .map(({ label, value }) => ({ label, value }));
 
   const revenueFromOrders =
     stats?.orderAnalytics?.totalRevenueExcludingCancelled ??
