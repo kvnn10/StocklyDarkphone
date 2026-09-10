@@ -106,13 +106,13 @@ export default function AddProductDialog({ allProducts, userId, children, onOpen
   }, [allVariants, selectedProduct?.id]);
 
   const visibleWarehouseLocations = useMemo(() => {
-    const locations = productAllocations
+    const locations: Array<{ warehouseId: string; warehouseName: string; quantity: number; source: "product" | "variant" }> = productAllocations
       .filter((allocation) => Number(allocation.quantity ?? 0) > 0)
-      .map((allocation) => ({ warehouseId: allocation.warehouseId, warehouseName: allocation.warehouse?.name ?? "Bodega", quantity: Number(allocation.quantity ?? 0), source: "product" as const }));
+      .map((allocation) => ({ warehouseId: allocation.warehouseId, warehouseName: allocation.warehouse?.name ?? "Bodega", quantity: Number(allocation.quantity ?? 0), source: "product" }));
     const existing = new Set(locations.map((location) => location.warehouseId));
     for (const location of variantWarehouseStock) {
       if (!existing.has(location.warehouseId)) {
-        locations.push({ warehouseId: location.warehouseId, warehouseName: location.warehouseName, quantity: location.quantity, source: "variant" as const });
+        locations.push({ warehouseId: location.warehouseId, warehouseName: location.warehouseName, quantity: location.quantity, source: "variant" });
       }
     }
     return locations;
