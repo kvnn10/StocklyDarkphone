@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import Papa from "papaparse";
 import { IoClose } from "react-icons/io5";
-import { Search, Users } from "lucide-react";
+import { Search, Users, Warehouse } from "lucide-react";
 import ExcelJS from "exceljs";
 import { CategoryDropDown } from "@/components/category/CategoryFilter";
 import { StatusDropDown } from "./ProductStatusFilter";
@@ -27,24 +27,19 @@ type FiltersAndActionsProps = {
   allProducts: Product[];
   allCategories: Category[];
   allSuppliers: Supplier[];
-  /** When provided, pass to CategoryDropDown (e.g. client browse mode) */
   categoriesOverride?: Array<{ id: string; name: string }>;
-  /** When provided, pass to SuppliersDropDown (e.g. client browse mode) */
   suppliersOverride?: Array<{
     id: string;
     name: string;
     image?: string | null;
   }>;
-  /** When true, hide Import (e.g. client browse mode) */
   hideImport?: boolean;
-  /** When provided (e.g. client browse), show Product Owner dropdown in filter row */
   productOwnerOptions?: Array<{
     id: string;
     name: string;
     email: string;
     image?: string | null;
   }>;
-  /** REQ-0071 — total store owners vs owners with catalog products */
   storeOwnerCounts?: { total: number; withProducts: number };
   selectedOwnerId?: string;
   onOwnerChange?: (ownerId: string) => void;
@@ -88,10 +83,6 @@ export default function FiltersAndActions({
 }: FiltersAndActionsProps) {
   const { toast } = useToast();
 
-  /**
-   * Filter products based on current filters
-   * Memoized to prevent unnecessary recalculations
-   */
   const filteredProducts = useMemo(() => {
     return allProducts.filter((product) => {
       const searchMatch =
@@ -117,10 +108,6 @@ export default function FiltersAndActions({
     selectedStatuses,
   ]);
 
-  /**
-   * Export filtered products to CSV
-   * Memoized callback to prevent unnecessary re-renders
-   */
   const exportToCSV = useCallback(() => {
     try {
       if (filteredProducts.length === 0) {
@@ -162,7 +149,7 @@ export default function FiltersAndActions({
         title: "CSV Export Successful!",
         description: `${filteredProducts.length} products exported to CSV file.`,
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Export Failed",
         description: "Failed to export products to CSV. Please try again.",
@@ -171,10 +158,6 @@ export default function FiltersAndActions({
     }
   }, [filteredProducts, toast]);
 
-  /**
-   * Export filtered products to Excel
-   * Memoized callback to prevent unnecessary re-renders
-   */
   const exportToExcel = useCallback(async () => {
     try {
       if (filteredProducts.length === 0) {
@@ -198,11 +181,9 @@ export default function FiltersAndActions({
         "Created Date": formatStableDate(product.createdAt),
       }));
 
-      // Create a new workbook and worksheet
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("Products");
 
-      // Add header row
       worksheet.columns = [
         { header: "Product Name", key: "Product Name", width: 20 },
         { header: "SKU", key: "SKU", width: 15 },
@@ -214,10 +195,7 @@ export default function FiltersAndActions({
         { header: "Created Date", key: "Created Date", width: 12 },
       ];
 
-      // Add data rows
       worksheet.addRows(excelData);
-
-      // Style header row
       worksheet.getRow(1).font = { bold: true };
       worksheet.getRow(1).fill = {
         type: "pattern",
@@ -225,7 +203,6 @@ export default function FiltersAndActions({
         fgColor: { argb: "FFE0E0E0" },
       };
 
-      // Generate Excel file and download
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -246,7 +223,7 @@ export default function FiltersAndActions({
         title: "Excel Export Successful!",
         description: `${filteredProducts.length} products exported to Excel file.`,
       });
-    } catch (error) {
+    } catch {
       toast({
         title: "Export Failed",
         description: "Failed to export products to Excel. Please try again.",
@@ -317,7 +294,6 @@ export default function FiltersAndActions({
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Row 1: Select Product Owner (when client) - centered */}
       {productOwnerOptions && onOwnerChange && (
         <div className="flex flex-wrap items-center justify-center gap-3 w-full py-1">
           <p className="text-sm text-gray-700 dark:text-white/80 flex items-center gap-2 min-w-0">
@@ -342,9 +318,7 @@ export default function FiltersAndActions({
         </div>
       )}
 
-      {/* Row 2: Left: Suppliers, Categories | Center: Search | Right: Status, Export */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 flex-wrap w-full">
-        {/* Left */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-shrink-0 order-2 sm:order-1 w-full sm:w-auto">
           <SuppliersDropDown
             selectedSuppliers={selectedSuppliers}
@@ -356,9 +330,18 @@ export default function FiltersAndActions({
             setSelectedCategory={setSelectedCategory}
             categoriesOverride={categoriesOverride}
           />
+          <Button
+            type="button"
+            onClick={() => {
+              window.location.href = "/warehouses";
+            }}
+            className="h-10 w-full sm:w-auto flex items-center gap-2 rounded-[28px] border border-teal-400/30 bg-gradient-to-r from-teal-500/25 via-teal-500/15 to-teal-500/10 text-gray-700 dark:text-white shadow-[0_10px_30px_rgba(20,184,166,0.2)] backdrop-blur-md transition duration-200 hover:border-teal-300/40 hover:from-teal-500/35 hover:via-teal-500/25 hover:to-teal-500/15"
+          >
+            <Warehouse className="h-4 w-4" />
+            Bodega
+          </Button>
         </div>
 
-        {/* Center - Search */}
         <div className="relative flex-1 min-w-[120px] sm:min-w-[200px] sm:max-w-md w-full order-1 sm:order-2 sm:flex sm:justify-center">
           <div className="relative w-full sm:max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600 dark:text-white/80 z-10" />
@@ -381,7 +364,6 @@ export default function FiltersAndActions({
           </div>
         </div>
 
-        {/* Right */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-shrink-0 order-3 w-full sm:w-auto sm:flex-wrap">
           <StatusDropDown
             selectedStatuses={selectedStatuses}
