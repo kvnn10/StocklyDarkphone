@@ -5,7 +5,7 @@
 
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import {
   Package,
   FolderTree,
@@ -49,56 +49,13 @@ export function StatisticsSection({
   const warehousesQuery = useWarehouses();
   const stats = dashboardQuery.data ?? initialStats ?? null;
   const dataLoading = isDataSlotUnsettled(dashboardQuery, initialStats);
-  const [inventoryCost, setInventoryCost] = useState(0);
-  const [inventoryCostLoading, setInventoryCostLoading] = useState(true);
 
   useSyncSsrQueryData(
     queryKeys.dashboard.overview(user?.id ?? ""),
     user?.id && initialStats != null ? initialStats : undefined,
   );
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadInventoryCost = async () => {
-      if (!user?.id) {
-        setInventoryCostLoading(false);
-        return;
-      }
-
-      setInventoryCostLoading(true);
-      try {
-        const response = await fetch("/api/products", { cache: "no-store" });
-        const products = await response.json();
-
-        if (!response.ok || !Array.isArray(products)) {
-          throw new Error("Failed to load products");
-        }
-
-        const cost = products.reduce(
-          (sum: number, product: { quantity?: number; purchasePrice?: number }) =>
-            sum +
-            Math.max(0, Number(product.quantity ?? 0)) *
-              Math.max(0, Number(product.purchasePrice ?? 0)),
-          0,
-        );
-
-        if (!cancelled) setInventoryCost(cost);
-      } catch {
-        if (!cancelled) setInventoryCost(0);
-      } finally {
-        if (!cancelled) setInventoryCostLoading(false);
-      }
-    };
-
-    loadInventoryCost();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
-
-  const warehouseCostBadges = useMemo(() => {
+  const warehouseCostData = useMemo(() => {
     const products = productsQuery.data ?? [];
     const allocations = stockAllocationsQuery.data ?? [];
     const warehouses = warehousesQuery.data ?? [];
@@ -112,8 +69,14 @@ export function StatisticsSection({
 
     const costByWarehouse = new Map<string, number>();
     for (const allocation of allocations) {
-      const unitCost = purchasePriceByProduct.get(allocation.productId) ?? 0;
+      const allocationCost = Math.max(
+        0,
+        Number(allocation.product?.purchasePrice ?? 0),
+      );
+      const productCost = purchasePriceByProduct.get(allocation.productId) ?? 0;
+      const unitCost = allocationCost > 0 ? allocationCost : productCost;
       const quantity = Math.max(0, Number(allocation.quantity ?? 0));
+
       if (unitCost > 0 && quantity > 0) {
         costByWarehouse.set(
           allocation.warehouseId,
@@ -123,21 +86,33 @@ export function StatisticsSection({
       }
     }
 
-    return warehouses
+    const breakdown = warehouses
       .map((warehouse) => ({
         label: warehouse.name,
-        value: formatCurrency(costByWarehouse.get(warehouse.id) ?? 0),
         rawValue: costByWarehouse.get(warehouse.id) ?? 0,
       }))
-      .filter((warehouse) => warehouse.rawValue > 0)
       .sort((a, b) => b.rawValue - a.rawValue)
-      .map(({ label, value }) => ({ label, value }));
+      .map(({ label, rawValue }) => ({
+        label,
+        value: formatCurrency(rawValue),
+        rawValue,
+      }));
+
+    return {
+      breakdown,
+      total: breakdown.reduce((sum, warehouse) => sum + warehouse.rawValue, 0),
+    };
   }, [productsQuery.data, stockAllocationsQuery.data, warehousesQuery.data]);
 
-  const warehouseCostLoading =
+  const inventoryCost = warehouseCostData.total;
+  const inventoryCostLoading =
     productsQuery.isPending ||
     stockAllocationsQuery.isPending ||
     warehousesQuery.isPending;
+
+  const warehouseCostBadges = warehouseCostData.breakdown.map(
+    ({ label, value }) => ({ label, value }),
+  );
 
   const revenueFromOrders =
     stats?.orderAnalytics?.totalRevenueExcludingCancelled ??
@@ -170,7 +145,7 @@ export function StatisticsSection({
         icon={DollarSign}
         variant="blue"
         valueLoading={dataLoading || inventoryCostLoading}
-        badgeValuesLoading={warehouseCostLoading}
+        badgeValuesLoading={inventoryCostLoading}
         badges={warehouseCostBadges}
       />
       <StatisticsCard
@@ -256,32 +231,6 @@ export function StatisticsSection({
         badges={[
           { label: "Activos", value: stats?.warehouseAnalytics?.activeWarehouses ?? 0 },
           { label: "Inactivos", value: stats?.warehouseAnalytics?.inactiveWarehouses ?? 0 },
-        ]}
-      />
-      <StatisticsCard
-        title="Total de proveedores"
-        value={stats?.counts?.suppliers ?? 0}
-        description="Proveedores registrados"
-        icon={Truck}
-        variant="emerald"
-        valueLoading={dataLoading}
-        badgeValuesLoading={dataLoading}
-        badges={[
-          { label: "Activos", value: stats?.supplierStatusBreakdown?.active ?? 0 },
-          { label: "Inactivos", value: stats?.supplierStatusBreakdown?.inactive ?? 0 },
-        ]}
-      />
-      <StatisticsCard
-        title="Categorías"
-        value={stats?.counts?.categories ?? 0}
-        description="Categorías de productos"
-        icon={FolderTree}
-        variant="amber"
-        valueLoading={dataLoading}
-        badgeValuesLoading={dataLoading}
-        badges={[
-          { label: "Activas", value: stats?.categoryStatusBreakdown?.active ?? 0 },
-          { label: "Inactivas", value: stats?.categoryStatusBreakdown?.inactive ?? 0 },
         ]}
       />
     </div>
