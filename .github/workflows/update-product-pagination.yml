@@ -1,0 +1,45 @@
+name: Update product pagination options
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update-pagination:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update pagination
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          product_list = Path("components/products/ProductList.tsx")
+          text = product_list.read_text(encoding="utf-8")
+          old = 'const [pagination, setPagination] = useState<PaginationType>({ pageIndex: 0, pageSize: 8 });'
+          new = 'const [pagination, setPagination] = useState<PaginationType>({ pageIndex: 0, pageSize: 30 });'
+          if old not in text:
+              raise SystemExit("ProductList pagination initializer not found")
+          product_list.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          options = Path("components/shared/pagination-select-styles.ts")
+          text = options.read_text(encoding="utf-8")
+          old = 'export const PAGE_SIZE_OPTIONS = [4, 6, 8, 10, 15, 20, 30] as const;'
+          new = 'export const PAGE_SIZE_OPTIONS = [4, 6, 8, 10, 15, 20, 30, 50, 100, 200] as const;'
+          if old not in text:
+              raise SystemExit("PAGE_SIZE_OPTIONS declaration not found")
+          options.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+
+      - name: Commit changes and remove workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add components/products/ProductList.tsx components/shared/pagination-select-styles.ts .github/workflows/update-product-pagination.yml
+          git commit -m "Set product rows default to 30"
+          git rm .github/workflows/update-product-pagination.yml
+          git commit -m "Remove one-time pagination workflow"
+          git push
