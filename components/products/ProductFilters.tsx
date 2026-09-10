@@ -1,7 +1,7 @@
 "use client";
 
 import { FILTER_SEARCH_INPUT_SKY_CLASS } from "@/lib/ui/filter-toolbar-styles";
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useEffect, useState } from "react";
 import { Product, Category, Supplier, StockAllocation, Warehouse } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ import { ProductStockStatusBadge } from "@/lib/ui/semantic-badges";
 import { FILTER_CHIP_COLLAPSED_CLASS } from "@/lib/ui/filter-chip-styles";
 import { cn } from "@/lib/utils";
 import { formatStableDate } from "@/lib/format";
+import { useWarehouses, useStockAllocations } from "@/hooks/queries";
 
 type FiltersAndActionsProps = {
   allProducts: Product[];
@@ -42,8 +43,8 @@ type FiltersAndActionsProps = {
   setSelectedStatuses: React.Dispatch<React.SetStateAction<string[]>>;
   selectedSuppliers: string[];
   setSelectedSuppliers: React.Dispatch<React.SetStateAction<string[]>>;
-  selectedWarehouse: string;
-  setSelectedWarehouse: React.Dispatch<React.SetStateAction<string>>;
+  selectedWarehouse?: string;
+  setSelectedWarehouse?: React.Dispatch<React.SetStateAction<string>>;
   searchTerm: string;
   setSearchTerm: (term: string) => void;
   pagination: PaginationType;
@@ -52,13 +53,32 @@ type FiltersAndActionsProps = {
 };
 
 export default function FiltersAndActions({
-  allProducts, allCategories, allSuppliers, allWarehouses = [], stockAllocations = [],
+  allProducts, allCategories, allSuppliers, allWarehouses: warehouseProp = [], stockAllocations: allocationProp = [],
   categoriesOverride, suppliersOverride, hideImport = false, productOwnerOptions, storeOwnerCounts,
   selectedOwnerId = "", onOwnerChange, selectedCategory, setSelectedCategory, selectedStatuses,
-  setSelectedStatuses, selectedSuppliers, setSelectedSuppliers, selectedWarehouse, setSelectedWarehouse,
-  searchTerm, setSearchTerm, pagination, setPagination, userId,
+  setSelectedStatuses, selectedSuppliers, setSelectedSuppliers, searchTerm, setSearchTerm, pagination, setPagination, userId,
 }: FiltersAndActionsProps) {
   const { toast } = useToast();
+  const warehousesQuery = useWarehouses();
+  const allocationsQuery = useStockAllocations();
+  const allWarehouses = warehouseProp.length ? warehouseProp : (warehousesQuery.data ?? []);
+  const stockAllocations = allocationProp.length ? allocationProp : (allocationsQuery.data ?? []);
+  const [selectedWarehouse, setSelectedWarehouse] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setSelectedWarehouse(params.get("warehouse") ?? "");
+  }, []);
+
+  const updateWarehouse = useCallback((warehouseId: string) => {
+    setSelectedWarehouse(warehouseId);
+    const url = new URL(window.location.href);
+    if (warehouseId) url.searchParams.set("warehouse", warehouseId);
+    else url.searchParams.delete("warehouse");
+    window.history.replaceState({}, "", url.toString());
+    window.dispatchEvent(new Event("stockly:warehouse-filter"));
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+  }, [setPagination]);
 
   const filteredProducts = useMemo(() => allProducts.filter((product) => {
     const searchMatch = !searchTerm || product.name.toLowerCase().includes(searchTerm.toLowerCase()) || product.sku.toLowerCase().includes(searchTerm.toLowerCase());
@@ -92,7 +112,7 @@ export default function FiltersAndActions({
     } catch { toast({ title: "Export Failed", description: "Failed to export products to Excel. Please try again.", variant: "destructive" }); }
   }, [filteredProducts, toast]);
 
-  const handleResetFilters = useCallback(() => { setSelectedStatuses([]); setSelectedCategory([]); setSelectedSuppliers([]); setSelectedWarehouse(""); setPagination((prev) => ({ ...prev, pageIndex: 0 })); }, [setSelectedStatuses, setSelectedCategory, setSelectedSuppliers, setSelectedWarehouse, setPagination]);
+  const handleResetFilters = useCallback(() => { setSelectedStatuses([]); setSelectedCategory([]); setSelectedSuppliers([]); updateWarehouse(""); setPagination((prev) => ({ ...prev, pageIndex: 0 })); }, [setSelectedStatuses, setSelectedCategory, setSelectedSuppliers, updateWarehouse, setPagination]);
 
   const filterChipGroups = useMemo((): FilterChipGroup[] => {
     const categoryNameById = new Map(allCategories.map((c) => [c.id, c.name]));
@@ -102,9 +122,9 @@ export default function FiltersAndActions({
       { label: "Status", values: selectedStatuses, onClear: () => setSelectedStatuses([]), renderBadge: (value) => <ProductStockStatusBadge status={value} size="compact" /> },
       { label: "Category", values: selectedCategory, onClear: () => setSelectedCategory([]), renderBadge: (value) => <span className={FILTER_CHIP_COLLAPSED_CLASS}>{categoryNameById.get(value) ?? value}</span> },
       { label: "Supplier", values: selectedSuppliers, onClear: () => setSelectedSuppliers([]), renderBadge: (value) => <span className={FILTER_CHIP_COLLAPSED_CLASS}>{supplierNameById.get(value) ?? value}</span> },
-      { label: "Bodega", values: selectedWarehouse ? [selectedWarehouse] : [], onClear: () => setSelectedWarehouse(""), renderBadge: (value) => <span className={FILTER_CHIP_COLLAPSED_CLASS}>{warehouseNameById.get(value) ?? value}</span> },
+      { label: "Bodega", values: selectedWarehouse ? [selectedWarehouse] : [], onClear: () => updateWarehouse(""), renderBadge: (value) => <span className={FILTER_CHIP_COLLAPSED_CLASS}>{warehouseNameById.get(value) ?? value}</span> },
     ];
-  }, [allCategories, allSuppliers, allWarehouses, selectedStatuses, selectedCategory, selectedSuppliers, selectedWarehouse, setSelectedStatuses, setSelectedCategory, setSelectedSuppliers, setSelectedWarehouse]);
+  }, [allCategories, allSuppliers, allWarehouses, selectedStatuses, selectedCategory, selectedSuppliers, selectedWarehouse, setSelectedStatuses, setSelectedCategory, setSelectedSuppliers, updateWarehouse]);
 
   const exportButtonClass = "h-10 w-full sm:w-auto flex items-center gap-2 rounded-[28px] border border-violet-400/30 dark:border-violet-400/30 bg-gradient-to-r from-violet-500/25 via-violet-500/15 to-violet-500/10 text-gray-700 dark:text-white shadow-[0_10px_30px_rgba(139,92,246,0.2)] backdrop-blur-md transition duration-200";
 
@@ -116,7 +136,7 @@ export default function FiltersAndActions({
         <CategoryDropDown selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} categoriesOverride={categoriesOverride} />
         <div className="relative w-full sm:w-auto">
           <WarehouseIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 z-10" />
-          <select value={selectedWarehouse} onChange={(e) => { setSelectedWarehouse(e.target.value); setPagination((prev) => ({ ...prev, pageIndex: 0 })); }} className="h-10 w-full sm:w-auto min-w-[150px] appearance-none rounded-[28px] border border-teal-400/30 bg-gradient-to-r from-teal-500/25 via-teal-500/15 to-teal-500/10 pl-9 pr-8 text-sm text-gray-700 dark:text-white outline-none shadow-[0_10px_30px_rgba(20,184,166,0.2)] backdrop-blur-md">
+          <select aria-label="Filtrar por bodega" value={selectedWarehouse} onChange={(e) => updateWarehouse(e.target.value)} className="h-10 w-full sm:w-auto min-w-[150px] appearance-none rounded-[28px] border border-teal-400/30 bg-gradient-to-r from-teal-500/25 via-teal-500/15 to-teal-500/10 pl-9 pr-8 text-sm text-gray-700 dark:text-white outline-none shadow-[0_10px_30px_rgba(20,184,166,0.2)] backdrop-blur-md">
             <option value="">Todas las bodegas</option>
             {allWarehouses.filter((w) => w.status !== false).map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
           </select>
