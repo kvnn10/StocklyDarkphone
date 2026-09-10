@@ -1,4 +1,4 @@
-/**
+/*
  * Statistics Section — store-wide KPI cards (REQ-0021 shell-first).
  * Card titles/icons always visible; only values pulse while dashboard loads.
  */
@@ -73,7 +73,6 @@ export function StatisticsSection({
       warehouses.map((warehouse) => [warehouse.id, 0]),
     );
 
-    // Product-level stock allocations.
     for (const allocation of allocations) {
       const allocationCost = Math.max(
         0,
@@ -94,9 +93,6 @@ export function StatisticsSection({
       }
     }
 
-    // Variant stock is stored separately from product allocations. Include it
-    // so warehouse cost reflects the same stock that appears in the products
-    // table, including variants located in Abdul.
     for (const variant of variants) {
       const fallbackProductCost = purchasePriceByProduct.get(variant.productId) ?? 0;
       const variantCost = Math.max(0, Number(variant.purchasePrice ?? 0));
@@ -135,11 +131,6 @@ export function StatisticsSection({
     };
   }, [productsQuery.data, productVariantsQuery.data, stockAllocationsQuery.data, warehousesQuery.data]);
 
-  // Calculate sale value from the exact warehouse inventory model used by the
-  // products screen. For products with variants, use each variant's actual
-  // warehouse stock and sale price. For products without variants, use the
-  // product-level available quantity. This keeps dashboard totals consistent
-  // with the stock actually visible in the catalog and avoids double-counting.
   const inventorySaleValue = useMemo(() => {
     const products = productsQuery.data ?? [];
     const variants = productVariantsQuery.data ?? [];
@@ -171,9 +162,6 @@ export function StatisticsSection({
               0,
             );
 
-            // A variant can exist without a warehouse allocation in legacy data.
-            // In that case, fall back to its aggregate available quantity rather
-            // than making its inventory disappear from the dashboard.
             const fallbackQuantity = Math.max(
               0,
               Number(variant.quantity ?? 0) - Number(variant.reservedQuantity ?? 0),
@@ -216,115 +204,14 @@ export function StatisticsSection({
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 items-stretch">
-      <StatisticsCard
-        title="Total de productos"
-        value={stats?.counts?.products ?? 0}
-        description="Disponibilidad de productos"
-        icon={Package}
-        variant="rose"
-        valueLoading={dataLoading}
-        badgeValuesLoading={dataLoading}
-        badges={[
-          { label: "Disponibles", value: stats?.productStatusBreakdown?.available ?? 0 },
-          { label: "Stock bajo", value: stats?.productStatusBreakdown?.stockLow ?? 0 },
-          { label: "Agotados", value: stats?.productStatusBreakdown?.stockOut ?? 0 },
-        ]}
-      />
-      <StatisticsCard
-        title="Costo del inventario"
-        value={formatCurrency(inventoryCost)}
-        description="Valor al costo de compra"
-        icon={DollarSign}
-        variant="blue"
-        valueLoading={dataLoading || inventoryCostLoading}
-        badgeValuesLoading={inventoryCostLoading}
-        badges={warehouseCostBadges}
-      />
-      <StatisticsCard
-        title="Valor potencial de venta"
-        value={formatCurrency(inventorySaleValue)}
-        description="Al precio de venta actual"
-        icon={DollarSign}
-        variant="violet"
-        valueLoading={dataLoading || inventorySaleValueLoading}
-      />
-      <StatisticsCard
-        title="Utilidad potencial"
-        value={formatCurrency(potentialProfit)}
-        description="Venta potencial menos costo"
-        icon={DollarSign}
-        variant="emerald"
-        valueLoading={dataLoading || inventoryCostLoading || inventorySaleValueLoading}
-      />
-      <StatisticsCard
-        title="Ingresos totales"
-        value={formatCurrency(revenueFromOrders)}
-        description="Ventas netas (sin pedidos cancelados)"
-        icon={DollarSign}
-        variant="emerald"
-        valueLoading={dataLoading}
-        badgeValuesLoading={dataLoading}
-        badges={[
-          { label: "Pagado", value: formatCurrency(stats?.orderAnalytics?.paidOrderAmount ?? 0) },
-          { label: "Parcial", value: formatCurrency(stats?.orderAnalytics?.partialOrderAmount ?? 0) },
-          { label: "Pendiente", value: formatCurrency(stats?.orderAnalytics?.pendingOrderAmount ?? 0) },
-          ...(selfOthers
-            ? [
-                { label: "Propios", value: formatCurrency(selfOthers.revenueSelf) },
-                { label: "Otros", value: formatCurrency(selfOthers.revenueOthers) },
-              ]
-            : []),
-        ]}
-      />
-      <StatisticsCard
-        title="Total de pedidos"
-        value={stats?.counts?.orders ?? 0}
-        description="Pedidos realizados (propios y de clientes)"
-        icon={ShoppingCart}
-        variant="blue"
-        valueLoading={dataLoading}
-        badgeValuesLoading={dataLoading}
-        badges={buildStoreOrderStatusBadges({
-          statusDistribution: stats?.orderAnalytics?.statusDistribution,
-          refundedCount: stats?.orderAnalytics?.refundedCount,
-          selfOthers: selfOthers
-            ? { orderSelfCount: selfOthers.orderSelfCount, orderOthersCount: selfOthers.orderOthersCount }
-            : null,
-        })}
-      />
-      <StatisticsCard
-        title="Facturas"
-        value={stats?.counts?.invoices ?? 0}
-        description="Total de facturas de la tienda"
-        icon={FileText}
-        variant="sky"
-        valueLoading={dataLoading}
-        badgeValuesLoading={dataLoading}
-        badges={buildStoreInvoiceStatusBadges({
-          paidCount: stats?.invoiceAnalytics?.statusDistribution?.paid,
-          partialCount: stats?.invoiceAnalytics?.partialCount,
-          pendingCount: stats?.invoiceAnalytics?.statusDistribution?.pending,
-          overdueCount: stats?.invoiceAnalytics?.statusDistribution?.overdue,
-          cancelledCount: stats?.invoiceAnalytics?.statusDistribution?.cancelled,
-          refundedCount: stats?.orderAnalytics?.refundedCount,
-          selfOthers: selfOthers
-            ? { invoiceSelfCount: selfOthers.invoiceSelfCount, invoiceOthersCount: selfOthers.invoiceOthersCount }
-            : null,
-        })}
-      />
-      <StatisticsCard
-        title="Total de almacenes"
-        value={stats?.counts?.warehouses ?? 0}
-        description="Ubicaciones de almacenamiento"
-        icon={Warehouse}
-        variant="teal"
-        valueLoading={dataLoading}
-        badgeValuesLoading={dataLoading}
-        badges={[
-          { label: "Activos", value: stats?.warehouseAnalytics?.activeWarehouses ?? 0 },
-          { label: "Inactivos", value: stats?.warehouseAnalytics?.inactiveWarehouses ?? 0 },
-        ]}
-      />
+      <StatisticsCard title="Total de productos" value={stats?.counts?.products ?? 0} description="Disponibilidad de productos" icon={Package} variant="rose" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={[{ label: "Disponibles", value: stats?.productStatusBreakdown?.available ?? 0 }, { label: "Stock bajo", value: stats?.productStatusBreakdown?.stockLow ?? 0 }, { label: "Agotados", value: stats?.productStatusBreakdown?.stockOut ?? 0 }]} />
+      <StatisticsCard title="Costo del inventario" value={formatCurrency(inventoryCost)} description="Valor al costo de compra" icon={DollarSign} variant="blue" valueLoading={dataLoading || inventoryCostLoading} badgeValuesLoading={inventoryCostLoading} badges={warehouseCostBadges} />
+      <StatisticsCard title="Valor potencial de venta" value={formatCurrency(inventorySaleValue)} description="Al precio de venta actual" icon={DollarSign} variant="violet" valueLoading={dataLoading || inventorySaleValueLoading} />
+      <StatisticsCard title="Utilidad potencial" value={formatCurrency(potentialProfit)} description="Venta potencial menos costo" icon={DollarSign} variant="emerald" valueLoading={dataLoading || inventoryCostLoading || inventorySaleValueLoading} />
+      <StatisticsCard title="Ingresos totales" value={formatCurrency(revenueFromOrders)} description="Ventas netas (sin pedidos cancelados)" icon={DollarSign} variant="emerald" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={[{ label: "Pagado", value: formatCurrency(stats?.orderAnalytics?.paidOrderAmount ?? 0) }, { label: "Parcial", value: formatCurrency(stats?.orderAnalytics?.partialOrderAmount ?? 0) }, { label: "Pendiente", value: formatCurrency(stats?.orderAnalytics?.pendingOrderAmount ?? 0) }, ...(selfOthers ? [{ label: "Propios", value: formatCurrency(selfOthers.revenueSelf) }, { label: "Otros", value: formatCurrency(selfOthers.revenueOthers) }] : [])]} />
+      <StatisticsCard title="Total de pedidos" value={stats?.counts?.orders ?? 0} description="Pedidos realizados (propios y de clientes)" icon={ShoppingCart} variant="blue" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={buildStoreOrderStatusBadges({ statusDistribution: stats?.orderAnalytics?.statusDistribution, refundedCount: stats?.orderAnalytics?.refundedCount, selfOthers: selfOthers ? { orderSelfCount: selfOthers.orderSelfCount, orderOthersCount: selfOthers.orderOthersCount } : null })} />
+      <StatisticsCard title="Facturas" value={stats?.counts?.invoices ?? 0} description="Total de facturas de la tienda" icon={FileText} variant="sky" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={buildStoreInvoiceStatusBadges({ paidCount: stats?.invoiceAnalytics?.statusDistribution?.paid, partialCount: stats?.invoiceAnalytics?.partialCount, pendingCount: stats?.invoiceAnalytics?.pendingCount ?? (stats?.invoiceAnalytics?.statusDistribution?.draft ?? 0) + (stats?.invoiceAnalytics?.statusDistribution?.sent ?? 0), overdueCount: stats?.invoiceAnalytics?.statusDistribution?.overdue, cancelledCount: stats?.invoiceAnalytics?.statusDistribution?.cancelled, refundedCount: stats?.orderAnalytics?.refundedCount, selfOthers: selfOthers ? { invoiceSelfCount: selfOthers.invoiceSelfCount, invoiceOthersCount: selfOthers.invoiceOthersCount } : null })} />
+      <StatisticsCard title="Total de almacenes" value={stats?.counts?.warehouses ?? 0} description="Ubicaciones de almacenamiento" icon={Warehouse} variant="teal" valueLoading={dataLoading} badgeValuesLoading={dataLoading} badges={[{ label: "Activos", value: stats?.warehouseAnalytics?.activeWarehouses ?? 0 }, { label: "Inactivos", value: stats?.warehouseAnalytics?.inactiveWarehouses ?? 0 }]} />
     </div>
   );
 }
