@@ -22,7 +22,7 @@ import { ProductStockStatusBadge } from "@/lib/ui/semantic-badges";
 import { FILTER_CHIP_COLLAPSED_CLASS } from "@/lib/ui/filter-chip-styles";
 import { cn } from "@/lib/utils";
 import { formatStableDate } from "@/lib/format";
-import { useWarehouses, useStockAllocations } from "@/hooks/queries";
+import { useWarehouses, useStockAllocations, useProductVariants } from "@/hooks/queries";
 
 type FiltersAndActionsProps = {
   allProducts: Product[];
@@ -61,8 +61,10 @@ export default function FiltersAndActions({
   const { toast } = useToast();
   const warehousesQuery = useWarehouses();
   const allocationsQuery = useStockAllocations();
+  const variantsQuery = useProductVariants();
   const allWarehouses = warehouseProp.length ? warehouseProp : (warehousesQuery.data ?? []);
   const stockAllocations = allocationProp.length ? allocationProp : (allocationsQuery.data ?? []);
+  const variants = variantsQuery.data ?? [];
   const [selectedWarehouse, setSelectedWarehouse] = useState("");
 
   useEffect(() => {
@@ -85,9 +87,11 @@ export default function FiltersAndActions({
     const categoryMatch = selectedCategory.length === 0 || selectedCategory.includes(product.categoryId ?? "");
     const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(product.supplierId ?? "");
     const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(product.status ?? "");
-    const warehouseMatch = !selectedWarehouse || stockAllocations.some((a) => a.productId === product.id && a.warehouseId === selectedWarehouse && Number(a.quantity ?? 0) > 0);
+    const productStockMatch = stockAllocations.some((a) => a.productId === product.id && a.warehouseId === selectedWarehouse && Number(a.quantity ?? 0) > 0);
+    const variantStockMatch = variants.some((variant) => variant.productId === product.id && variant.stocks.some((stock) => stock.warehouseId === selectedWarehouse && Number(stock.quantity ?? 0) > 0));
+    const warehouseMatch = !selectedWarehouse || productStockMatch || variantStockMatch;
     return searchMatch && categoryMatch && supplierMatch && statusMatch && warehouseMatch;
-  }), [allProducts, searchTerm, selectedCategory, selectedSuppliers, selectedStatuses, selectedWarehouse, stockAllocations]);
+  }), [allProducts, searchTerm, selectedCategory, selectedSuppliers, selectedStatuses, selectedWarehouse, stockAllocations, variants]);
 
   const exportToCSV = useCallback(() => {
     try {
