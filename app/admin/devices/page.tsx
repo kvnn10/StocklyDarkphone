@@ -34,6 +34,14 @@ function parseBulkDevices(csv: string) {
     const values = parseCsvLine(line);
     const row: Record<string, string> = {};
     headers.forEach((header, index) => { const key = aliases[header] || header; if (key) row[key] = values[index] ?? ""; });
+
+    const passcodeDescription = (row.phonePasscode || "").trim().toLowerCase();
+    if (/^(4|6)\s*d[ií]gitos?$/.test(passcodeDescription)) {
+      const description = passcodeDescription.startsWith("4") ? "Clave de 4 dígitos" : "Clave de 6 dígitos";
+      row.phonePasscode = "";
+      row.notes = [row.notes, description].filter(Boolean).join(" · ");
+    }
+
     return row;
   });
 }
@@ -129,7 +137,7 @@ export default function AdminDevicesPage() {
         <button type="button" onClick={() => setBulkText(bulkTemplate)} className="rounded-lg border border-white/10 px-3 py-2 text-sm">Cargar ejemplo</button>
         <button disabled={bulkLoading} onClick={importBulk} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{bulkLoading ? "Importando…" : "Importar equipos"}</button>
       </div>
-      <p className="text-xs text-muted-foreground">Columnas: Cliente, Contacto, Marca, Modelo, IMEI, Serial, Clave, Color, Capacidad, FMI, Notas.</p>
+      <p className="text-xs text-muted-foreground">Columnas: Cliente, Contacto, Marca, Modelo, IMEI, Serial, Clave, Color, Capacidad, FMI, Notas. Si en Clave escribes “4 dígitos” o “6 dígitos”, se guardará como nota automáticamente.</p>
     </div>}
     <div className="rounded-2xl border border-white/10 bg-white/[.03] p-5">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><h2 className="font-semibold">Dispositivos registrados <span className="text-muted-foreground">({devices.length})</span></h2><div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><input className="rounded-lg border bg-background py-2 pl-9 pr-3 text-sm" placeholder="Buscar IMEI, serial, equipo o cliente" value={search} onChange={e => setSearch(e.target.value)} /></div></div>
