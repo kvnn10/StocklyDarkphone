@@ -76,4 +76,4 @@ export const PAGINATION_SELECT_VARIANTS: Record<
   },
 };
 
-export const PAGE_SIZE_OPTIONS = [4, 6, 8, 10, 15, 20, 30] as const;
+export const PAGE_SIZE_OPTIONS = [4, 6, 8, 10, 15, 20, 30, 50, 100, 200] as const;
