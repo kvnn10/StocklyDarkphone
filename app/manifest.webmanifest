@@ -1,6 +1,6 @@
 {
-  "name": "Stockly — DarkPhone",
-  "short_name": "Stockly",
+  "name": "DarkPhone — Stockly",
+  "short_name": "DarkPhone",
   "description": "Gestión de inventario y operaciones de DarkPhone.",
   "lang": "es-CO",
   "start_url": "/",
@@ -12,13 +12,13 @@
   "categories": ["business", "productivity"],
   "icons": [
     {
-      "src": "/icon-180.png?v=4",
+      "src": "/darkphone-icon.png",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon.svg?v=4",
+      "src": "/darkphone-icon.png",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"

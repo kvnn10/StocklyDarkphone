@@ -36,14 +36,14 @@ const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://stockly-darkphone.ver
 
 export const metadata = {
   title: {
-    default: "Stockly — DarkPhone",
-    template: "%s | Stockly — DarkPhone",
+    default: "DarkPhone — Stockly",
+    template: "%s | DarkPhone — Stockly",
   },
   description: "Gestión de inventario y operaciones de DarkPhone.",
   authors: [{ name: "DarkPhone" }],
   creator: "DarkPhone",
   publisher: "DarkPhone",
-  applicationName: "Stockly",
+  applicationName: "DarkPhone",
   keywords: [
     "DarkPhone",
     "Stockly",
@@ -57,23 +57,23 @@ export const metadata = {
   ],
   icons: {
     icon: "/icon.svg",
-    apple: "/icon-180.png?v=4",
-    other: [{ rel: "icon", url: "/icon.svg?v=4" }],
+    apple: "/darkphone-icon.png",
+    other: [{ rel: "icon", url: "/darkphone-icon.png" }],
   },
   metadataBase: new URL(appUrl),
   openGraph: {
     type: "website",
     locale: "es_CO",
-    title: "Stockly — DarkPhone",
+    title: "DarkPhone — Stockly",
     description: "Gestión de inventario y operaciones de DarkPhone.",
     url: appUrl,
-    siteName: "Stockly — DarkPhone",
+    siteName: "DarkPhone — Stockly",
     images: [
       {
-        url: "/icon-180.png?v=4",
+        url: "/darkphone-icon.png",
         width: 180,
         height: 180,
-        alt: "Stockly — DarkPhone",
+        alt: "DarkPhone — Stockly",
       },
     ],
   },
