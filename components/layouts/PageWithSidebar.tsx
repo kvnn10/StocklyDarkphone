@@ -24,7 +24,7 @@ export default function PageWithSidebar({
       {/* Collapsed sidebar — phone only */}
       {sidebarCollapsed && (
         <aside
-          className="sm:hidden sticky top-0 z-10 flex h-[calc(100vh-3.5rem)] w-12 flex-shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r border-gray-200/50 dark:border-white/10 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl"
+          className="sm:hidden sticky top-0 z-10 flex h-[calc(100dvh-4.5rem)] w-12 flex-shrink-0 flex-col overflow-y-auto overflow-x-hidden border-r border-gray-200/50 dark:border-white/10 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]"
           aria-label="Page navigation"
         >
           {sidebarCollapsed}
@@ -46,7 +46,7 @@ export default function PageWithSidebar({
           {sidebarContent}
         </aside>
       )}
-      <div className="min-w-0 flex-1 sm:py-6">{children}</div>
+      <div className="min-w-0 flex-1 px-2 sm:px-0 sm:py-6 pb-[calc(1rem+env(safe-area-inset-bottom))]">{children}</div>
     </div>
   );
 }
