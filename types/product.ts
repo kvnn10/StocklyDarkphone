@@ -62,6 +62,17 @@ export interface Product {
   productOwnerEmail?: string | null;
   /** REQ-0179 — supplier linked User.image */
   supplierImage?: string | null;
+  /** DarkPhone device attributes stored on ProductVariant when a product is an individual device. */
+  deviceTracking?: {
+    imei?: string | null;
+    serial?: string | null;
+    capacity?: string | null;
+    color?: string | null;
+    batteryHealth?: number | null;
+    condition?: string | null;
+    warrantyUntil?: string | null;
+    notes?: string | null;
+  } | null;
   /** Extended by API for detail page */
   creator?: {
     id: string;

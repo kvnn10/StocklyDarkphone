@@ -31,13 +31,50 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const product = await getAccessibleProduct(id, session); if (!product) return NextResponse.json({ error: "Producto no encontrado" }, { status: 404 });
     const body = await request.json(); const name = typeof body.name === "string" ? body.name.trim().slice(0, 100) : ""; const sku = typeof body.sku === "string" ? body.sku.trim() : "";
     if (!name || !sku) return NextResponse.json({ error: "La variante necesita nombre y SKU" }, { status: 400 });
+
+    const rawDeviceTracking = body.deviceTracking;
+    const deviceTracking = rawDeviceTracking && typeof rawDeviceTracking === "object" && !Array.isArray(rawDeviceTracking)
+      ? {
+          imei: typeof rawDeviceTracking.imei === "string" ? rawDeviceTracking.imei.trim() : undefined,
+          serial: typeof rawDeviceTracking.serial === "string" ? rawDeviceTracking.serial.trim() : undefined,
+          capacity: typeof rawDeviceTracking.capacity === "string" ? rawDeviceTracking.capacity.trim() : undefined,
+          color: typeof rawDeviceTracking.color === "string" ? rawDeviceTracking.color.trim() : undefined,
+          batteryHealth: rawDeviceTracking.batteryHealth === null || rawDeviceTracking.batteryHealth === undefined || rawDeviceTracking.batteryHealth === "" ? undefined : Math.min(100, Math.max(0, Math.floor(Number(rawDeviceTracking.batteryHealth)))),
+          condition: typeof rawDeviceTracking.condition === "string" ? rawDeviceTracking.condition.trim() : undefined,
+          warrantyUntil: typeof rawDeviceTracking.warrantyUntil === "string" && rawDeviceTracking.warrantyUntil.trim() ? rawDeviceTracking.warrantyUntil.trim() : undefined,
+          notes: typeof rawDeviceTracking.notes === "string" ? rawDeviceTracking.notes.trim().slice(0, 500) : undefined,
+        }
+      : null;
+
+    if (deviceTracking?.batteryHealth !== undefined && !Number.isFinite(deviceTracking.batteryHealth)) {
+      return NextResponse.json({ error: "La salud de batería debe ser un porcentaje válido entre 0 y 100" }, { status: 400 });
+    }
+
+    const allDeviceVariants = await prisma.productVariant.findMany({
+      where: { userId: product.userId },
+      select: { id: true, attributes: true },
+    });
+    const normalizedImei = deviceTracking?.imei?.replace(/\s+/g, "");
+    const normalizedSerial = deviceTracking?.serial?.toUpperCase().replace(/\s+/g, "");
+    const duplicateDevice = allDeviceVariants.find((variant) => {
+      const attrs = variant.attributes && typeof variant.attributes === "object" && !Array.isArray(variant.attributes)
+        ? variant.attributes as Record<string, unknown>
+        : {};
+      const existingImei = typeof attrs.imei === "string" ? attrs.imei.replace(/\s+/g, "") : "";
+      const existingSerial = typeof attrs.serial === "string" ? attrs.serial.toUpperCase().replace(/\s+/g, "") : "";
+      return (normalizedImei && existingImei === normalizedImei) || (normalizedSerial && existingSerial === normalizedSerial);
+    });
+    if (duplicateDevice) {
+      return NextResponse.json({ error: "El IMEI o serial ya está registrado en otro equipo." }, { status: 409 });
+    }
     const price = Math.max(0, Number(body.price) || 0); const purchasePrice = Math.max(0, Number(body.purchasePrice) || 0); const attributes = body.attributes && typeof body.attributes === "object" ? body.attributes : null; const initialQuantity = Math.max(0, Math.floor(Number(body.initialQuantity) || 0)); const warehouseId = typeof body.warehouseId === "string" && validObjectId(body.warehouseId) ? body.warehouseId : null;
     if (initialQuantity > 0 && !warehouseId) return NextResponse.json({ error: "Selecciona una bodega para el stock inicial de la variante" }, { status: 400 });
     if (warehouseId) { const warehouse = await prisma.warehouse.findFirst({ where: { id: warehouseId, userId: product.userId }, select: { id: true } }); if (!warehouse) return NextResponse.json({ error: "Bodega no encontrada" }, { status: 404 }); }
-    const variant = await prisma.productVariant.create({ data: { productId: product.id, name, attributes, sku, price, purchasePrice, quantity: BigInt(initialQuantity), reservedQuantity: 0n, status: initialQuantity > 0 ? "available" : "stock_out", userId: product.userId, createdBy: session.id, createdAt: new Date(), stocks: warehouseId && initialQuantity > 0 ? { create: { warehouseId, quantity: BigInt(initialQuantity), reservedQuantity: 0n, userId: product.userId, createdAt: new Date(), updatedAt: new Date() } } : undefined } });
+    const mergedAttributes = { ...(attributes && typeof attributes === "object" && !Array.isArray(attributes) ? attributes : {}), ...(deviceTracking ? { deviceTracking } : {}) };
+    const variant = await prisma.productVariant.create({ data: { productId: product.id, name, attributes: Object.keys(mergedAttributes).length > 0 ? mergedAttributes : null, sku, price, purchasePrice, quantity: BigInt(initialQuantity), reservedQuantity: 0n, status: initialQuantity > 0 ? "available" : "stock_out", userId: product.userId, createdBy: session.id, createdAt: new Date(), stocks: warehouseId && initialQuantity > 0 ? { create: { warehouseId, quantity: BigInt(initialQuantity), reservedQuantity: 0n, userId: product.userId, createdAt: new Date(), updatedAt: new Date() } } : undefined } });
     const aggregateQuantity = await prisma.productVariant.aggregate({ where: { productId: product.id }, _sum: { quantity: true } }); const legacyStock = await prisma.stockAllocation.aggregate({ where: { productId: product.id, userId: product.userId }, _sum: { quantity: true } }); const totalQuantity = BigInt(aggregateQuantity._sum.quantity ?? 0n) + BigInt(legacyStock._sum.quantity ?? 0n);
     await prisma.product.update({ where: { id: product.id }, data: { quantity: totalQuantity, status: totalQuantity > 0n ? "available" : "stock_out", updatedAt: new Date(), updatedBy: session.id } });
     createAuditLog({ userId: session.id, action: "create", entityType: "product_variant", entityId: variant.id, details: { productId: product.id, productName: product.name, variantName: name, sku, initialQuantity } }).catch(() => {}); await invalidateOnProductChange();
-    return NextResponse.json({ ...variant, quantity: initialQuantity, reservedQuantity: 0, price: Number(variant.price), purchasePrice: Number(variant.purchasePrice), stocks: [] }, { status: 201 });
+    return NextResponse.json({ ...variant, quantity: initialQuantity, reservedQuantity: 0, price: Number(variant.price), purchasePrice: Number(variant.purchasePrice), stocks: [], deviceTracking: deviceTracking ?? null }, { status: 201 });
   } catch (error) { const message = error instanceof Error ? error.message : "No se pudo crear la variante"; return NextResponse.json({ error: message.includes("Unique constraint") ? "El SKU ya está en uso" : message }, { status: 400 }); }
 }
