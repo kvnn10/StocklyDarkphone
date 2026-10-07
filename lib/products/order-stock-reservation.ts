@@ -16,7 +16,7 @@ import type { CatalogReconcileAllocationRow } from "@/lib/stock-allocation/catal
 import { planAllocationDecrements } from "@/lib/products/plan-allocation-decrements";
 import { releaseAllocationReservation, reserveAllocationForOrderItem } from "@/lib/products/stock-allocation-order-sync";
 
-export type OrderStockLine = { productId: string; quantity: number; warehouseId?: string | null };
+export type OrderStockLine = { productId: string; quantity: number; warehouseId?: string | null; variantId?: string | null };
 
 function assertPositiveQuantity(quantity: number): void {
   if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isInteger(quantity)) throw new Error(`Invalid stock quantity: ${quantity}`);
@@ -33,6 +33,19 @@ export function getAvailableCatalogForOrder(
 
 export async function reservePendingOrderLine(line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
+  if (line.variantId) {
+    const variant = await prisma.productVariant.findUnique({ where: { id: line.variantId }, select: { id: true, quantity: true, reservedQuantity: true } });
+    if (!variant || Number(variant.quantity) - Number(variant.reservedQuantity ?? 0) < line.quantity) throw new Error(`Insufficient variant stock for ${line.variantId}`);
+    const result = await prisma.productVariant.updateMany({ where: { id: variant.id, quantity: variant.quantity, reservedQuantity: variant.reservedQuantity }, data: { reservedQuantity: { increment: line.quantity }, updatedAt: new Date() } });
+    if (result.count !== 1) throw new Error("Stock changed while reserving the device; please retry.");
+    if (line.warehouseId) {
+      const stock = await prisma.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: line.variantId, warehouseId: line.warehouseId } }, select: { id: true, quantity: true, reservedQuantity: true } });
+      if (!stock || Number(stock.quantity) - Number(stock.reservedQuantity ?? 0) < line.quantity) throw new Error(`Insufficient warehouse stock for ${line.variantId}`);
+      const stockResult = await prisma.productVariantStock.updateMany({ where: { id: stock.id, quantity: stock.quantity, reservedQuantity: stock.reservedQuantity }, data: { reservedQuantity: { increment: line.quantity }, updatedAt: new Date() } });
+      if (stockResult.count !== 1) throw new Error("Warehouse stock changed while reserving the device; please retry.");
+    }
+    return;
+  }
   if (line.warehouseId) {
     await reserveAllocationForOrderItem(line.productId, line.warehouseId, line.quantity);
     return;
@@ -55,6 +68,17 @@ export async function reservePendingOrderLine(line: OrderStockLine): Promise<voi
 
 export async function releasePendingOrderLine(line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
+  if (line.variantId) {
+    const variant = await prisma.productVariant.findUnique({ where: { id: line.variantId }, select: { id: true, reservedQuantity: true } });
+    if (!variant || Number(variant.reservedQuantity ?? 0) < line.quantity) throw new Error(`Cannot release reserved variant ${line.variantId}`);
+    const result = await prisma.productVariant.updateMany({ where: { id: variant.id, reservedQuantity: variant.reservedQuantity }, data: { reservedQuantity: { decrement: line.quantity }, updatedAt: new Date() } });
+    if (result.count !== 1) throw new Error("Stock changed while releasing the device reservation; please retry.");
+    if (line.warehouseId) {
+      const stock = await prisma.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: line.variantId, warehouseId: line.warehouseId } }, select: { id: true, reservedQuantity: true } });
+      if (stock && Number(stock.reservedQuantity ?? 0) >= line.quantity) await prisma.productVariantStock.update({ where: { id: stock.id }, data: { reservedQuantity: { decrement: line.quantity }, updatedAt: new Date() } });
+    }
+    return;
+  }
   if (line.warehouseId) {
     await releaseAllocationReservation(line.productId, line.warehouseId, line.quantity);
     return;
@@ -75,6 +99,22 @@ export async function releasePendingOrderLine(line: OrderStockLine): Promise<voi
 
 async function fulfillPendingOrderLineWithClient(tx: Prisma.TransactionClient, line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
+
+  if (line.variantId) {
+    const variant = await tx.productVariant.findUnique({ where: { id: line.variantId }, select: { id: true, quantity: true, reservedQuantity: true, productId: true } });
+    if (!variant || Number(variant.quantity) < line.quantity || Number(variant.reservedQuantity ?? 0) < line.quantity) throw new Error(`Insufficient variant stock for ${line.variantId}`);
+    const result = await tx.productVariant.updateMany({ where: { id: variant.id, quantity: variant.quantity, reservedQuantity: variant.reservedQuantity }, data: { quantity: { decrement: line.quantity }, reservedQuantity: { decrement: line.quantity }, updatedAt: new Date(), status: Number(variant.quantity) - line.quantity > 0 ? "available" : "stock_out" } });
+    if (result.count !== 1) throw new Error("Stock changed while fulfilling the device; please retry.");
+    if (line.warehouseId) {
+      const stock = await tx.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: line.variantId, warehouseId: line.warehouseId } }, select: { id: true, quantity: true, reservedQuantity: true, userId: true } });
+      if (!stock || Number(stock.quantity) < line.quantity || Number(stock.reservedQuantity ?? 0) < line.quantity) throw new Error("Insufficient warehouse stock for the device");
+      const stockResult = await tx.productVariantStock.updateMany({ where: { id: stock.id, quantity: stock.quantity, reservedQuantity: stock.reservedQuantity }, data: { quantity: { decrement: line.quantity }, reservedQuantity: { decrement: line.quantity }, updatedAt: new Date() } });
+      if (stockResult.count !== 1) throw new Error("Warehouse stock changed while fulfilling the device; please retry.");
+    }
+    const product = await tx.product.findUnique({ where: { id: variant.productId }, select: { quantity: true } });
+    if (product) await tx.product.updateMany({ where: { id: variant.productId, quantity: product.quantity }, data: { quantity: { decrement: line.quantity }, updatedAt: new Date() } });
+    return;
+  }
 
   if (line.warehouseId) {
     const product = await tx.product.findUnique({

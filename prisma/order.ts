@@ -45,29 +45,57 @@ export type CreateOrderParty = { storeOwnerUserId: string; createdByUserId: stri
 
 export async function createOrder(data: CreateOrderInput, party: CreateOrderParty) {
   const orderNumber = await generateOrderNumber(); let subtotal = 0;
-  const orderItemsData: Array<{ productId: string; productName: string; sku: string | null; quantity: number; price: number; purchasePrice: number; subtotal: number; warehouseId: string | null; warehouseName: string | null }> = [];
-  const productsToReserve: { id: string; qty: number; warehouseId: string | null }[] = [];
+  const orderItemsData: Array<{ productId: string; variantId: string | null; productName: string; variantName: string | null; sku: string | null; quantity: number; price: number; purchasePrice: number; subtotal: number; warehouseId: string | null; warehouseName: string | null }> = [];
+  const productsToReserve: { id: string; qty: number; warehouseId: string | null; variantId?: string }[] = [];
 
   for (const item of data.items) {
     const product = await prisma.product.findUnique({ where: { id: item.productId } });
     if (!product || product.deletedAt != null) throw new Error(`Product not found: ${item.productId}`);
-    const price = Number(product.price); const purchasePrice = Math.max(0, Number(product.purchasePrice ?? 0)); const lineSubtotal = price * item.quantity; subtotal += lineSubtotal;
-    const ownerUserId = product.userId; const needsPick = await productRequiresWarehousePick(item.productId, ownerUserId);
-    const productReserved = Number(product.reservedQuantity ?? 0); const productQty = Number(product.quantity);
-    let availableStock: number;
-    if (needsPick) {
-      const allocationRows = await prisma.stockAllocation.findMany({ where: { productId: item.productId }, select: { reservedQuantity: true } });
-      availableStock = getOrderLineCatalogAvailable(productQty, productReserved, allocationRows.map((row) => ({ reservedQuantity: Number(row.reservedQuantity ?? 0) })));
-    } else availableStock = productQty - productReserved;
-    if (availableStock < item.quantity) throw new Error(`Insufficient stock for product ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}`);
-    let warehouseId: string | null = item.warehouseId ?? null; let warehouseName: string | null = null;
-    if (needsPick && warehouseId) {
-      await validateWarehousePick(item.productId, warehouseId, item.quantity);
-      warehouseName = await resolveWarehouseName(warehouseId, ownerUserId);
-      if (!warehouseName) throw new Error(`Warehouse not found or unauthorized: ${warehouseId}`);
-    } else warehouseId = null;
-    orderItemsData.push({ productId: item.productId, productName: product.name, sku: product.sku, quantity: item.quantity, price, purchasePrice, subtotal: lineSubtotal, warehouseId, warehouseName });
-    productsToReserve.push({ id: item.productId, qty: item.quantity, warehouseId });
+
+    let variant: { id: string; name: string; sku: string; price: number; purchasePrice: number; quantity: bigint; reservedQuantity: bigint; userId: string } | null = null;
+    if (item.variantId) {
+      variant = await prisma.productVariant.findFirst({
+        where: { id: item.variantId, productId: product.id, userId: product.userId },
+        select: { id: true, name: true, sku: true, price: true, purchasePrice: true, quantity: true, reservedQuantity: true, userId: true },
+      });
+      if (!variant) throw new Error(`Variant not found: ${item.variantId}`);
+    }
+
+    const price = Number(item.unitPrice ?? variant?.price ?? product.price);
+    const purchasePrice = Math.max(0, Number(variant?.purchasePrice ?? product.purchasePrice ?? 0));
+    const lineSubtotal = price * item.quantity;
+    subtotal += lineSubtotal;
+    const ownerUserId = product.userId;
+    let warehouseId: string | null = item.warehouseId ?? null;
+    let warehouseName: string | null = null;
+
+    if (variant) {
+      const availableVariantStock = Number(variant.quantity) - Number(variant.reservedQuantity ?? 0);
+      if (availableVariantStock < item.quantity) throw new Error(`Insufficient stock for product ${product.name}. Available: ${availableVariantStock}, Requested: ${item.quantity}`);
+      if (warehouseId) {
+        const stock = await prisma.productVariantStock.findFirst({ where: { variantId: variant.id, warehouseId, userId: ownerUserId }, select: { quantity: true, reservedQuantity: true } });
+        if (!stock || Number(stock.quantity) - Number(stock.reservedQuantity ?? 0) < item.quantity) throw new Error(`Insufficient warehouse stock for ${variant.name}`);
+        warehouseName = await resolveWarehouseName(warehouseId, ownerUserId);
+        if (!warehouseName) throw new Error(`Warehouse not found or unauthorized: ${warehouseId}`);
+      }
+    } else {
+      const needsPick = await productRequiresWarehousePick(item.productId, ownerUserId);
+      const productReserved = Number(product.reservedQuantity ?? 0); const productQty = Number(product.quantity);
+      let availableStock: number;
+      if (needsPick) {
+        const allocationRows = await prisma.stockAllocation.findMany({ where: { productId: item.productId }, select: { reservedQuantity: true } });
+        availableStock = getOrderLineCatalogAvailable(productQty, productReserved, allocationRows.map((row) => ({ reservedQuantity: Number(row.reservedQuantity ?? 0) })));
+      } else availableStock = productQty - productReserved;
+      if (availableStock < item.quantity) throw new Error(`Insufficient stock for product ${product.name}. Available: ${availableStock}, Requested: ${item.quantity}`);
+      if (needsPick && warehouseId) {
+        await validateWarehousePick(item.productId, warehouseId, item.quantity);
+        warehouseName = await resolveWarehouseName(warehouseId, ownerUserId);
+        if (!warehouseName) throw new Error(`Warehouse not found or unauthorized: ${warehouseId}`);
+      } else if (!needsPick) warehouseId = null;
+    }
+
+    orderItemsData.push({ productId: item.productId, variantId: variant?.id ?? null, productName: product.name, variantName: variant?.name ?? null, sku: variant?.sku ?? product.sku, quantity: item.quantity, price, purchasePrice, subtotal: lineSubtotal, warehouseId, warehouseName });
+    productsToReserve.push({ id: item.productId, qty: item.quantity, warehouseId, ...(variant ? { variantId: variant.id } : {}) });
   }
 
   const tax = data.tax || 0; const shipping = data.shipping || 0; const discount = data.discount || 0; const total = subtotal + tax + shipping - discount;
@@ -95,6 +123,19 @@ export async function createOrder(data: CreateOrderInput, party: CreateOrderPart
     });
 
     for (const line of productsToReserve) {
+      if (line.variantId) {
+        const variant = await tx.productVariant.findUnique({ where: { id: line.variantId }, select: { id: true, quantity: true, reservedQuantity: true } });
+        if (!variant || Number(variant.quantity) - Number(variant.reservedQuantity ?? 0) < line.qty) throw new Error(`Insufficient variant stock for product ${line.id}`);
+        const result = await tx.productVariant.updateMany({ where: { id: variant.id, quantity: variant.quantity, reservedQuantity: variant.reservedQuantity }, data: { reservedQuantity: { increment: line.qty }, updatedAt: new Date() } });
+        if (result.count !== 1) throw new Error(`Stock changed while reserving variant ${line.variantId}; please retry the order.`);
+        if (line.warehouseId) {
+          const stock = await tx.productVariantStock.findUnique({ where: { variantId_warehouseId: { variantId: line.variantId, warehouseId: line.warehouseId } }, select: { id: true, quantity: true, reservedQuantity: true } });
+          if (!stock || Number(stock.quantity) - Number(stock.reservedQuantity ?? 0) < line.qty) throw new Error(`Insufficient warehouse stock for variant ${line.variantId}`);
+          const stockResult = await tx.productVariantStock.updateMany({ where: { id: stock.id, quantity: stock.quantity, reservedQuantity: stock.reservedQuantity }, data: { reservedQuantity: { increment: line.qty }, updatedAt: new Date() } });
+          if (stockResult.count !== 1) throw new Error("Warehouse stock changed while reserving the device; please retry.");
+        }
+        continue;
+      }
       if (line.warehouseId) {
         const allocation = await tx.stockAllocation.findUnique({
           where: { productId_warehouseId: { productId: line.id, warehouseId: line.warehouseId } },

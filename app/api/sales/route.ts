@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       ...data,
       items: resolvedItems.map((item) => {
         if (!item) throw new Error("Producto no encontrado");
-        return { productId: item.productId, quantity: item.quantity, ...(item.warehouseId ? { warehouseId: item.warehouseId } : {}) };
+        return { productId: item.productId, ...(item.variantId ? { variantId: item.variantId } : {}), quantity: item.quantity, ...(item.unitPrice != null ? { unitPrice: item.unitPrice } : {}), ...(item.warehouseId ? { warehouseId: item.warehouseId } : {}) };
       }),
     };
 
