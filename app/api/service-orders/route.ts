@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
   if (!session || !allowed(session)) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   try {
     const body = await request.json();
-    const customer = typeof body.customer === "string" ? body.customer.trim() : "";
+    const clientId = typeof body.clientId === "string" && validId(body.clientId) ? body.clientId : ""; const customer = typeof body.customer === "string" ? body.customer.trim() : "";
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
     const device = typeof body.device === "string" ? body.device.trim() : "";
     const deviceType = typeof body.deviceType === "string" && body.deviceType.trim() ? body.deviceType.trim() : "phone";
@@ -63,11 +63,12 @@ export async function POST(request: NextRequest) {
     const status = STATUSES.includes(body.status) ? body.status : "received";
     const total = money(body.total ?? 0), paid = money(body.paid ?? body.amountPaid ?? 0);
     const paymentMethod = typeof body.paymentMethod === "string" && body.paymentMethod.trim() ? body.paymentMethod.trim() : "cash";
+    if (clientId) { const client = await prisma.user.findFirst({ where: { id: clientId, role: "client" } }); if (!client) return NextResponse.json({ error: "Cliente no encontrado" }, { status: 404 }); }
     if (!customer || !phone || !model || !issue) return NextResponse.json({ error: "Cliente, teléfono, equipo y falla son obligatorios" }, { status: 400 });
     if (total === null || paid === null || paid > total) return NextResponse.json({ error: "Valores de dinero inválidos" }, { status: 400 });
     const now = new Date();
     const created = await prisma.$transaction(async tx => {
-      const order = await tx.serviceOrder.create({ data: { orderNumber: `ST-${Date.now().toString().slice(-10)}`, userId: session.id, deviceType, brand, model, imei: imei || null, serialNumber: serial || null, reportedIssue: issue, status, total, amountPaid: paid, amountDue: total - paid, accessories: { customerName: customer, customerPhone: phone, statusHistory: [{ status, at: now.toISOString(), by: session.id }], photos: [], partWarranties: {}, partWarehouses: {} }, createdBy: session.id, updatedBy: session.id } });
+      const order = await tx.serviceOrder.create({ data: { orderNumber: `ST-${Date.now().toString().slice(-10)}`, userId: session.id, clientId: clientId || null, deviceType, brand, model, imei: imei || null, serialNumber: serial || null, reportedIssue: issue, status, total, amountPaid: paid, amountDue: total - paid, accessories: { customerName: customer, customerPhone: phone, statusHistory: [{ status, at: now.toISOString(), by: session.id }], photos: [], partWarranties: {}, partWarehouses: {} }, createdBy: session.id, updatedBy: session.id } });
       if (paid > 0) {
         await tx.serviceOrderPayment.create({ data: { serviceOrderId: order.id, userId: session.id, recordedBy: session.id, amount: paid, paymentMethod } });
         await tx.cashMovement.create({ data: { type: "income", source: "service_order", amount: paid, paymentMethod, orderId: order.id, orderNumber: order.orderNumber, userId: session.id, createdBy: session.id, description: `Abono inicial ${order.orderNumber}` } });
