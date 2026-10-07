@@ -316,6 +316,7 @@ export default function SalesPage() {
                 ))}
               </div>
             )}
+            </div>
             )}
           </section>
         )}
