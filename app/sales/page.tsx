@@ -208,7 +208,7 @@ export default function SalesPage() {
         description="Registra ventas, pagos y deudas desde un flujo rápido para DarkPhone."
         tone="emerald"
         icon={ShoppingBag}
-        trailing={<Link href="/orders"><Button variant="outline" className="hidden gap-2 sm:inline-flex">Ver pedidos <ArrowRight className="h-4 w-4" /></Button></Link>}
+        trailing={<div className="flex items-center gap-2"><Link href="/"><Button variant="outline" className="gap-2">Inicio</Button></Link><Link href="/orders"><Button variant="outline" className="hidden gap-2 sm:inline-flex">Ver pedidos <ArrowRight className="h-4 w-4" /></Button></Link></div>}
       />
 
       <div className="mx-auto max-w-5xl">

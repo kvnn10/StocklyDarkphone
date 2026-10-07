@@ -540,7 +540,7 @@ export default function Navbar({ children }: NavbarProps) {
           {navbarContent}
           <main
             id="main-content"
-            className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col"
+            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden flex flex-col"
             tabIndex={-1}
           >
             <div className="flex-1 flex flex-col">

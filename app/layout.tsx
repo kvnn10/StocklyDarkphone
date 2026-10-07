@@ -57,8 +57,8 @@ export const metadata = {
   ],
   icons: {
     icon: "/icon.svg",
-    apple: "/icon.svg",
-    other: [{ rel: "icon", url: "/icon.svg" }],
+    apple: "/icon-180.png?v=2",
+    other: [{ rel: "icon", url: "/icon.svg?v=2" }],
   },
   metadataBase: new URL(appUrl),
   openGraph: {
@@ -70,9 +70,9 @@ export const metadata = {
     siteName: "Stockly — DarkPhone",
     images: [
       {
-        url: "/icon.svg",
-        width: 512,
-        height: 512,
+        url: "/icon-180.png?v=2",
+        width: 180,
+        height: 180,
         alt: "Stockly — DarkPhone",
       },
     ],
@@ -81,7 +81,7 @@ export const metadata = {
     card: "summary_large_image",
     title: "Stockly — DarkPhone",
     description: "Gestión de inventario y operaciones de DarkPhone.",
-    images: ["/icon.svg"],
+    images: ["/icon-180.png?v=2"],
   },
   robots: { index: true, follow: true },
 };
