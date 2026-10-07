@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Search, UserRound, X, ExternalLink, Pencil } from "lucide-react";
 
-type Client = { id: string; name: string; email: string; phone?: string; whatsapp?: string; document?: string; city?: string; notes?: string; status?: boolean; orderCount?: number; totalSpent?: number };
+type Client = { id: string; name: string; email: string; phone?: string; whatsapp?: string; document?: string; city?: string; address?: string; notes?: string; status?: boolean; orderCount?: number; totalSpent?: number };
 const money = (n: number) => `$${Number(n || 0).toLocaleString("es-CO")}`;
 
 export default function ClientsPage() {
