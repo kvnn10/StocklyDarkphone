@@ -25,7 +25,9 @@ export const orderItemSchema = z.object({
   productId: z.string().min(1, "Product ID is required"),
   /** Stable catalog fallback used by POS when a cached product id is stale. */
   sku: z.string().min(1).optional(),
+  variantId: z.string().min(1).optional(),
   quantity: z.number().int().positive("Quantity must be a positive integer"),
+  unitPrice: z.number().nonnegative("Unit price must be non-negative").optional(),
   warehouseId: z.string().min(1).optional(),
 });
 
@@ -45,6 +47,9 @@ export const paymentMethodSchema = z.enum([
   "cash",
   "card",
   "transfer",
+  "nequi",
+  "daviplata",
+  "bold",
   "other",
 ]);
 

@@ -4,7 +4,7 @@ import { prisma } from "@/prisma/client";
 import { authorizeRequest } from "@/lib/security/authorize";
 import { fulfillPendingOrderLines } from "@/lib/products/order-stock-reservation";
 
-const PAYMENT_METHODS = ["cash", "card", "transfer", "other"] as const;
+const PAYMENT_METHODS = ["cash", "card", "transfer", "nequi", "daviplata", "bold", "other"] as const;
 type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 function isPaymentMethod(value: unknown): value is PaymentMethod {
@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
       await fulfillPendingOrderLines(
         order.items.map((item) => ({
           productId: item.productId,
+          variantId: item.variantId,
           quantity: item.quantity,
           warehouseId: item.warehouseId,
         })),

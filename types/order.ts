@@ -48,7 +48,9 @@ export interface OrderItem {
   id: string;
   orderId: string;
   productId: string;
+  variantId?: string | null;
   productName: string;
+  variantName?: string | null;
   sku?: string | null;
   quantity: number;
   price: number;
@@ -163,7 +165,9 @@ export interface CreateOrderInput {
   clientId?: string; // Optional client ID (for future client portal)
   items: Array<{
     productId: string;
+    variantId?: string;
     quantity: number;
+    unitPrice?: number;
     /** REQ-0068 — required server-side when product has warehouse allocations */
     warehouseId?: string;
   }>;

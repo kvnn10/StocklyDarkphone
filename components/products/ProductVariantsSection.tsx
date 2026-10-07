@@ -117,7 +117,7 @@ export default function ProductVariantsSection({ productId, initialVariants = []
               <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-500/[0.04] p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-800 dark:text-white"><Smartphone className="h-4 w-4 text-rose-500" />Datos del equipo</div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {([
+                  {[
                     ["name", "Equipo / variante", "Ej. iPhone 15 Pro 256GB"],
                     ["sku", "SKU del equipo", "Ej. IP15P256-NAT-01"],
                     ["imei", "IMEI", "15 dígitos"],
@@ -128,10 +128,10 @@ export default function ProductVariantsSection({ productId, initialVariants = []
                     ["price", "Precio de venta", "0"],
                     ["warrantyUntil", "Garantía hasta", ""],
                     ["notes", "Notas", "Observaciones del equipo"],
-                  ] as const).map(([key, label, placeholder]) => (
+                  ].map(([key, label, placeholder]) => (
                     <label key={key} className={key === "notes" ? "sm:col-span-2 lg:col-span-4" : ""}>
                       <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-white/70">{label}</span>
-                      <input type={key === "warrantyUntil" ? "date" : (key === "purchasePrice" || key === "price") ? "number" : "text"} value={String(form[key as keyof DeviceForm] ?? "")} onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))} placeholder={placeholder} min={(key === "purchasePrice" || key === "price") ? "0" : undefined} className="h-10 w-full rounded-xl border border-violet-300/20 bg-white/70 px-3 text-sm outline-none placeholder:text-gray-400 focus:border-rose-400/50 dark:bg-white/5 dark:text-white dark:placeholder:text-white/35" />
+                      <input type={key === "warrantyUntil" ? "date" : (key === "purchasePrice" || key === "price") ? "number" : "text"} value={form[key as keyof DeviceForm] ?? ""} onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))} placeholder={placeholder} min={(key === "purchasePrice" || key === "price") ? "0" : undefined} className="h-10 w-full rounded-xl border border-violet-300/20 bg-white/70 px-3 text-sm outline-none placeholder:text-gray-400 focus:border-rose-400/50 dark:bg-white/5 dark:text-white dark:placeholder:text-white/35" />
                     </label>
                   ))}
                   <label><span className="mb-1 block text-xs font-medium text-gray-600 dark:text-white/70">Salud de batería</span><div className="relative"><BatteryCharging className="absolute left-3 top-3 h-4 w-4 text-emerald-500" /><input type="number" min="0" max="100" value={form.batteryHealth} onChange={(event) => setForm((current) => ({ ...current, batteryHealth: event.target.value }))} className="h-10 w-full rounded-xl border border-violet-300/20 bg-white/70 pl-9 pr-10 text-sm dark:bg-white/5 dark:text-white" /><span className="absolute right-3 top-2.5 text-sm text-gray-500">%</span></div></label>
