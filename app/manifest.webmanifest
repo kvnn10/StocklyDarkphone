@@ -19,8 +19,8 @@
     },
     {
       "src": "/darkphone-icon.png",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "sizes": "180x180",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

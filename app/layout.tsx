@@ -56,7 +56,7 @@ export const metadata = {
     "Barranquilla",
   ],
   icons: {
-    icon: "/icon.svg",
+    icon: "/darkphone-icon.png",
     apple: "/darkphone-icon.png",
     other: [{ rel: "icon", url: "/darkphone-icon.png" }],
   },
@@ -79,9 +79,9 @@ export const metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Stockly — DarkPhone",
+    title: "DarkPhone — Stockly",
     description: "Gestión de inventario y operaciones de DarkPhone.",
-    images: ["/icon-180.png?v=4"],
+    images: ["/darkphone-icon.png"],
   },
   robots: { index: true, follow: true },
 };

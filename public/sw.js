@@ -1,4 +1,5 @@
-const CACHE_NAME = "stockly-shell-v1";
+const CACHE_NAME = "stockly-shell-v2";
+const STATIC_DESTINATIONS = new Set(["script", "style", "font", "image"]);
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
@@ -23,10 +24,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Cache only successful same-origin static assets after they are requested.
-  if (request.destination === "script" ||
-      request.destination === "style" ||
-      request.destination === "font" ||
-      request.destination === "image") {
+  if (STATIC_DESTINATIONS.has(request.destination)) {
     event.respondWith(
       caches.open(CACHE_NAME).then(async (cache) => {
         const cached = await cache.match(request);
