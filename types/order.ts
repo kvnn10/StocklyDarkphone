@@ -170,6 +170,7 @@ export interface CreateOrderInput {
     unitPrice?: number;
     /** REQ-0068 — required server-side when product has warehouse allocations */
     warehouseId?: string;
+    freeDescription?: string;
   }>;
   shippingAddress?: ShippingAddress;
   billingAddress?: BillingAddress;

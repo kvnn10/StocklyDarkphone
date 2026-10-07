@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       const resolvedItem = resolvedItems[index];
       const product = resolvedItem ? productMap.get(resolvedItem.productId) : undefined;
       if (!product) return NextResponse.json({ error: `Producto no encontrado${item.sku ? `: ${item.sku}` : ""}` }, { status: 400 });
-      if (Number(product.quantity) < item.quantity) return NextResponse.json({ error: `Stock insuficiente para ${product.name}` }, { status: 409 });
+      if (!item.freeDescription && Number(product.quantity) < item.quantity) return NextResponse.json({ error: `Stock insuficiente para ${product.name}` }, { status: 409 });
     }
 
     const ownerIds = [...new Set(products.map((product) => product.userId))];
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       ...data,
       items: resolvedItems.map((item) => {
         if (!item) throw new Error("Producto no encontrado");
-        return { productId: item.productId, ...(item.variantId ? { variantId: item.variantId } : {}), quantity: item.quantity, ...(item.unitPrice != null ? { unitPrice: item.unitPrice } : {}), ...(item.warehouseId ? { warehouseId: item.warehouseId } : {}) };
+        return { productId: item.productId, ...(item.variantId ? { variantId: item.variantId } : {}), quantity: item.quantity, ...(item.unitPrice != null ? { unitPrice: item.unitPrice } : {}), ...(item.warehouseId ? { warehouseId: item.warehouseId } : {}), ...(item.freeDescription ? { freeDescription: item.freeDescription } : {}) };
       }),
     };
 

@@ -29,6 +29,7 @@ export const orderItemSchema = z.object({
   quantity: z.number().int().positive("Quantity must be a positive integer"),
   unitPrice: z.number().nonnegative("Unit price must be non-negative").optional(),
   warehouseId: z.string().min(1).optional(),
+  freeDescription: z.string().trim().min(1).max(200).optional(),
 });
 
 const transformEmptyAddress = (address: unknown): unknown => {

@@ -245,21 +245,3 @@ html .with-scroll-bars-hidden {
     transform: none;
   }
 }
-
-
-/* Mobile Safari: use the document as the scroll container. The desktop app shell
- * keeps its dedicated #main-content scroller above md. */
-@media (max-width: 767px) {
-  html:not(:has(.auth-page-root)),
-  html:not(:has(.auth-page-root)) body {
-    height: auto;
-    min-height: 100%;
-    overflow: visible;
-  }
-
-  #main-content {
-    min-height: 0;
-    overflow: visible !important;
-    -webkit-overflow-scrolling: auto;
-  }
-}

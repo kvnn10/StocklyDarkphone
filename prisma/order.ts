@@ -45,12 +45,33 @@ export type CreateOrderParty = { storeOwnerUserId: string; createdByUserId: stri
 
 export async function createOrder(data: CreateOrderInput, party: CreateOrderParty) {
   const orderNumber = await generateOrderNumber(); let subtotal = 0;
+  let freeSaleProductId: string | null = null;
+  if (data.items.some((item) => item.freeDescription)) {
+    const anchor = await prisma.product.findFirst({ where: { userId: party.storeOwnerUserId, deletedAt: null }, select: { categoryId: true, supplierId: true } });
+    if (!anchor) throw new Error("Crea al menos un producto antes de registrar una venta libre.");
+    const freeSku = `__STOCKLY_FREE_SALE__${party.storeOwnerUserId}`;
+    const existing = await prisma.product.findUnique({ where: { sku: freeSku }, select: { id: true } });
+    if (existing) freeSaleProductId = existing.id;
+    else {
+      const created = await prisma.product.create({ data: { categoryId: anchor.categoryId, supplierId: anchor.supplierId, name: "Venta libre (sistema)", price: 0, purchasePrice: 0, quantity: 0n, reservedQuantity: 0n, sku: freeSku, status: "archived", userId: party.storeOwnerUserId, createdBy: party.createdByUserId, deletedAt: new Date(), deletedBy: party.createdByUserId }, select: { id: true } });
+      freeSaleProductId = created.id;
+    }
+  }
   const orderItemsData: Array<{ productId: string; variantId: string | null; productName: string; variantName: string | null; sku: string | null; quantity: number; price: number; purchasePrice: number; subtotal: number; warehouseId: string | null; warehouseName: string | null }> = [];
   const productsToReserve: { id: string; qty: number; warehouseId: string | null; variantId?: string }[] = [];
 
   for (const item of data.items) {
     const product = await prisma.product.findUnique({ where: { id: item.productId } });
-    if (!product || product.deletedAt != null) throw new Error(`Product not found: ${item.productId}`);
+    if (!product || (product.deletedAt != null && !item.freeDescription)) throw new Error(`Product not found: ${item.productId}`);
+
+    if (item.freeDescription) {
+      if (!freeSaleProductId) throw new Error("No se pudo preparar la venta libre");
+      const price = Number(item.unitPrice ?? 0);
+      const lineSubtotal = price * item.quantity;
+      subtotal += lineSubtotal;
+      orderItemsData.push({ productId: freeSaleProductId, variantId: null, productName: item.freeDescription, variantName: "Venta libre", sku: "LIBRE", quantity: item.quantity, price, purchasePrice: 0, subtotal: lineSubtotal, warehouseId: null, warehouseName: null });
+      continue;
+    }
 
     let variant: { id: string; name: string; sku: string; price: number; purchasePrice: number; quantity: bigint; reservedQuantity: bigint; userId: string } | null = null;
     if (item.variantId) {

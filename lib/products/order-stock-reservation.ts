@@ -33,6 +33,8 @@ export function getAvailableCatalogForOrder(
 
 export async function reservePendingOrderLine(line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
+  const marker = await prisma.product.findUnique({ where: { id: line.productId }, select: { sku: true } });
+  if (marker?.sku.startsWith("__STOCKLY_FREE_SALE__")) return;
   if (line.variantId) {
     const variant = await prisma.productVariant.findUnique({ where: { id: line.variantId }, select: { id: true, quantity: true, reservedQuantity: true } });
     if (!variant || Number(variant.quantity) - Number(variant.reservedQuantity ?? 0) < line.quantity) throw new Error(`Insufficient variant stock for ${line.variantId}`);
@@ -68,6 +70,8 @@ export async function reservePendingOrderLine(line: OrderStockLine): Promise<voi
 
 export async function releasePendingOrderLine(line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
+  const marker = await prisma.product.findUnique({ where: { id: line.productId }, select: { sku: true } });
+  if (marker?.sku.startsWith("__STOCKLY_FREE_SALE__")) return;
   if (line.variantId) {
     const variant = await prisma.productVariant.findUnique({ where: { id: line.variantId }, select: { id: true, reservedQuantity: true } });
     if (!variant || Number(variant.reservedQuantity ?? 0) < line.quantity) throw new Error(`Cannot release reserved variant ${line.variantId}`);
@@ -99,6 +103,8 @@ export async function releasePendingOrderLine(line: OrderStockLine): Promise<voi
 
 async function fulfillPendingOrderLineWithClient(tx: Prisma.TransactionClient, line: OrderStockLine): Promise<void> {
   assertPositiveQuantity(line.quantity);
+  const marker = await tx.product.findUnique({ where: { id: line.productId }, select: { sku: true } });
+  if (marker?.sku.startsWith("__STOCKLY_FREE_SALE__")) return;
 
   if (line.variantId) {
     const variant = await tx.productVariant.findUnique({ where: { id: line.variantId }, select: { id: true, quantity: true, reservedQuantity: true, productId: true } });

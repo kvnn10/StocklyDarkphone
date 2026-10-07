@@ -5,7 +5,7 @@ import Link from "next/link";
 import {
   ArrowLeft, ArrowRight, Banknote, Building2, Check, CreditCard,
   Minus, Plus, ReceiptText, Search, ShoppingBag, Smartphone, Trash2,
-  WalletCards, X,
+  WalletCards, X, PencilLine, Boxes, PlusCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ interface ClientOption { id: string; name: string; email?: string; phone?: strin
 interface DeviceTracking { imei?: string | null; serial?: string | null; capacity?: string | null; color?: string | null; batteryHealth?: number | null; condition?: string | null; warrantyUntil?: string | null; }
 interface StockRow { id: string; warehouseId: string; warehouseName?: string | null; quantity: number; reservedQuantity: number; }
 interface Variant { id: string; name: string; sku: string; price: number; purchasePrice: number; quantity: number; reservedQuantity: number; attributes?: Record<string, unknown> | null; stocks: StockRow[]; }
-interface CartLine { productId: string; variantId?: string; name: string; sku: string; imageUrl?: string | null; price: number; purchasePrice: number; quantity: number; maxQuantity: number; warehouseId?: string; device?: DeviceTracking | null; }
+interface CartLine { productId: string; variantId?: string; name: string; sku: string; imageUrl?: string | null; price: number; purchasePrice: number; quantity: number; maxQuantity: number; warehouseId?: string; device?: DeviceTracking | null; freeDescription?: string; }
 type PaymentMethod = "cash" | "card" | "transfer" | "nequi" | "daviplata" | "bold" | "other";
 type SaleMode = "paid" | "debt";
 
@@ -39,6 +39,10 @@ export default function SalesPage() {
   const { data: products = [], isLoading } = useProducts();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
+  const [entryMode, setEntryMode] = useState<"catalog" | "free">("catalog");
+  const [freeDescription, setFreeDescription] = useState("");
+  const [freePrice, setFreePrice] = useState("");
+  const [freeQuantity, setFreeQuantity] = useState("1");
   const [stockFilter, setStockFilter] = useState<"all" | "low">("all");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [variants, setVariants] = useState<Variant[]>([]);
@@ -108,6 +112,29 @@ export default function SalesPage() {
     });
   }
 
+  function addFreeItem() {
+    const description = freeDescription.trim();
+    const price = Number(freePrice);
+    const quantity = Math.max(1, Math.floor(Number(freeQuantity) || 1));
+    const anchor = availableProducts[0];
+    if (!description || !Number.isFinite(price) || price <= 0 || !anchor) return;
+    addLine({
+      productId: anchor.id,
+      name: description,
+      sku: "LIBRE",
+      imageUrl: null,
+      price,
+      purchasePrice: 0,
+      quantity,
+      maxQuantity: 999,
+      freeDescription: description,
+    });
+    setFreeDescription("");
+    setFreePrice("");
+    setFreeQuantity("1");
+    setEntryMode("catalog");
+  }
+
   function chooseVariant(variant: Variant) {
     if (!variantProduct) return;
     const device = deviceFromVariant(variant);
@@ -159,7 +186,7 @@ export default function SalesPage() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          items: cart.map((line) => ({ productId: line.productId, variantId: line.variantId, quantity: line.quantity, unitPrice: line.price, warehouseId: line.warehouseId })),
+          items: cart.map((line) => ({ productId: line.productId, variantId: line.variantId, quantity: line.quantity, unitPrice: line.price, warehouseId: line.warehouseId, ...(line.freeDescription ? { freeDescription: line.freeDescription } : {}) })),
           clientId: clientId === "none" ? null : clientId,
           discount: safeDiscount,
           tax: 0,
@@ -199,7 +226,7 @@ export default function SalesPage() {
     }
   }
 
-  const stepTitle = step === 1 ? "Seleccionar productos" : step === 2 ? "Confirma precios y cantidades" : "Nueva venta";
+  const stepTitle = step === 1 ? "Agregar productos" : step === 2 ? "Confirma precios y cantidades" : "Nueva venta";
 
   return (
     <main className="min-h-full bg-background p-3 pb-28 sm:p-6 sm:pb-8">
@@ -226,6 +253,28 @@ export default function SalesPage() {
 
         {step === 1 && (
           <section className="rounded-3xl border bg-card/80 p-4 shadow-sm backdrop-blur-xl sm:p-5">
+            <div className="mb-4 rounded-2xl border bg-muted/30 p-1">
+              <div className="grid grid-cols-2 gap-1">
+                <button type="button" onClick={() => setEntryMode("catalog")} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold ${entryMode === "catalog" ? "bg-background shadow-sm" : "text-muted-foreground"}`}><Boxes className="h-4 w-4" />Productos del inventario</button>
+                <button type="button" onClick={() => setEntryMode("free")} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-semibold ${entryMode === "free" ? "bg-background shadow-sm" : "text-muted-foreground"}`}><PencilLine className="h-4 w-4" />Venta libre</button>
+              </div>
+            </div>
+            <div className="mb-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.04] p-3 text-sm text-muted-foreground">
+              Puedes combinar productos existentes con ítems libres. Los ítems libres llevan una descripción y un valor, y no descuentan inventario.
+            </div>
+            {entryMode === "free" ? (
+              <div className="rounded-2xl border bg-background p-4 sm:p-5">
+                <div className="mb-5 flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600"><PlusCircle className="h-5 w-5" /></div><div><h3 className="font-semibold">Agregar ítem de venta libre</h3><p className="text-sm text-muted-foreground">Úsalo para servicios, accesorios u otros conceptos que no estén en inventario.</p></div></div>
+                <div className="grid gap-3 sm:grid-cols-[1fr_180px_120px]">
+                  <div><label className="mb-1.5 block text-xs font-semibold text-muted-foreground">¿Qué estás vendiendo?</label><Input value={freeDescription} onChange={(e) => setFreeDescription(e.target.value)} placeholder="Ej. Instalación de protector" className="h-12 rounded-xl" /></div>
+                  <div><label className="mb-1.5 block text-xs font-semibold text-muted-foreground">Valor</label><Input type="number" min="1" value={freePrice} onChange={(e) => setFreePrice(e.target.value)} placeholder="$ 0" className="h-12 rounded-xl" /></div>
+                  <div><label className="mb-1.5 block text-xs font-semibold text-muted-foreground">Cantidad</label><Input type="number" min="1" step="1" value={freeQuantity} onChange={(e) => setFreeQuantity(e.target.value)} className="h-12 rounded-xl" /></div>
+                </div>
+                <div className="mt-4 flex justify-end"><Button type="button" onClick={addFreeItem} disabled={!freeDescription.trim() || Number(freePrice) <= 0 || !availableProducts.length} className="h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700"><Plus className="mr-2 h-4 w-4" />Agregar a la venta</Button></div>
+                {!availableProducts.length && <p className="mt-3 text-xs text-rose-600">Necesitas tener al menos un producto creado para registrar una venta libre.</p>}
+              </div>
+            ) : (
+            <>
             <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -267,6 +316,7 @@ export default function SalesPage() {
                 ))}
               </div>
             )}
+            </>
           </section>
         )}
 
