@@ -531,16 +531,16 @@ export default function Navbar({ children }: NavbarProps) {
   // If children provided, wrap with full layout structure
   if (children) {
     return (
-      <div className="flex h-screen overflow-hidden relative min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.15),transparent_55%),radial-gradient(circle_at_bottom,_rgba(236,72,153,0.12),transparent_65%)] dark:bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.15),transparent_55%),radial-gradient(circle_at_bottom,_rgba(236,72,153,0.12),transparent_65%)]">
+      <div className="min-h-dvh overflow-visible relative md:flex md:h-screen md:min-h-screen md:overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.15),transparent_55%),radial-gradient(circle_at_bottom,_rgba(236,72,153,0.12),transparent_65%)] dark:bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.15),transparent_55%),radial-gradient(circle_at_bottom,_rgba(236,72,153,0.12),transparent_65%)]">
         <ScrollControl />
         {/* Background overlay layer */}
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.3),transparent_60%)] dark:bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.05),transparent_60%)]"></div>
 
-        <div className="poppins relative z-10 flex h-screen w-full overflow-hidden flex-col">
+        <div className="poppins relative z-10 flex min-h-dvh w-full flex-col overflow-visible md:h-screen md:min-h-0 md:overflow-hidden">
           {navbarContent}
           <main
             id="main-content"
-            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden flex flex-col"
+            className="min-h-0 flex-1 overflow-visible flex flex-col md:overflow-y-auto md:overflow-x-hidden"
             tabIndex={-1}
           >
             <div className="flex-1 flex flex-col">
