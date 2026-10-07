@@ -52,6 +52,25 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   try {
     const body = await request.json().catch(() => ({}));
+    if (body.action === "open") {
+      const existing = await prisma.cashRegister.findFirst({ where: { userId: session.id, status: "open" } });
+      if (existing) return NextResponse.json({ error: "Ya hay una caja abierta." }, { status: 409 });
+      const openingAmount = Number(body.amount);
+      if (!Number.isFinite(openingAmount) || openingAmount < 0) return NextResponse.json({ error: "El efectivo inicial no es válido." }, { status: 400 });
+      const register = await prisma.cashRegister.create({ data: { userId: session.id, openedBy: session.id, openingAmount, status: "open" } });
+      return NextResponse.json(register, { status: 201 });
+    }
+    if (body.action === "close") {
+      const closingAmount = Number(body.closingAmount);
+      if (!validId(body.id) || !Number.isFinite(closingAmount) || closingAmount < 0) return NextResponse.json({ error: "Datos de cierre inválidos." }, { status: 400 });
+      const register = await prisma.cashRegister.findFirst({ where: { id: body.id, userId: session.id, status: "open" } });
+      if (!register) return NextResponse.json({ error: "Caja abierta no encontrada." }, { status: 404 });
+      const movements = await prisma.cashMovement.findMany({ where: { userId: session.id, status: "active", createdAt: { gte: register.openedAt }, paymentMethod: "cash" } });
+      const expectedCash = Number(register.openingAmount) + movements.filter(m => m.type === "income").reduce((s,m) => s + Number(m.amount),0) - movements.filter(m => m.type === "expense").reduce((s,m) => s + Number(m.amount),0);
+      const difference = closingAmount - expectedCash;
+      const closed = await prisma.cashRegister.update({ where: { id: register.id }, data: { status: "closed", closedAt: new Date(), closedBy: session.id, closingAmount, expectedCash, difference } });
+      return NextResponse.json(closed);
+    }
     if (!TYPES.includes(body.type) || !METHODS.includes(body.paymentMethod)) return NextResponse.json({ error: "Tipo o método de pago inválido" }, { status: 400 });
     const amount = Number(body.amount); if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: "El valor debe ser mayor que cero" }, { status: 400 });
     const orderId = typeof body.orderId === "string" && body.orderId.trim() ? body.orderId.trim() : null; if (orderId && !validId(orderId)) return NextResponse.json({ error: "ID de venta inválido" }, { status: 400 });
