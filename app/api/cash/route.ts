@@ -99,4 +99,11 @@ export async function DELETE(request: NextRequest) {
     await writeAuditLog({ userId: session.id, action: "CASH_MOVEMENT_VOIDED", entityType: "CashMovement", entityId: id, details: { type: result.type, source: result.source, amount: result.amount, paymentMethod: result.paymentMethod, orderId: result.orderId ?? null, reason: result.voidReason }, userAgent: request.headers.get("user-agent"), ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0] ?? request.headers.get("x-real-ip") });
     return NextResponse.json({ ok: true, message: "Movimiento anulado correctamente" });
   } catch (error) { const status = typeof error === "object" && error !== null && "status" in error ? Number((error as any).status) : 500; return NextResponse.json({ error: error instanceof Error ? error.message : "No se pudo anular el movimiento" }, { status }); }
-}
+}const register = await prisma.cashRegister.findFirst({ where: { userId: session.id, status: "open" }, select: { id: true, openingAmount: true, openedAt: true } });
+    let registerView: { id: string; openingAmount: number; expectedCash: number } | null = null;
+    if (register) {
+      const cashMovements = await prisma.cashMovement.findMany({ where: { userId: session.id, status: "active", createdAt: { gte: register.openedAt }, paymentMethod: "cash" }, select: { type: true, amount: true } });
+      const expectedCash = Number(register.openingAmount) + cashMovements.filter(m => m.type === "income").reduce((s,m) => s + Number(m.amount),0) - cashMovements.filter(m => m.type === "expense").reduce((s,m) => s + Number(m.amount),0);
+      registerView = { id: register.id, openingAmount: Number(register.openingAmount), expectedCash };
+    }
+    
