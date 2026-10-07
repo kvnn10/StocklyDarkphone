@@ -32,18 +32,57 @@ const poppins = Poppins({ subsets: ["latin"], variable: "--font-poppins", weight
 
 export const dynamic = "force-dynamic";
 
+const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://stockly-darkphone.vercel.app";
+
 export const metadata = {
-  title: { default: "Stockly — Warehouse & Stock Inventory Management System", template: "%s | Stockly — Warehouse & Stock Inventory Management System" },
-  description: "Stockly is a full-stack warehouse and stock inventory management system built with Next.js. Manage products, categories, suppliers, orders, invoices, and warehouses. Role-based access for admin, client, and supplier. Analytics dashboard, QR codes, export, and secure JWT authentication. By Arnob Mahmud.",
-  authors: [{ name: "Arnob Mahmud", url: "https://www.arnobmahmud.com", email: "contact@arnobmahmud.com" }],
-  creator: "Arnob Mahmud",
-  publisher: "Arnob Mahmud",
+  title: {
+    default: "Stockly — DarkPhone",
+    template: "%s | Stockly — DarkPhone",
+  },
+  description: "Gestión de inventario y operaciones de DarkPhone.",
+  authors: [{ name: "DarkPhone" }],
+  creator: "DarkPhone",
+  publisher: "DarkPhone",
   applicationName: "Stockly",
-  keywords: ["stock inventory", "inventory management", "warehouse management", "stock management system", "Next.js", "React", "Prisma", "product catalog", "orders", "invoices", "suppliers", "categories", "JWT authentication", "responsive web app", "business dashboard", "Arnob Mahmud"],
-  icons: { icon: "/favicon.ico", apple: "/favicon.ico", other: [{ rel: "icon", url: "/favicon.ico" }] },
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://stockly-inventory.vercel.app"),
-  openGraph: { type: "website", locale: "es_CO", title: "Stockly — DarkPhone", description: "Gestión de inventario y operaciones de DarkPhone.", url: "https://stockly-inventory.vercel.app", siteName: "Stockly", images: [{ url: "/favicon.ico", width: 32, height: 32, alt: "Stockly — Stock Inventory Management" }] },
-  twitter: { card: "summary_large_image", title: "Stockly — Warehouse & Stock Inventory Management System", description: "Efficiently manage products, orders, invoices, and warehouses. Secure, responsive inventory system. By Arnob Mahmud.", images: ["/favicon.ico"] },
+  keywords: [
+    "DarkPhone",
+    "Stockly",
+    "inventario",
+    "gestión de inventario",
+    "productos",
+    "proveedores",
+    "ventas",
+    "operaciones",
+    "Barranquilla",
+  ],
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+    other: [{ rel: "icon", url: "/icon.svg" }],
+  },
+  metadataBase: new URL(appUrl),
+  openGraph: {
+    type: "website",
+    locale: "es_CO",
+    title: "Stockly — DarkPhone",
+    description: "Gestión de inventario y operaciones de DarkPhone.",
+    url: appUrl,
+    siteName: "Stockly — DarkPhone",
+    images: [
+      {
+        url: "/icon.svg",
+        width: 512,
+        height: 512,
+        alt: "Stockly — DarkPhone",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Stockly — DarkPhone",
+    description: "Gestión de inventario y operaciones de DarkPhone.",
+    images: ["/icon.svg"],
+  },
   robots: { index: true, follow: true },
 };
 
