@@ -394,6 +394,23 @@ model AuditLog {
   @@index([createdAt])
 }
 
+model CashRegister {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  openedBy String @db.ObjectId
+  openedAt DateTime @default(now()) @db.Date
+  openingAmount Float @default(0)
+  closedAt DateTime? @db.Date
+  closedBy String? @db.ObjectId
+  closingAmount Float?
+  expectedCash Float?
+  difference Float?
+  status String @default("open")
+  notes String?
+  @@index([userId, status, openedAt])
+  @@index([userId, openedAt])
+}
+
 model CashMovement {
   id String @id @default(auto()) @map("_id") @db.ObjectId
   type String
