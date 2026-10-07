@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     const expense = active.filter(m => m.type === "expense").reduce((s,m) => s + Number(m.amount || 0), 0);
     const bySource: Record<string, number> = {};
     active.filter(m => m.type === "income").forEach(m => { bySource[m.source] = (bySource[m.source] || 0) + Number(m.amount || 0); });
-    return NextResponse.json({ movements: normalized, summary: { income, expense, refunds: active.filter(m => m.source === "refund").reduce((s,m) => s + Number(m.amount || 0), 0), balance: income - expense, bySource }, filters: { from: from?.toISOString() ?? null, to: to?.toISOString() ?? null, type, method, source } });
+    return NextResponse.json({ register: registerView, movements: normalized, summary: { income, expense, refunds: active.filter(m => m.source === "refund").reduce((s,m) => s + Number(m.amount || 0), 0), balance: income - expense, bySource }, filters: { from: from?.toISOString() ?? null, to: to?.toISOString() ?? null, type, method, source } });
   } catch (error) { console.error("GET /api/cash", error); return NextResponse.json({ error: "No se pudieron obtener los movimientos" }, { status: 500 }); }
 }
 
