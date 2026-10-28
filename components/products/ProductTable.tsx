@@ -22,7 +22,7 @@ interface DataTableProps<TData, TValue> {
   data: TData[]; columns: ColumnDef<TData, TValue>[]; userId: string; isLoading: boolean;
   searchTerm: string; pagination: PaginationType;
   setPagination: (updater: PaginationType | ((old: PaginationType) => PaginationType)) => void;
-  selectedCategory: string[]; selectedStatuses: string[]; selectedSuppliers: string[];
+  selectedCategory: string[]; selectedStatuses: string[]; selectedSuppliers: string[]; selectedModel: string; selectedColor: string;
 }
 
 function returnColor(status: string) {
@@ -34,7 +34,7 @@ function returnIcon(status: string) {
 
 export const ProductTable = React.memo(function ProductTable({
   data, columns, userId, isLoading, searchTerm, pagination, setPagination,
-  selectedCategory, selectedStatuses, selectedSuppliers,
+  selectedCategory, selectedStatuses, selectedSuppliers, selectedModel, selectedColor,
 }: DataTableProps<Product, unknown>) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [warehouseFilter, setWarehouseFilter] = useState("");
@@ -55,18 +55,22 @@ export const ProductTable = React.memo(function ProductTable({
   }, []);
 
   const filteredData = useMemo(() => data.filter((product) => {
-    const normalizeSearch = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLocaleLowerCase("es").trim();
-    const searchable = normalizeSearch([product.name, product.sku, product.category, typeof product.supplier === "string" ? product.supplier : product.supplier?.name, product.deviceTracking?.color].filter(Boolean).join(" "));
-    const tokens = normalizeSearch(searchTerm).split(/\\s+/).filter(Boolean);
+    const normalizeSearch = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es").trim();
+    const getModel = () => { const explicit = (product as Product & { model?: string }).model; if (explicit?.trim()) return explicit.trim(); return product.name.match(/iphone\s+(.+?)(?:\s+-\s+[^-]+)?$/i)?.[1]?.trim() ?? ""; };
+    const getColor = () => product.deviceTracking?.color?.trim() || product.name.match(/\s+-\s+([^-]+)$/)?.[1]?.trim() || "";
+    const searchable = normalizeSearch([product.name, product.sku, product.category, typeof product.supplier === "string" ? product.supplier : product.supplier?.name, getModel(), getColor()].filter(Boolean).join(" "));
+    const tokens = normalizeSearch(searchTerm).split(/\s+/).filter(Boolean);
     const searchMatch = tokens.every((token) => searchable.includes(token));
+    const modelMatch = !selectedModel || normalizeSearch(getModel()) === normalizeSearch(selectedModel);
+    const colorMatch = !selectedColor || normalizeSearch(getColor()) === normalizeSearch(selectedColor);
     const categoryMatch = selectedCategory.length === 0 || selectedCategory.includes(product.categoryId ?? "");
     const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(product.supplierId ?? "");
     const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(product.status ?? "");
     const productStockMatch = allocations.some((a) => a.productId === product.id && a.warehouseId === warehouseFilter && Number(a.quantity ?? 0) > 0);
     const variantStockMatch = variants.some((variant) => variant.productId === product.id && variant.stocks.some((stock) => stock.warehouseId === warehouseFilter && Number(stock.quantity ?? 0) > 0));
     const warehouseMatch = !warehouseFilter || productStockMatch || variantStockMatch;
-    return searchMatch && categoryMatch && supplierMatch && statusMatch && warehouseMatch;
-  }), [data, searchTerm, selectedCategory, selectedSuppliers, selectedStatuses, warehouseFilter, allocations, variants]);
+    return searchMatch && categoryMatch && supplierMatch && statusMatch && warehouseMatch && modelMatch && colorMatch;
+  }), [data, searchTerm, selectedCategory, selectedSuppliers, selectedStatuses, warehouseFilter, allocations, variants, selectedModel, selectedColor]);
 
   useClampPaginationIndex(filteredData.length, pagination, setPagination);
 

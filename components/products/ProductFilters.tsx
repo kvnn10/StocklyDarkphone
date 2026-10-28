@@ -38,6 +38,10 @@ import {
   FILTER_COMMAND_INPUT_WRAPPER_CLASS,
 } from "@/lib/ui/popover-readability-styles";
 
+const normalizeProductText = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es").trim();
+const getProductModel = (product: Product) => { const explicit = (product as Product & { model?: string }).model; if (explicit?.trim()) return explicit.trim(); return product.name.match(/iphone\s+(.+?)(?:\s+-\s+[^-]+)?$/i)?.[1]?.trim() ?? ""; };
+const getProductColor = (product: Product) => product.deviceTracking?.color?.trim() || product.name.match(/\s+-\s+([^-]+)$/)?.[1]?.trim() || "";
+
 type FiltersAndActionsProps = {
   allProducts: Product[];
   allCategories: Category[];
@@ -57,6 +61,10 @@ type FiltersAndActionsProps = {
   setSelectedStatuses: React.Dispatch<React.SetStateAction<string[]>>;
   selectedSuppliers: string[];
   setSelectedSuppliers: React.Dispatch<React.SetStateAction<string[]>>;
+  selectedModel: string;
+  setSelectedModel: React.Dispatch<React.SetStateAction<string>>;
+  selectedColor: string;
+  setSelectedColor: React.Dispatch<React.SetStateAction<string>>;
   selectedWarehouse?: string;
   setSelectedWarehouse?: React.Dispatch<React.SetStateAction<string>>;
   searchTerm: string;
@@ -70,7 +78,7 @@ export default function FiltersAndActions({
   allProducts, allCategories, allSuppliers, allWarehouses: warehouseProp = [], stockAllocations: allocationProp = [],
   categoriesOverride, suppliersOverride, hideImport = false, productOwnerOptions, storeOwnerCounts,
   selectedOwnerId = "", onOwnerChange, selectedCategory, setSelectedCategory, selectedStatuses,
-  setSelectedStatuses, selectedSuppliers, setSelectedSuppliers, searchTerm, setSearchTerm, pagination, setPagination, userId,
+  setSelectedStatuses, selectedSuppliers, setSelectedSuppliers, selectedModel, setSelectedModel, selectedColor, setSelectedColor, searchTerm, setSearchTerm, pagination, setPagination, userId,
 }: FiltersAndActionsProps) {
   const { toast } = useToast();
   const warehousesQuery = useWarehouses();
@@ -98,19 +106,20 @@ export default function FiltersAndActions({
     setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [setPagination]);
 
-  const normalizeSearch = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLocaleLowerCase("es").trim();
   const filteredProducts = useMemo(() => allProducts.filter((product) => {
-    const searchable = normalizeSearch([product.name, product.sku, product.category, typeof product.supplier === "string" ? product.supplier : product.supplier?.name, product.deviceTracking?.color].filter(Boolean).join(" "));
-    const tokens = normalizeSearch(searchTerm).split(/\\s+/).filter(Boolean);
+    const searchable = normalizeProductText([product.name, product.sku, product.category, typeof product.supplier === "string" ? product.supplier : product.supplier?.name, getProductModel(product), getProductColor(product)].filter(Boolean).join(" "));
+    const tokens = normalizeProductText(searchTerm).split(/\s+/).filter(Boolean);
     const searchMatch = tokens.every((token) => searchable.includes(token));
+    const modelMatch = !selectedModel || normalizeProductText(getProductModel(product)) === normalizeProductText(selectedModel);
+    const colorMatch = !selectedColor || normalizeProductText(getProductColor(product)) === normalizeProductText(selectedColor);
     const categoryMatch = selectedCategory.length === 0 || selectedCategory.includes(product.categoryId ?? "");
     const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(product.supplierId ?? "");
     const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(product.status ?? "");
     const productStockMatch = stockAllocations.some((a) => a.productId === product.id && a.warehouseId === selectedWarehouse && Number(a.quantity ?? 0) > 0);
     const variantStockMatch = variants.some((variant) => variant.productId === product.id && variant.stocks.some((stock) => stock.warehouseId === selectedWarehouse && Number(stock.quantity ?? 0) > 0));
     const warehouseMatch = !selectedWarehouse || productStockMatch || variantStockMatch;
-    return searchMatch && categoryMatch && supplierMatch && statusMatch && warehouseMatch;
-  }), [allProducts, searchTerm, selectedCategory, selectedSuppliers, selectedStatuses, selectedWarehouse, stockAllocations, variants]);
+    return searchMatch && categoryMatch && supplierMatch && statusMatch && warehouseMatch && modelMatch && colorMatch;
+  }), [allProducts, searchTerm, selectedCategory, selectedSuppliers, selectedStatuses, selectedWarehouse, stockAllocations, variants, selectedModel, selectedColor]);
 
   const exportToCSV = useCallback(() => {
     try {
@@ -135,7 +144,7 @@ export default function FiltersAndActions({
     } catch { toast({ title: "Export Failed", description: "Failed to export products to Excel. Please try again.", variant: "destructive" }); }
   }, [filteredProducts, toast]);
 
-  const handleResetFilters = useCallback(() => { setSelectedStatuses([]); setSelectedCategory([]); setSelectedSuppliers([]); updateWarehouse(""); setPagination((prev) => ({ ...prev, pageIndex: 0 })); }, [setSelectedStatuses, setSelectedCategory, setSelectedSuppliers, updateWarehouse, setPagination]);
+  const handleResetFilters = useCallback(() => { setSelectedStatuses([]); setSelectedCategory([]); setSelectedSuppliers([]); setSelectedModel(""); setSelectedColor(""); updateWarehouse(""); setPagination((prev) => ({ ...prev, pageIndex: 0 })); }, [setSelectedStatuses, setSelectedCategory, setSelectedSuppliers, setSelectedModel, setSelectedColor, updateWarehouse, setPagination]);
 
   const filterChipGroups = useMemo((): FilterChipGroup[] => {
     const categoryNameById = new Map(allCategories.map((c) => [c.id, c.name]));
@@ -145,10 +154,14 @@ export default function FiltersAndActions({
       { label: "Status", values: selectedStatuses, onClear: () => setSelectedStatuses([]), renderBadge: (value) => <ProductStockStatusBadge status={value} size="compact" /> },
       { label: "Category", values: selectedCategory, onClear: () => setSelectedCategory([]), renderBadge: (value) => <span className={FILTER_CHIP_COLLAPSED_CLASS}>{categoryNameById.get(value) ?? value}</span> },
       { label: "Supplier", values: selectedSuppliers, onClear: () => setSelectedSuppliers([]), renderBadge: (value) => <span className={FILTER_CHIP_COLLAPSED_CLASS}>{supplierNameById.get(value) ?? value}</span> },
+      { label: "Modelo", values: selectedModel ? [selectedModel] : [], onClear: () => setSelectedModel(""), renderBadge: (value) => <span className={FILTER_CHIP_COLLAPSED_CLASS}>{value}</span> },
+      { label: "Color", values: selectedColor ? [selectedColor] : [], onClear: () => setSelectedColor(""), renderBadge: (value) => <span className={FILTER_CHIP_COLLAPSED_CLASS}>{value}</span> },
       { label: "Bodega", values: selectedWarehouse ? [selectedWarehouse] : [], onClear: () => updateWarehouse(""), renderBadge: (value) => <span className={FILTER_CHIP_COLLAPSED_CLASS}>{warehouseNameById.get(value) ?? value}</span> },
     ];
-  }, [allCategories, allSuppliers, allWarehouses, selectedStatuses, selectedCategory, selectedSuppliers, selectedWarehouse, setSelectedStatuses, setSelectedCategory, setSelectedSuppliers, updateWarehouse]);
+  }, [allCategories, allSuppliers, allWarehouses, selectedStatuses, selectedCategory, selectedSuppliers, selectedWarehouse, selectedModel, selectedColor, setSelectedStatuses, setSelectedCategory, setSelectedSuppliers, setSelectedModel, setSelectedColor, updateWarehouse]);
 
+  const modelOptions = useMemo(() => Array.from(new Set(allProducts.map(getProductModel).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es", { numeric: true, sensitivity: "base" })), [allProducts]);
+  const colorOptions = useMemo(() => Array.from(new Set(allProducts.map(getProductColor).filter(Boolean))).sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" })), [allProducts]);
   const exportButtonClass = "h-10 w-full sm:w-auto flex items-center gap-2 rounded-[28px] border border-violet-400/30 dark:border-violet-400/30 bg-gradient-to-r from-violet-500/25 via-violet-500/15 to-violet-500/10 text-gray-700 dark:text-white shadow-[0_10px_30px_rgba(139,92,246,0.2)] backdrop-blur-md transition duration-200";
 
   return <div className="flex flex-col gap-2">
@@ -214,6 +227,10 @@ export default function FiltersAndActions({
             </PopoverContent>
           </Popover>
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 order-2 sm:order-2">
+        <select aria-label="Filtrar por modelo" value={selectedModel} onChange={(e) => { setSelectedModel(e.target.value); setPagination((prev) => ({ ...prev, pageIndex: 0 })); }} className="h-10 min-w-[145px] rounded-[24px] border border-sky-400/30 bg-background/70 px-3 text-sm text-foreground"><option value="">Todos los modelos</option>{modelOptions.map((model) => <option key={model} value={model}>{model}</option>)}</select>
+        <select aria-label="Filtrar por color" value={selectedColor} onChange={(e) => { setSelectedColor(e.target.value); setPagination((prev) => ({ ...prev, pageIndex: 0 })); }} className="h-10 min-w-[130px] rounded-[24px] border border-sky-400/30 bg-background/70 px-3 text-sm text-foreground"><option value="">Todos los colores</option>{colorOptions.map((color) => <option key={color} value={color}>{color}</option>)}</select>
       </div>
       <div className="relative flex-1 min-w-[120px] sm:min-w-[200px] sm:max-w-md w-full order-1 sm:order-2 sm:flex sm:justify-center"><div className="relative w-full sm:max-w-md"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600 dark:text-white/80 z-10" /><Input placeholder="Buscar por nombre, SKU, modelo, color o categoría..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className={FILTER_SEARCH_INPUT_SKY_CLASS} />{searchTerm && <Button variant="ghost" size="sm" onClick={() => setSearchTerm("")} className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 text-white/60 hover:text-white hover:bg-white/10 backdrop-blur-md"><IoClose className="h-4 w-4 text-gray-700 dark:text-white/80" /></Button>}</div></div>
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-shrink-0 order-3 w-full sm:w-auto sm:flex-wrap"><StatusDropDown selectedStatuses={selectedStatuses} setSelectedStatuses={setSelectedStatuses} />{!hideImport && <ProductImportDialog />}<ExportMenuButton label="Export Products" accent="violet" onExportCsv={exportToCSV} onExportExcel={exportToExcel} className="w-full sm:w-auto" /></div>

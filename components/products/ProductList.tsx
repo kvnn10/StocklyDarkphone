@@ -67,6 +67,8 @@ const ProductList = React.memo(function ProductList({ initialProducts, initialSt
   const [selectedCategory, setSelectedCategory] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedColor, setSelectedColor] = useState("");
 
   const formatCurrency = (value: number) => `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const nonCancelledSupplierOrders = Math.max(0, (supplierPortal?.totalOrders ?? 0) - (supplierPortal?.orderStatusCounts?.cancelled ?? 0));
@@ -164,8 +166,8 @@ const ProductList = React.memo(function ProductList({ initialProducts, initialSt
       <StatisticsCard title="Categories" value={productsPageStats?.counts.categories ?? 0} description="Product categories" icon={FolderTree} variant="amber" valueLoading={dashboardCardsLoading} badgeValuesLoading={dashboardCardsLoading} badges={[{ label: "Active", value: productsPageStats?.categoryStatusBreakdown?.active ?? 0 }, { label: "Inactive", value: productsPageStats?.categoryStatusBreakdown?.inactive ?? 0 }]} />
     </div>}
 
-    <div className="pb-6 flex justify-center"><div className={APP_SHELL_WIDTH_CLASS}><ProductFilters searchTerm={searchTerm} setSearchTerm={setSearchTerm} pagination={pagination} setPagination={setPagination} allProducts={allProducts} allCategories={allCategories} allSuppliers={allSuppliers} selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedStatuses={selectedStatuses} setSelectedStatuses={setSelectedStatuses} selectedSuppliers={selectedSuppliers} setSelectedSuppliers={setSelectedSuppliers} userId={user?.id || ""} hideImport={isSupplierProductsPage} /></div></div>
-    <ProductTable data={allProducts || []} columns={columns} userId={user?.id || ""} isLoading={tableDataLoading} searchTerm={searchTerm} pagination={pagination} setPagination={setPagination} selectedCategory={selectedCategory} selectedStatuses={selectedStatuses} selectedSuppliers={selectedSuppliers} />
+    <div className="pb-6 flex justify-center"><div className={APP_SHELL_WIDTH_CLASS}><ProductFilters searchTerm={searchTerm} setSearchTerm={setSearchTerm} pagination={pagination} setPagination={setPagination} allProducts={allProducts} allCategories={allCategories} allSuppliers={allSuppliers} selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedStatuses={selectedStatuses} setSelectedStatuses={setSelectedStatuses} selectedSuppliers={selectedSuppliers} setSelectedSuppliers={setSelectedSuppliers} selectedModel={selectedModel} setSelectedModel={setSelectedModel} selectedColor={selectedColor} setSelectedColor={setSelectedColor} userId={user?.id || ""} hideImport={isSupplierProductsPage} /></div></div>
+    <ProductTable data={allProducts || []} columns={columns} userId={user?.id || ""} isLoading={tableDataLoading} searchTerm={searchTerm} pagination={pagination} setPagination={setPagination} selectedCategory={selectedCategory} selectedStatuses={selectedStatuses} selectedSuppliers={selectedSuppliers} selectedModel={selectedModel} selectedColor={selectedColor} />
   </div>;
 });
 
