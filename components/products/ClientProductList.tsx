@@ -76,6 +76,8 @@ export default function ClientProductList({
   const [selectedCategory, setSelectedCategory] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedColor, setSelectedColor] = useState("");
 
   const metaQuery = useClientBrowseMeta(initialBrowseMeta);
   const productsQuery = useClientBrowseProducts(
