@@ -55,7 +55,10 @@ export const ProductTable = React.memo(function ProductTable({
   }, []);
 
   const filteredData = useMemo(() => data.filter((product) => {
-    const searchMatch = !searchTerm || product.name.toLowerCase().includes(searchTerm.toLowerCase()) || product.sku.toLowerCase().includes(searchTerm.toLowerCase());
+    const normalizeSearch = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLocaleLowerCase("es").trim();
+    const searchable = normalizeSearch([product.name, product.sku, product.category, typeof product.supplier === "string" ? product.supplier : product.supplier?.name, product.deviceTracking?.color].filter(Boolean).join(" "));
+    const tokens = normalizeSearch(searchTerm).split(/\\s+/).filter(Boolean);
+    const searchMatch = tokens.every((token) => searchable.includes(token));
     const categoryMatch = selectedCategory.length === 0 || selectedCategory.includes(product.categoryId ?? "");
     const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(product.supplierId ?? "");
     const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(product.status ?? "");

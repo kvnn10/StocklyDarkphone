@@ -98,8 +98,11 @@ export default function FiltersAndActions({
     setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }, [setPagination]);
 
+  const normalizeSearch = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLocaleLowerCase("es").trim();
   const filteredProducts = useMemo(() => allProducts.filter((product) => {
-    const searchMatch = !searchTerm || product.name.toLowerCase().includes(searchTerm.toLowerCase()) || product.sku.toLowerCase().includes(searchTerm.toLowerCase());
+    const searchable = normalizeSearch([product.name, product.sku, product.category, typeof product.supplier === "string" ? product.supplier : product.supplier?.name, product.deviceTracking?.color].filter(Boolean).join(" "));
+    const tokens = normalizeSearch(searchTerm).split(/\\s+/).filter(Boolean);
+    const searchMatch = tokens.every((token) => searchable.includes(token));
     const categoryMatch = selectedCategory.length === 0 || selectedCategory.includes(product.categoryId ?? "");
     const supplierMatch = selectedSuppliers.length === 0 || selectedSuppliers.includes(product.supplierId ?? "");
     const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(product.status ?? "");
@@ -212,7 +215,7 @@ export default function FiltersAndActions({
           </Popover>
         </div>
       </div>
-      <div className="relative flex-1 min-w-[120px] sm:min-w-[200px] sm:max-w-md w-full order-1 sm:order-2 sm:flex sm:justify-center"><div className="relative w-full sm:max-w-md"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600 dark:text-white/80 z-10" /><Input placeholder="Search by Name or SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className={FILTER_SEARCH_INPUT_SKY_CLASS} />{searchTerm && <Button variant="ghost" size="sm" onClick={() => setSearchTerm("")} className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 text-white/60 hover:text-white hover:bg-white/10 backdrop-blur-md"><IoClose className="h-4 w-4 text-gray-700 dark:text-white/80" /></Button>}</div></div>
+      <div className="relative flex-1 min-w-[120px] sm:min-w-[200px] sm:max-w-md w-full order-1 sm:order-2 sm:flex sm:justify-center"><div className="relative w-full sm:max-w-md"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-600 dark:text-white/80 z-10" /><Input placeholder="Buscar por nombre, SKU, modelo, color o categoría..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className={FILTER_SEARCH_INPUT_SKY_CLASS} />{searchTerm && <Button variant="ghost" size="sm" onClick={() => setSearchTerm("")} className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 text-white/60 hover:text-white hover:bg-white/10 backdrop-blur-md"><IoClose className="h-4 w-4 text-gray-700 dark:text-white/80" /></Button>}</div></div>
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-shrink-0 order-3 w-full sm:w-auto sm:flex-wrap"><StatusDropDown selectedStatuses={selectedStatuses} setSelectedStatuses={setSelectedStatuses} />{!hideImport && <ProductImportDialog />}<ExportMenuButton label="Export Products" accent="violet" onExportCsv={exportToCSV} onExportExcel={exportToExcel} className="w-full sm:w-auto" /></div>
     </div>
     <DismissibleFilterChips groups={filterChipGroups} onReset={handleResetFilters} />
